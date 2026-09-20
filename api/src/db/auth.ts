@@ -173,3 +173,52 @@ export async function provisionTenantForExistingUser(
     return row;
   });
 }
+
+// ---------------------------------------------------------------------------
+// Entries 8 and 9 — session resolution and refresh rotation.
+//
+// Both run before any context exists, which is exactly why they are on the
+// list: an expired access token cannot tell you whose session to set.
+// ---------------------------------------------------------------------------
+
+export interface ResolvedSessionRow {
+  session_id: string;
+  user_id: string;
+  user_status: string;
+  session_type: 'user' | 'impersonation';
+  acting_admin_user_id: string | null;
+  selected_tenant_id: string | null;
+  /** NULL when no tenant is selected, or when the tenant is gone. */
+  tenant_status: TenantStatus | null;
+  /** NULL when no tenant is selected, or when the membership is gone. */
+  membership_status: MembershipStatus | null;
+}
+
+export async function resolveSessionToken(
+  tokenHash: string,
+): Promise<ResolvedSessionRow | null> {
+  const { rows } = await sql<ResolvedSessionRow>`
+    SELECT session_id, user_id, user_status, session_type, acting_admin_user_id,
+           selected_tenant_id, tenant_status, membership_status
+      FROM auth.resolve_session_token(${tokenHash})
+  `.execute(db);
+  return rows[0] ?? null;
+}
+
+export interface ConsumedRefreshToken {
+  session_id: string;
+  user_id: string;
+  selected_tenant_id: string | null;
+  /** The presented token had already been exchanged. Its session is now dead. */
+  reuse_detected: boolean;
+}
+
+export async function consumeRefreshToken(
+  tokenHash: string,
+): Promise<ConsumedRefreshToken | null> {
+  const { rows } = await sql<ConsumedRefreshToken>`
+    SELECT session_id, user_id, selected_tenant_id, reuse_detected
+      FROM auth.consume_refresh_token(${tokenHash})
+  `.execute(db);
+  return rows[0] ?? null;
+}

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { MembershipSummaryResponse } from '@flightsquare/shared';
+import type { MeResponse, MembershipSummaryResponse } from '@flightsquare/shared';
 
 import { listMembershipsForUser } from '../../db/auth.js';
 import { UnauthorizedError } from '../errors.js';
@@ -30,7 +30,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     // session at all rather than reporting on whose account it was.
     if (!user) throw new UnauthorizedError();
 
-    return { id: user.id, email: user.email, mfa_enabled: user.mfa_enabled };
+    return { id: user.id, email: user.email, mfa_enabled: user.mfa_enabled } satisfies MeResponse;
   });
 
   /**

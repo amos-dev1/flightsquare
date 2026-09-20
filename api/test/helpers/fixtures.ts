@@ -54,14 +54,24 @@ export async function cleanupTestTenants(): Promise<void> {
     max: 1,
   });
   try {
-    await adminPool.query(
-      `DELETE FROM memberships WHERE tenant_id IN
-         (SELECT id FROM tenants WHERE slug LIKE $1)`,
-      [`${TEST_PREFIX}%`],
-    );
-    await adminPool.query(
-      `DELETE FROM users WHERE email LIKE '%@vitest.test'`,
-    );
+    // Foreign keys, in order. sessions → users and audit_log → tenants both
+    // point inward, so the leaves go first; refresh_tokens follows its
+    // session by ON DELETE CASCADE.
+    const tenants = `SELECT id FROM tenants WHERE slug LIKE $1`;
+    const users = `SELECT id FROM users WHERE email LIKE '%@vitest.test'`;
+
+    await adminPool.query(`DELETE FROM audit_log WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM sessions WHERE user_id IN (${users})`);
+    await adminPool.query(`DELETE FROM device_registrations WHERE user_id IN (${users})`);
+    await adminPool.query(`DELETE FROM invites WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM memberships WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM users WHERE email LIKE '%@vitest.test'`);
     await adminPool.query(`DELETE FROM tenants WHERE slug LIKE $1`, [`${TEST_PREFIX}%`]);
   } finally {
     await adminPool.end();

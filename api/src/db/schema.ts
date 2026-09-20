@@ -67,9 +67,67 @@ export interface InvitesTable {
   deleted_at: ColumnType<Date | null, never, never>;
 }
 
+export type SessionType = 'user' | 'impersonation';
+
+export interface SessionsTable {
+  id: Generated<string>;
+  user_id: string;
+  /** §10: only 'user' is written today; the discriminator ships anyway. */
+  session_type: Generated<SessionType>;
+  acting_admin_user_id: string | null;
+  /** Not `tenant_id`: a session belongs to a user and *selects* a tenant. */
+  selected_tenant_id: string | null;
+  access_token_hash: string;
+  access_expires_at: Timestamp;
+  expires_at: Timestamp;
+  revoked_at: Timestamp | null;
+  last_used_at: Timestamp | null;
+  client: string | null;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface RefreshTokensTable {
+  id: Generated<string>;
+  session_id: string;
+  token_hash: string;
+  expires_at: Timestamp;
+  /** Set when exchanged. A second presentation after this is theft. */
+  used_at: Timestamp | null;
+  revoked_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+}
+
+export interface DeviceRegistrationsTable {
+  id: Generated<string>;
+  user_id: string;
+  platform: 'ios' | 'android' | 'web';
+  push_token: string;
+  last_seen_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface AuditLogTable {
+  id: Generated<string>;
+  tenant_id: string;
+  actor_user_id: string | null;
+  acting_admin_user_id: string | null;
+  resource: string;
+  resource_id: string | null;
+  action: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  occurred_at: Generated<Timestamp>;
+}
+
 export interface Database {
   tenants: TenantsTable;
   users: UsersTable;
   memberships: MembershipsTable;
   invites: InvitesTable;
+  sessions: SessionsTable;
+  refresh_tokens: RefreshTokensTable;
+  device_registrations: DeviceRegistrationsTable;
+  audit_log: AuditLogTable;
 }

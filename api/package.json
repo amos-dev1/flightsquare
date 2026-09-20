@@ -19,6 +19,7 @@
     "vitest": "^5.0.1"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^11.2.0",
     "@flightsquare/shared": "*",
     "fastify": "^5.12.5",
     "fastify-plugin": "^6.0.0",

@@ -28,15 +28,28 @@ const signupSchema = {
   },
 } as const;
 
-export async function signupRoutes(app: FastifyInstance): Promise<void> {
+export interface SignupRouteOptions {
+  limit?: { max: number; timeWindow: string } | undefined;
+}
+
+export async function signupRoutes(
+  app: FastifyInstance,
+  options: SignupRouteOptions = {},
+): Promise<void> {
   /**
    * Creating a tenant and its first user. Runs with no tenant context — the
    * tenant does not exist yet — through the one write on the §2.1 list.
    *
-   * Not rate limited here yet; it must be before this is public (429, and
-   * §1.6 is explicit that 429 is not a quota).
+   * Rate limited: it creates a tenant and a user without any credential,
+   * which makes it the most abusable endpoint in the API.
    */
-  app.post<{ Body: SignupBody }>('/signup', { schema: signupSchema }, async (request, reply) => {
+  app.post<{ Body: SignupBody }>(
+    '/signup',
+    {
+      schema: signupSchema,
+      config: { rateLimit: options.limit ?? { max: 5, timeWindow: '1 hour' } },
+    },
+    async (request, reply) => {
     const { slug, name, email, password, archetype } = request.body;
 
     const passwordHash = await hashPassword(password);
@@ -63,5 +76,6 @@ export async function signupRoutes(app: FastifyInstance): Promise<void> {
       }
       throw error;
     }
-  });
+    },
+  );
 }

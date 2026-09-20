@@ -73,5 +73,19 @@ export const config = {
   clients: {
     minimumVersions: parseMinimumVersions(process.env.FS_MIN_CLIENT_VERSIONS),
   },
+  /**
+   * Rate limits on the unauthenticated endpoints. 429 is requests per unit
+   * time and is never a plan quota (§1.6) — nothing here touches
+   * entitlements, and nothing in entitlements reaches here.
+   *
+   * Configurable because the right number is an operational question, and
+   * because the test suite has to be able to exercise both the limit and the
+   * behaviour behind it.
+   */
+  rateLimits: {
+    signup: { max: int('FS_RATE_LIMIT_SIGNUP_MAX', 5), timeWindow: '1 hour' },
+    login: { max: int('FS_RATE_LIMIT_LOGIN_MAX', 10), timeWindow: '5 minutes' },
+    refresh: { max: int('FS_RATE_LIMIT_REFRESH_MAX', 60), timeWindow: '5 minutes' },
+  },
   logLevel: process.env.FS_LOG_LEVEL ?? 'info',
 } as const;

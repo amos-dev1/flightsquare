@@ -128,3 +128,47 @@ export interface MembershipSummaryResponse {
   tenant_status: TenantStatus;
   membership_status: MembershipStatus;
 }
+
+/**
+ * A freshly minted session.
+ *
+ * The tenant is not in here and is not in the token: it is chosen afterwards
+ * and lives on the session row, so which tenant a request acts in is always
+ * something the server resolved rather than something the client sent (§1.1).
+ */
+export interface LoginResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_at: string;
+  mfa_required: boolean;
+  /** So a client can render the picker without a second round trip. */
+  memberships: MembershipSummaryResponse[];
+}
+
+export interface RefreshResponse {
+  access_token: string;
+  refresh_token: string;
+  expires_at: string;
+}
+
+export interface SelectTenantResponse {
+  tenant_id: string;
+  tenant_name: string;
+}
+
+export interface MeResponse {
+  id: string;
+  email: string;
+  mfa_enabled: boolean;
+}
+
+export type TenantArchetype = 'solo' | 'partnership' | 'club';
+
+/** The current tenant, read under tenant context. */
+export interface TenantResponse {
+  id: string;
+  slug: string;
+  name: string;
+  archetype: TenantArchetype;
+  branding: Record<string, unknown>;
+}

@@ -21,6 +21,10 @@ describe('request context', () => {
   /** The stub the injected resolver hands back; null means "no session". */
   let stub: ResolvedSession | null = null;
 
+  // These tests are about what the middleware does with a session, not about
+  // where it came from, so the session id is a fixed placeholder.
+  const SESSION_ID = '01920000-0000-7000-8000-00000000000f';
+
   let real: FastifyInstance;
   let stubbed: FastifyInstance;
 
@@ -70,14 +74,14 @@ describe('request context', () => {
 
   describe('with a tenant-scoped session', () => {
     it('reads the tenant the session resolved to, and no other', async () => {
-      stub = { userId: alpha.user_id, tenantId: alpha.tenant_id };
+      stub = { sessionId: SESSION_ID, userId: alpha.user_id, tenantId: alpha.tenant_id };
       const first = await stubbed.inject({ method: 'GET', url: '/tenant' });
       expect(first.statusCode).toBe(200);
       expect(first.json().slug).toBe(alpha.slug);
 
       // Same route, same code, different session. The handler never names a
       // tenant; swapping the session is the only thing that changed.
-      stub = { userId: bravo.user_id, tenantId: bravo.tenant_id };
+      stub = { sessionId: SESSION_ID, userId: bravo.user_id, tenantId: bravo.tenant_id };
       const second = await stubbed.inject({ method: 'GET', url: '/tenant' });
       expect(second.statusCode).toBe(200);
       expect(second.json().slug).toBe(bravo.slug);
@@ -87,13 +91,13 @@ describe('request context', () => {
     it('cannot see a tenant it is not a member of, even named directly', async () => {
       // Alpha's session, asking the database for Bravo's row by id. The
       // policy, not the handler, is what returns nothing.
-      stub = { userId: alpha.user_id, tenantId: alpha.tenant_id };
+      stub = { sessionId: SESSION_ID, userId: alpha.user_id, tenantId: alpha.tenant_id };
       const rows = await stubbed
         .inject({ method: 'GET', url: '/tenant' })
         .then((r) => r.json());
       expect(rows.id).toBe(alpha.tenant_id);
 
-      stub = { userId: alpha.user_id, tenantId: bravo.tenant_id };
+      stub = { sessionId: SESSION_ID, userId: alpha.user_id, tenantId: bravo.tenant_id };
       // A session claiming Bravo while being Alpha's user still reads Bravo —
       // tenancy is the tenant id, not the user. This is why resolveSession is
       // the only place a session is minted, and why §1.1 forbids taking that
@@ -105,14 +109,14 @@ describe('request context', () => {
 
   describe('with a session that has not picked a tenant', () => {
     it('refuses tenant-scoped routes distinctly from 403 and 404', async () => {
-      stub = { userId: alpha.user_id };
+      stub = { sessionId: SESSION_ID, userId: alpha.user_id };
       const response = await stubbed.inject({ method: 'GET', url: '/tenant' });
       expect(response.statusCode).toBe(403);
       expect(response.json()).toEqual({ error: 'tenant_required' });
     });
 
     it('still reads its own row — §3.1 allows a user with no memberships', async () => {
-      stub = { userId: alpha.user_id };
+      stub = { sessionId: SESSION_ID, userId: alpha.user_id };
       const response = await stubbed.inject({ method: 'GET', url: '/me' });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
@@ -122,7 +126,7 @@ describe('request context', () => {
     });
 
     it('lists the tenants it could pick', async () => {
-      stub = { userId: alpha.user_id };
+      stub = { sessionId: SESSION_ID, userId: alpha.user_id };
       const response = await stubbed.inject({ method: 'GET', url: '/me/memberships' });
       expect(response.statusCode).toBe(200);
       const body = response.json();

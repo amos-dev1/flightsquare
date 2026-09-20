@@ -4,7 +4,7 @@ Multi-tenant SaaS for aircraft and flight management (FAA Part 91). See
 [CLAUDE.md](CLAUDE.md) for the architecture and domain model — it is the
 constitution, and this file only covers how to run what exists.
 
-**Status: database foundation, API scaffold, and the §9 workspace layout.**
+**Status: foundation, and authentication.**
 Three roles, three migrations, and a Fastify + Kysely service where signup
 works end to end and every tenant-scoped route fails closed until there is a
 session model. No domain tables yet. `web/`, `mobile/` and `infra/` are
@@ -71,6 +71,8 @@ db/                             not an npm workspace — SQL and psql only
     0003_session_context_and_provisioning.sql
                                 app.user_id, the context accessors, and
                                 auth.provision_tenant (§2.1 entry 7)
+    0004_sessions_and_audit.sql sessions, refresh tokens, audit log, and
+                                §2.1 entries 8 and 9
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -79,21 +81,25 @@ db/                             not an npm workspace — SQL and psql only
     040_auth_bootstrap.sql                 the lookups, and the door's width
     050_session_context_and_provisioning.sql
                                            user context and signup
+    060_sessions.sql                       sessions, rotation, audit log
 api/
   src/
-    config.ts                   env, including §8.1's minimum client versions
+    config.ts                   env, client version floors, rate limits
     password.ts                 scrypt from node:crypto, no native build step
+    tokens.ts                   session token generation and hashing
     db/
       schema.ts                 Kysely types for the four tables
       pool.ts                   pg pool, Kysely, and the boot-time role check
       context.ts                withSession / withTenant / withUser
-      auth.ts                   the seven §2.1 functions, typed
+      auth.ts                   the nine §2.1 functions, typed
+      sessions.ts               creating, rotating and revoking sessions
     http/
-      session.ts                resolveSession — the one seam
+      session.ts                resolveSession — the one place a request
+                                becomes a session
       plugins/request-context.ts  binds context to the request
       errors.ts                 the §1.6 gates: 404 / 403 / 402, and 429
       server.ts                 Fastify, error handler, version handshake
-      routes/                   health, signup, me, tenant
+      routes/                   health, signup, auth, me, tenant
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -203,13 +209,15 @@ session, impersonation deferred with the session seam kept open, and
 `deleted_at` as a control-plane marker — and the stack and layout in §9. What
 is left:
 
-- **There is no session model, so there is no login.** `api/src/http/session.ts`
-  holds `resolveSession`, the single place a request becomes a session; it
-  throws today, which is why every session-scoped route answers 401. Filling
-  it in means a `sessions` table with short-lived access tokens and long-lived
-  refresh tokens (§8.4), and that migration is where the impersonation seam
-  lands: a `session_type` discriminator and an acting-admin column on the
-  audit log, per §10.
+- **No domain tables.** The next migration is the fleet: `aircraft` unique on
+  `(tenant_id, registration)` rather than globally, `meter_readings`
+  append-only, and the global reference tables. After that, flight logging —
+  which is the point of the whole thing.
+- **MFA is reported but not enforced.** `login` returns `mfa_required` from
+  the user row; nothing acts on it yet.
+- **Nothing writes to `audit_log`.** The table exists with its acting-admin
+  column because §10 binds that to the migration creating it. §5.9 wants every
+  plan change recorded there, so the first writer arrives with entitlements.
 - **`role_bundles` is absent, so `memberships` carries no role.** §1.5's
   resources are domain vocabulary; the bundle column lands with that table
   rather than as a FK to nothing. `auth.provision_tenant` makes the creator a

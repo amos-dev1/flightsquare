@@ -50,12 +50,26 @@ BEGIN
     SELECT c.relname
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public' AND c.relkind = 'r'
-       AND c.relname IN ('tenants', 'users', 'memberships', 'invites')
+       AND c.relname IN ('tenants', 'users', 'memberships', 'invites',
+                         'sessions', 'refresh_tokens', 'device_registrations',
+                         'audit_log')
        AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
   LOOP
     RAISE EXCEPTION '%: RLS is not both ENABLEd and FORCEd', r.relname;
   END LOOP;
-  RAISE NOTICE '   ok: RLS enabled and forced on all four tables';
+
+  -- And nothing in public has escaped it. A table added without RLS is the
+  -- failure this whole design exists to prevent, and it is silent.
+  FOR r IN
+    SELECT c.relname
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relkind = 'r'
+       AND c.relname <> 'schema_migrations'
+       AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
+  LOOP
+    RAISE EXCEPTION '%: a table in public without ENABLE + FORCE RLS', r.relname;
+  END LOOP;
+  RAISE NOTICE '   ok: RLS enabled and forced on every table in public';
 
   -- Every policy the application is subject to must carry BOTH clauses. A
   -- policy with USING alone reads correctly and writes wherever it likes.
@@ -66,7 +80,7 @@ BEGIN
     SELECT tablename, policyname, qual, with_check
       FROM pg_policies
      WHERE schemaname = 'public'
-       AND policyname IN ('tenant_isolation', 'tenant_visibility')
+       AND policyname IN ('tenant_isolation', 'tenant_visibility', 'user_isolation')
   LOOP
     IF r.qual IS NULL THEN
       RAISE EXCEPTION '%.% has no USING clause', r.tablename, r.policyname;
@@ -74,10 +88,18 @@ BEGIN
     IF r.with_check IS NULL THEN
       RAISE EXCEPTION '%.% has no WITH CHECK clause', r.tablename, r.policyname;
     END IF;
-    -- One idiom: every app-facing policy resolves the tenant through
-    -- app.current_tenant_id(), never by reading the GUC by hand.
-    IF r.qual NOT LIKE '%current_tenant_id%'
-       OR r.with_check NOT LIKE '%current_tenant_id%' THEN
+    -- One idiom: every app-facing policy resolves identity through the
+    -- accessors, never by reading a GUC by hand. Tenant-scoped tables scope
+    -- by tenant; sessions and devices belong to a user and scope by user,
+    -- because one human has one login and many memberships (§3.1).
+    IF r.policyname = 'user_isolation' THEN
+      IF r.qual NOT LIKE '%current_user_id%'
+         OR r.with_check NOT LIKE '%current_user_id%' THEN
+        RAISE EXCEPTION '%.% does not resolve the user via app.current_user_id()',
+          r.tablename, r.policyname;
+      END IF;
+    ELSIF r.qual NOT LIKE '%current_tenant_id%'
+          OR r.with_check NOT LIKE '%current_tenant_id%' THEN
       RAISE EXCEPTION '%.% does not resolve tenant via app.current_tenant_id()',
         r.tablename, r.policyname;
     END IF;
@@ -86,12 +108,16 @@ BEGIN
   IF (SELECT array_agg(tablename || '.' || policyname ORDER BY tablename)
         FROM pg_policies
        WHERE schemaname = 'public'
-         AND policyname IN ('tenant_isolation', 'tenant_visibility'))
-     IS DISTINCT FROM ARRAY['invites.tenant_isolation',
+         AND policyname IN ('tenant_isolation', 'tenant_visibility', 'user_isolation'))
+     IS DISTINCT FROM ARRAY['audit_log.tenant_isolation',
+                            'device_registrations.user_isolation',
+                            'invites.tenant_isolation',
                             'memberships.tenant_isolation',
+                            'refresh_tokens.user_isolation',
+                            'sessions.user_isolation',
                             'tenants.tenant_isolation',
                             'users.tenant_visibility']::text[] THEN
-    RAISE EXCEPTION 'the set of app-facing policies is not what 0001 installed';
+    RAISE EXCEPTION 'the set of app-facing policies is not what the migrations installed';
   END IF;
   RAISE NOTICE '   ok: every app-facing policy carries USING and WITH CHECK';
 
@@ -128,24 +154,26 @@ BEGIN
    WHERE n.nspname = 'auth';
 
   IF names IS DISTINCT FROM ARRAY[
+       'consume_refresh_token',
        'find_user_by_email',
        'list_memberships_for_user',
        'provision_tenant',
        'resolve_invite_token',
+       'resolve_session_token',
        'resolve_tenant_by_host',
        'resolve_tenant_by_slug',
        'tenant_for_billing_customer']::text[] THEN
-    RAISE EXCEPTION 'auth schema holds % — §2.1 is a closed list of seven', names;
+    RAISE EXCEPTION 'auth schema holds % — §2.1 is a closed list of nine', names;
   END IF;
-  RAISE NOTICE '   ok: auth schema holds exactly the seven §2.1 functions';
+  RAISE NOTICE '   ok: auth schema holds exactly the nine §2.1 functions';
 
-  -- Exactly one of them writes. "Did anything else in here learn to write?"
-  -- should stay a one-line catalog query.
+  -- Two of them write, and the list of which is short enough to read. "Did
+  -- anything else in here learn to write?" stays a one-line catalog query.
   SELECT array_agg(p.proname ORDER BY p.proname) INTO names
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'auth' AND p.provolatile <> 's';
-  IF names IS DISTINCT FROM ARRAY['provision_tenant']::text[] THEN
-    RAISE EXCEPTION 'the non-STABLE functions in auth are % — expected only provision_tenant', names;
+  IF names IS DISTINCT FROM ARRAY['consume_refresh_token', 'provision_tenant']::text[] THEN
+    RAISE EXCEPTION 'the writing functions in auth are % — expected exactly two', names;
   END IF;
 
   -- And the writer cannot reach an existing tenant: it takes no tenant id,
@@ -157,7 +185,7 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'provision_tenant takes a tenant id — it must only ever create a new one';
   END IF;
-  RAISE NOTICE '   ok: one writer, and it cannot address an existing tenant';
+  RAISE NOTICE '   ok: two writers, and provisioning cannot address an existing tenant';
 
   FOR r IN
     SELECT p.oid, p.proname, p.prosecdef, p.proconfig, o.rolname AS owner
@@ -188,7 +216,7 @@ BEGIN
       RAISE EXCEPTION 'admin_role can execute auth.% (§7.1: its own door)', r.proname;
     END IF;
   END LOOP;
-  RAISE NOTICE '   ok: six SECURITY DEFINER, search_path pinned, PUBLIC revoked, app_role granted';
+  RAISE NOTICE '   ok: all nine SECURITY DEFINER, search_path pinned, PUBLIC revoked, app_role granted';
 END
 $t$;
 
@@ -198,13 +226,15 @@ $t$;
 DO $t$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships'] LOOP
+  FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'sessions', 'audit_log'] LOOP
     IF NOT has_table_privilege('admin_role', 'public.' || t, 'SELECT') THEN
       RAISE EXCEPTION 'admin_role cannot read %', t;
     END IF;
   END LOOP;
 
-  FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'invites'] LOOP
+  FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'invites',
+                           'sessions', 'refresh_tokens', 'device_registrations',
+                           'audit_log'] LOOP
     IF has_table_privilege('admin_role', 'public.' || t, 'INSERT')
        OR has_table_privilege('admin_role', 'public.' || t, 'UPDATE')
        OR has_table_privilege('admin_role', 'public.' || t, 'DELETE') THEN
@@ -212,9 +242,19 @@ BEGIN
     END IF;
   END LOOP;
 
-  IF has_table_privilege('admin_role', 'public.invites', 'SELECT') THEN
-    RAISE EXCEPTION 'admin_role can read invites — not in the §7.2 metadata tier';
+  FOREACH t IN ARRAY ARRAY['invites', 'refresh_tokens', 'device_registrations'] LOOP
+    IF has_table_privilege('admin_role', 'public.' || t, 'SELECT') THEN
+      RAISE EXCEPTION 'admin_role can read % — not in the §7.2 metadata tier', t;
+    END IF;
+  END LOOP;
+  -- §3.8: audit rows are written and read, never edited or removed. The
+  -- plane that records what happened cannot rewrite its own record.
+  IF has_table_privilege('app_role', 'public.audit_log', 'UPDATE')
+     OR has_table_privilege('app_role', 'public.audit_log', 'DELETE') THEN
+    RAISE EXCEPTION 'audit_log is not append-only for app_role';
   END IF;
+
   RAISE NOTICE '   ok: admin_role reads the metadata tier only, and writes nothing';
+  RAISE NOTICE '   ok: audit_log is append-only';
 END
 $t$;

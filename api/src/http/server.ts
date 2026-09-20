@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { config } from '../config.js';
 import { ApiError, ClientTooOldError, isRlsRefusal } from './errors.js';
 import { requestContext, type RequestContextOptions } from './plugins/request-context.js';
+import { authRoutes } from './routes/auth.js';
 import { healthRoutes } from './routes/health.js';
 import { meRoutes } from './routes/me.js';
 import { signupRoutes } from './routes/signup.js';
@@ -23,15 +25,23 @@ function isOlderThan(version: string, minimum: string): boolean {
   return false;
 }
 
+export interface RateLimitRule {
+  max: number;
+  timeWindow: string;
+}
+
 export interface ServerOptions {
   /**
    * Override how a request becomes a session. Tests inject a stub; nothing in
    * production should pass this.
    */
   resolveSession?: RequestContextOptions['resolveSession'];
+  /** Override the configured limits, so a test can provoke a 429 deliberately. */
+  rateLimits?: Partial<Record<'signup' | 'login' | 'refresh', RateLimitRule>>;
 }
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
+  const limits = { ...config.rateLimits, ...options.rateLimits };
   const app = Fastify({
     logger: { level: config.logLevel },
     genReqId: () => randomUUID(),
@@ -65,6 +75,21 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       return;
     }
 
+    // Errors raised by Fastify or one of its plugins carry their own status —
+    // the rate limiter's 429 above all. Without this they fall through to the
+    // 500 below, and §1.6's "429 is rate limiting, never a quota" quietly
+    // becomes "429 is an internal error".
+    const status = (error as { statusCode?: unknown }).statusCode;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      if (status === 429) {
+        const retryAfter = Number(reply.getHeader('retry-after') ?? 60);
+        void reply.status(429).send({ error: 'rate_limited', retry_after: retryAfter });
+      } else {
+        void reply.status(status).send({ error: 'invalid_request', detail: 'bad request' });
+      }
+      return;
+    }
+
     if (isRlsRefusal(error)) {
       request.log.error(
         { err: error },
@@ -82,13 +107,30 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     void reply.status(404).send({ error: 'not_found' });
   });
 
+  /**
+   * Rate limiting, off by default and opted into per route. §1.6 is explicit
+   * that 429 is requests per unit time and is never a plan quota — the two
+   * must not be conflated, so this deliberately shares nothing with the
+   * entitlement path.
+   *
+   * Global is false because most routes are already bounded by requiring a
+   * session; the ones that are not — login, signup — set their own limits.
+   */
+  void app.register(rateLimit, {
+    global: false,
+    // An attacker controls neither of these, so keying on the client address
+    // is the best available signal until there is a session.
+    keyGenerator: (request) => request.ip,
+  });
+
   // Registered before the routes: it decorates the request and installs the
   // preHandler that resolves the session for routes that ask for one.
   void app.register(requestContext, { resolveSession: options.resolveSession });
 
   // Public.
   void app.register(healthRoutes);
-  void app.register(signupRoutes, { prefix: '/auth' });
+  void app.register(signupRoutes, { prefix: '/auth', limit: limits.signup });
+  void app.register(authRoutes, { prefix: '/auth', limits });
 
   // Session-scoped.
   void app.register(meRoutes);

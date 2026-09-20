@@ -1,5 +1,7 @@
 import type { FastifyRequest } from 'fastify';
 
+import { resolveSessionToken } from '../db/auth.js';
+import { hashToken } from '../tokens.js';
 import { UnauthorizedError } from './errors.js';
 
 /**
@@ -13,27 +15,58 @@ import { UnauthorizedError } from './errors.js';
 export interface ResolvedSession {
   userId: string;
   tenantId?: string | undefined;
+  sessionId: string;
 }
 
 export type SessionResolver = (request: FastifyRequest) => Promise<ResolvedSession>;
 
 /**
- * The one place a request turns into a session. Everything tenant-scoped
- * depends on it, and it is deliberately the only such place.
+ * Tenant statuses that may hold a live session.
  *
- * §1.1: both ids are resolved server-side. Neither ever comes from a request
- * header, query parameter, path segment or JSON body — not for convenience,
- * not for admin tooling, not behind a feature flag. The moment a tenant id
- * can be named by the caller, row-level security is enforcing whatever the
- * caller asked for.
- *
- * It throws today because there is no session model yet: no sessions table,
- * no token verification. That is the correct behaviour — the middleware runs
- * and fails closed — and this function becomes real in the same change that
- * adds the sessions table. Per §10 that table carries a session_type
- * discriminator from the start, so impersonation (§7.5) can be added later
- * without retrofitting a second session type.
+ * §7.3: suspended means authentication is rejected while the data stays
+ * intact, and closed has started the retention clock. Both stop at the door,
+ * and because the check is here it reaches every entry point at once.
  */
-export const resolveSession: SessionResolver = async () => {
-  throw new UnauthorizedError();
+const USABLE_TENANT_STATUSES = new Set(['trial', 'active', 'past_due']);
+
+/**
+ * The one place a request becomes a session.
+ *
+ * The bearer token is read from a header, and that is not the thing §1.1
+ * forbids. A credential has to arrive from the client somehow; what must
+ * never come from the request is the *tenant id*. Here the token is only a
+ * lookup key — the user and the selected tenant come back from the session
+ * row, resolved server-side, and a caller cannot influence which tenant they
+ * land in by editing anything they send.
+ */
+export const resolveSession: SessionResolver = async (request) => {
+  const header = request.headers.authorization;
+  if (typeof header !== 'string' || !header.startsWith('Bearer ')) {
+    throw new UnauthorizedError();
+  }
+
+  const token = header.slice('Bearer '.length).trim();
+  if (token === '') throw new UnauthorizedError();
+
+  const row = await resolveSessionToken(hashToken(token));
+  // Expired, revoked and never-existed are one answer.
+  if (!row) throw new UnauthorizedError();
+
+  if (row.user_status !== 'active') throw new UnauthorizedError();
+
+  if (row.selected_tenant_id !== null) {
+    // The tenant was deleted, suspended or closed since the session was
+    // minted, or the member was removed from it. A club that removes someone
+    // expects them out now, not when their access token happens to expire.
+    if (row.tenant_status === null || !USABLE_TENANT_STATUSES.has(row.tenant_status)) {
+      throw new UnauthorizedError();
+    }
+    if (row.membership_status !== 'active') throw new UnauthorizedError();
+  }
+
+  return {
+    userId: row.user_id,
+    tenantId: row.selected_tenant_id ?? undefined,
+    sessionId: row.session_id,
+  };
 };
