@@ -1,0 +1,41 @@
+# Local development database.
+#
+# Three roles, created at initdb by db/init/01-create-roles.sh:
+#   flightsquare_owner  DDL / migrations. Owns every object.
+#   app_role            The application. No BYPASSRLS, no superuser, owns nothing.
+#   admin_role          Control plane (CLAUDE.md §7). No BYPASSRLS either — §1.2
+#                       is absolute and has no admin exception.
+#
+# Postgres 18 is required: uuidv7() is built in there, and §6 wants time-sortable
+# keys with no sequence leakage across tenants.
+
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: flightsquare-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${FS_DB_NAME:-flightsquare}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      FS_OWNER_PASSWORD: ${FS_OWNER_PASSWORD:-owner_dev_password}
+      FS_APP_PASSWORD: ${FS_APP_PASSWORD:-app_dev_password}
+      FS_ADMIN_PASSWORD: ${FS_ADMIN_PASSWORD:-admin_dev_password}
+    ports:
+      # Bound to loopback: the dev database is not reachable from the network.
+      - "127.0.0.1:${FS_DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on an empty data directory.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+      # Everything else (roles.sql, migrations, tests) is read from here.
+      - ./db:/opt/flightsquare/db:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${FS_DB_NAME:-flightsquare}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+volumes:
+  pgdata:
