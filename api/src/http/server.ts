@@ -4,6 +4,9 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { config } from '../config.js';
+import { db } from '../db/pool.js';
+import type { Database } from '../db/schema.js';
+import type { Kysely } from 'kysely';
 import { ApiError, ClientTooOldError, isRlsRefusal } from './errors.js';
 import {
   assertRouteGatesDeclared,
@@ -11,8 +14,10 @@ import {
   type RequestContextOptions,
 } from './plugins/request-context.js';
 import { authRoutes } from './routes/auth.js';
+import { aircraftRoutes } from './routes/aircraft.js';
 import { entitlementsRoutes } from './routes/entitlements.js';
 import { healthRoutes } from './routes/health.js';
+import { referenceRoutes } from './routes/reference.js';
 import { meRoutes } from './routes/me.js';
 import { signupRoutes } from './routes/signup.js';
 import { tenantRoutes } from './routes/tenant.js';
@@ -28,6 +33,13 @@ function isOlderThan(version: string, minimum: string): boolean {
     if (left !== right) return left < right;
   }
   return false;
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** For reads that have no tenant — global reference data only. */
+    db: Kysely<Database>;
+  }
 }
 
 export interface RateLimitRule {
@@ -51,6 +63,11 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     logger: { level: config.logLevel },
     genReqId: () => randomUUID(),
   });
+
+  // Global reference data has no tenant, so those routes read the pool
+  // directly rather than through withTenant. Decorated here so the route
+  // module does not import the pool and quietly grow other uses for it.
+  app.decorate('db', db);
 
   // Synchronous, so it covers every route added from here on — including one
   // added directly on the instance, which a deferred plugin's hook would miss.
@@ -145,6 +162,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(meRoutes);
   void app.register(tenantRoutes);
   void app.register(entitlementsRoutes);
+  void app.register(aircraftRoutes);
+  void app.register(referenceRoutes);
 
   return app;
 }

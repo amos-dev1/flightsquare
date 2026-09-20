@@ -68,6 +68,15 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM invites WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
+    await adminPool.query(`DELETE FROM meter_readings WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM aircraft_config WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM aircraft WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
     await adminPool.query(`DELETE FROM memberships WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);

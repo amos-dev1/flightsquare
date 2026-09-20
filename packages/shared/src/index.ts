@@ -199,3 +199,93 @@ export interface EntitlementsResponse {
   /** What this member holds, so the client can hide what they cannot do. */
   permissions: Record<string, 'none' | 'read' | 'write'>;
 }
+
+// ---------------------------------------------------------------------------
+// Fleet
+// ---------------------------------------------------------------------------
+
+export type AircraftStatus = 'active' | 'archived' | 'sold';
+export type Ownership = 'owned' | 'leased' | 'leaseback' | 'club_owned';
+export type MaintenanceMeter = 'hobbs' | 'tach' | 'airframe';
+
+/**
+ * Meters travel as strings.
+ *
+ * They are `numeric` in Postgres and a decimal on the wire, because a tach
+ * reading of 1100.2 is not a float and rounding one is how a maintenance
+ * countdown drifts. The client formats; it does not compute (§8.2).
+ */
+export interface AircraftResponse {
+  id: string;
+  registration: string;
+  type_code: string | null;
+  serial_number: string | null;
+  year_manufactured: number | null;
+  home_base: string | null;
+  status: AircraftStatus;
+  ownership: Ownership;
+  /** Derived from the meter log; never written directly. */
+  airframe_hours: string | null;
+  hobbs: string | null;
+  tach: string | null;
+  cycles: number | null;
+  totals_updated_at: string | null;
+  maintenance_meter: MaintenanceMeter;
+  seats: number | null;
+}
+
+export interface CreateAircraftRequest {
+  registration: string;
+  type_code?: string;
+  serial_number?: string;
+  year_manufactured?: number;
+  home_base?: string;
+  ownership?: Ownership;
+  seats?: number;
+  maintenance_meter?: MaintenanceMeter;
+}
+
+export interface MeterReadingResponse {
+  id: string;
+  aircraft_id: string;
+  hobbs: string | null;
+  tach: string | null;
+  airframe_hours: string | null;
+  cycles: number | null;
+  recorded_at: string;
+  received_at: string;
+  source: string;
+  supersedes_id: string | null;
+  note: string | null;
+  /** Set when this reading has itself been superseded by a later correction. */
+  superseded: boolean;
+}
+
+export interface CreateMeterReadingRequest {
+  hobbs?: string;
+  tach?: string;
+  airframe_hours?: string;
+  cycles?: number;
+  /** Defaults to now. Present so an offline client can send when it happened. */
+  recorded_at?: string;
+  supersedes_id?: string;
+  note?: string;
+}
+
+export interface AircraftTypeResponse {
+  code: string;
+  manufacturer: string;
+  model: string;
+  category: string;
+  engine_type: string;
+  engine_count: number;
+  typical_seats: number | null;
+}
+
+export interface AerodromeResponse {
+  ident: string;
+  name: string;
+  municipality: string | null;
+  region: string | null;
+  country: string;
+}

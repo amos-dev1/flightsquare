@@ -214,9 +214,15 @@ Rules, which are stricter than §2.1's in the way that matters:
 | Function | Holds the privilege to | Tenant from |
 |---|---|---|
 | `public.assert_quota` | lock and read a `tenant_usage` row the app may only read | `app.current_tenant_id()` |
-| `public.refresh_members_active_usage` | write `tenant_usage` (trigger; not callable) | the row being changed |
+| `public.refresh_*_usage` | write `tenant_usage` (triggers; not callable) | the row being changed |
+| `public.refresh_aircraft_meter_totals` | write the derived totals on `aircraft` (trigger; not callable) | the row being changed |
 
-If a task seems to need a third, the first question is whether the application role could simply be granted what it needs without also being able to abuse it.
+`refresh_*_usage` is a **family**, one per counted table, and a new member is an instance of a decision already taken rather than a new one: each recomputes exactly one quota key from exactly one table and is reachable only as a trigger. A helper of a genuinely new *shape* still needs review.
+
+Before adding one, answer this in the code: could the application role simply be granted what it needs without also being able to abuse it? Two worked answers, because they differ:
+
+- **Usage counters — no.** A role that can write its own counters can set one to zero and walk past every quota.
+- **Derived meter totals — no, for a different reason.** The totals come from an append-only log precisely so the maintenance numbers downstream have an audit trail (§3.4). If the application could write them directly, the derivation would be a suggestion and the trail optional. Granting `UPDATE` there is not a convenience; it deletes the guarantee.
 
 ---
 

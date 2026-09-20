@@ -58,18 +58,47 @@ BEGIN
     RAISE EXCEPTION '%: RLS is not both ENABLEd and FORCEd', r.relname;
   END LOOP;
 
-  -- And nothing in public has escaped it. A table added without RLS is the
-  -- failure this whole design exists to prevent, and it is silent.
+  -- And nothing else has escaped it. A table added without RLS is the failure
+  -- this whole design exists to prevent, and it is silent.
+  --
+  -- Global reference tables (§2.2) legitimately have none: shared, read-only
+  -- to the application, no tenant_id, never customer data. They are named
+  -- here rather than inferred, so a table escapes RLS only by someone writing
+  -- it down — and the check below makes sure nobody puts a tenant table on
+  -- the list to quiet a failure.
   FOR r IN
     SELECT c.relname
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public' AND c.relkind = 'r'
-       AND c.relname <> 'schema_migrations'
+       AND c.relname NOT IN ('schema_migrations',          -- DDL bookkeeping
+                             'aircraft_types', 'aerodromes')  -- §2.2 reference
        AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
   LOOP
     RAISE EXCEPTION '%: a table in public without ENABLE + FORCE RLS', r.relname;
   END LOOP;
-  RAISE NOTICE '   ok: RLS enabled and forced on every table in public';
+
+  FOR r IN
+    SELECT c.relname
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_attribute a ON a.attrelid = c.oid
+     WHERE n.nspname = 'public'
+       AND c.relname IN ('aircraft_types', 'aerodromes')
+       AND a.attname = 'tenant_id' AND NOT a.attisdropped
+  LOOP
+    RAISE EXCEPTION '%: on the no-RLS allowlist but carries tenant_id', r.relname;
+  END LOOP;
+
+  -- And they really are read-only to the application.
+  FOR r IN SELECT unnest(ARRAY['aircraft_types', 'aerodromes']) AS relname LOOP
+    IF has_table_privilege('app_role', 'public.' || r.relname, 'INSERT')
+       OR has_table_privilege('app_role', 'public.' || r.relname, 'UPDATE')
+       OR has_table_privilege('app_role', 'public.' || r.relname, 'DELETE') THEN
+      RAISE EXCEPTION '%: reference data is writable by the application', r.relname;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE '   ok: RLS forced everywhere but the named reference tables';
 
   -- Every policy the application is subject to must carry BOTH clauses. A
   -- policy with USING alone reads correctly and writes wherever it likes.
@@ -109,10 +138,13 @@ BEGIN
         FROM pg_policies
        WHERE schemaname = 'public'
          AND policyname IN ('tenant_isolation', 'tenant_visibility', 'user_isolation'))
-     IS DISTINCT FROM ARRAY['audit_log.tenant_isolation',
+     IS DISTINCT FROM ARRAY['aircraft.tenant_isolation',
+                            'aircraft_config.tenant_isolation',
+                            'audit_log.tenant_isolation',
                             'device_registrations.user_isolation',
                             'invites.tenant_isolation',
                             'memberships.tenant_isolation',
+                            'meter_readings.tenant_isolation',
                             'refresh_tokens.user_isolation',
                             'role_bundle_permissions.tenant_isolation',
                             'role_bundles.tenant_isolation',
@@ -241,6 +273,8 @@ BEGIN
    WHERE n.nspname = 'public' AND p.prosecdef;
 
   IF names IS DISTINCT FROM ARRAY['assert_quota',
+                                  'refresh_aircraft_active_usage',
+                                  'refresh_aircraft_meter_totals',
                                   'refresh_members_active_usage']::text[] THEN
     RAISE EXCEPTION 'public holds SECURITY DEFINER functions % — §2.3 is a closed list', names;
   END IF;
@@ -269,9 +303,14 @@ BEGIN
   END LOOP;
 
   -- A trigger function nothing can call is a door that does not open.
-  IF has_function_privilege('app_role', 'public.refresh_members_active_usage()', 'EXECUTE') THEN
-    RAISE EXCEPTION 'app_role can call the usage trigger directly';
-  END IF;
+  FOR r IN
+    SELECT p.oid, p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.prosecdef AND p.prorettype = 'trigger'::regtype
+  LOOP
+    IF has_function_privilege('app_role', r.oid, 'EXECUTE') THEN
+      RAISE EXCEPTION 'app_role can call the trigger function public.% directly', r.proname;
+    END IF;
+  END LOOP;
 
   RAISE NOTICE '   ok: §2.3 helpers take no tenant argument and are not public';
 END
@@ -325,7 +364,42 @@ BEGIN
     RAISE EXCEPTION 'app_role can grant itself entitlement overrides';
   END IF;
 
+  -- §7.2 draws its line *within* a table for aircraft: registration, type
+  -- and status, but not operating detail. A row policy cannot express that;
+  -- a column grant can, and this proves the difference is real rather than
+  -- documented.
+  IF has_table_privilege('admin_role', 'public.aircraft', 'SELECT') THEN
+    RAISE EXCEPTION 'admin_role holds table-wide SELECT on aircraft, not the §7.2 column subset';
+  END IF;
+  IF NOT has_column_privilege('admin_role', 'public.aircraft', 'registration', 'SELECT') THEN
+    RAISE EXCEPTION 'admin_role cannot read a registration, which §7.2 says it may';
+  END IF;
+
+  -- Content tier: a maintenance discrepancy history is litigation-grade and
+  -- needs a time-boxed, logged, tenant-consented grant, which does not exist.
+  FOREACH t IN ARRAY ARRAY['meter_readings', 'aircraft_config'] LOOP
+    IF has_any_column_privilege('admin_role', 'public.' || t, 'SELECT') THEN
+      RAISE EXCEPTION 'admin_role can read % — that is content, not metadata (§7.2)', t;
+    END IF;
+  END LOOP;
+
+  -- §3.4: the totals are derived from an append-only log. An application that
+  -- can write them directly makes the log optional and the audit trail a
+  -- suggestion.
+  FOREACH t IN ARRAY ARRAY['hobbs', 'tach', 'airframe_hours', 'cycles',
+                           'totals_updated_at'] LOOP
+    IF has_column_privilege('app_role', 'public.aircraft', t, 'UPDATE') THEN
+      RAISE EXCEPTION 'app_role can write aircraft.%, a derived total', t;
+    END IF;
+  END LOOP;
+
+  IF has_table_privilege('app_role', 'public.meter_readings', 'UPDATE')
+     OR has_table_privilege('app_role', 'public.meter_readings', 'DELETE') THEN
+    RAISE EXCEPTION 'meter_readings is not append-only';
+  END IF;
+
   RAISE NOTICE '   ok: admin_role reads the metadata tier only, and writes nothing';
   RAISE NOTICE '   ok: audit_log is append-only, and usage is not app-writable';
+  RAISE NOTICE '   ok: meters are append-only and their totals are not app-writable';
 END
 $t$;

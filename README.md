@@ -75,6 +75,7 @@ db/                             not an npm workspace — SQL and psql only
                                 §2.1 entries 8 and 9
     0005_entitlements_and_roles.sql
                                 plans, quotas, usage counting, role bundles
+    0006_fleet.sql              aircraft, meters, and the reference tables
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -85,6 +86,7 @@ db/                             not an npm workspace — SQL and psql only
                                            user context and signup
     060_sessions.sql                       sessions, rotation, audit log
     070_entitlements_and_roles.sql         quotas, bundles, the §2.3 helpers
+    080_fleet.sql                          aircraft, leaseback, meter totals
 api/
   src/
     config.ts                   env, client version floors, rate limits
@@ -109,7 +111,7 @@ api/
       errors.ts                 the §1.6 gates: 404 / 403 / 402, and 429
       server.ts                 Fastify, error handler, version handshake
       routes/                   health, signup, auth, me, tenant,
-                                entitlements
+                                entitlements, aircraft, reference
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -244,12 +246,15 @@ session, impersonation deferred with the session seam kept open, and
 `deleted_at` as a control-plane marker — and the stack and layout in §9. What
 is left:
 
-- **No domain tables.** The next migration is the fleet: `aircraft` unique on
-  `(tenant_id, registration)` rather than globally, `meter_readings`
-  append-only, and the global reference tables. After that, flight logging —
-  which is the point of the whole thing. `aircraft.active` already has its
-  quota, its plan rows and its registry entry, so the fleet migration only
-  adds the counting trigger.
+- **No flights yet.** `flights`, `flight_meters` and `flight_fuel` are next,
+  and with them the post-flight entry screen §3.4 says to optimise over
+  everything else. The meter log they write into already exists.
+- **`aircraft_documents` is absent** (§3.2). It is a table of pointers into
+  object storage, and there is no object storage; it arrives with
+  `attachments`.
+- **The aerodrome and type tables are seeded thinly.** Twenty fields and
+  thirty-four types, enough to fly on. The real lists are an import job
+  (§2.2), not a migration anyone has to read.
 - **Row scoping is still open** (CLAUDE.md §10, decision 3). A Pilot's
   `charges: read` currently means every charge in the tenant, which is wrong
   in a club. It has to be settled before the ledger is built — not before, and
