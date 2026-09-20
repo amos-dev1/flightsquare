@@ -29,7 +29,17 @@ npm run db:up             # start Postgres (creates the three roles on first run
 npm run migrate           # apply pending migrations, as the owner role
 npm test                  # database suite, then the API suite
 npm run dev               # the API on http://127.0.0.1:3000
+npm run dev:web           # the web app on http://127.0.0.1:3001
 npm run db:reset          # destroy the database and start clean
+```
+
+The web app calls the API server-side, so run both. Sign up through the API
+once, then log in at http://127.0.0.1:3001:
+
+```sh
+curl -s -X POST localhost:3000/auth/signup -H 'content-type: application/json' \
+  -d '{"slug":"my-club","name":"My Club","email":"me@example.test",
+       "password":"correct horse battery staple","archetype":"solo"}'
 ```
 
 `npm test` needs the database up and migrated.
@@ -115,7 +125,12 @@ api/
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
-web/                            Next.js. Empty.
+web/
+  src/
+    middleware.ts               rotates the access token before a render needs it
+    lib/                        httpOnly session cookie, server-side API client
+    components/ui.tsx           copy-in components, owned outright
+    app/                        login, tenant picker, fleet, aircraft detail
 mobile/                         Expo. Empty.
 scripts/
 ```

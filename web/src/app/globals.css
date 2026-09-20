@@ -1,0 +1,23 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-ink: oklch(0.21 0.02 250);
+  --color-muted: oklch(0.52 0.02 250);
+  --color-line: oklch(0.91 0.01 250);
+  --color-surface: oklch(0.99 0.002 250);
+  --color-accent: oklch(0.52 0.15 250);
+}
+
+html {
+  background: oklch(0.97 0.005 250);
+  color: var(--color-ink);
+}
+
+/*
+ * Meters are the one number in this product people compare at a glance —
+ * 1202.9 against 1200.4 — so they line up by digit rather than by shape.
+ */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}

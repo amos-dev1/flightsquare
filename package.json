@@ -26,7 +26,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test:db && vitest run",
     "test:db": "./scripts/test.sh",
-    "test:api": "vitest run --project api"
+    "test:api": "vitest run --project api",
+    "dev:web": "npm run dev -w web"
   },
   "devDependencies": {
     "vitest": "^5.0.1"
