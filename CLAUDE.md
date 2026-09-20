@@ -166,7 +166,7 @@ GRANT EXECUTE ON FUNCTION auth.resolve_tenant_by_host(text) TO app_role;
 
 ### 2.1 The permitted list
 
-Each entry is a lookup that provably cannot have tenant context yet.
+Each entry provably cannot have tenant context yet. Six are lookups; the seventh is the sole write.
 
 | Function | Runs when | Returns |
 |---|---|---|
@@ -176,8 +176,18 @@ Each entry is a lookup that provably cannot have tenant context yet.
 | `auth.list_memberships_for_user` | Post-auth tenant picker | (tenant id, name) for that user only |
 | `auth.resolve_invite_token` | Invite acceptance, pre-membership | invite row, single-use |
 | `auth.tenant_for_billing_customer` | Billing-provider webhooks | tenant id |
+| `auth.provision_tenant` | Signup — the tenant does not exist yet | new tenant, user and membership ids |
 
-If a task seems to need a seventh, the first question is whether the caller could have set tenant context and simply didn't.
+If a task seems to need an eighth, the first question is whether the caller could have set tenant context and simply didn't.
+
+**Extra rules for a definer function that writes.** The rules above were written for lookups, and rule 3 in particular — scalar arguments matched on equality — is about not turning a lookup into an enumeration oracle. A write function's arguments are values to store rather than predicates, so it carries four of its own instead:
+
+1. **It takes no `tenant_id`.** It can only ever create a new tenant, never reach into an existing one. This is what keeps a write door as narrow as a read one, and it is asserted from the catalog rather than by reading the body.
+2. **It inserts, and never updates or deletes.** Nothing that already exists changes.
+3. **Any user id it is handed must equal `app.current_user_id()`.** Otherwise anyone could create a tenant and drop a stranger's account into it as Admin. Checked in the database, not promised by the API.
+4. **It is the only `VOLATILE` function in the schema.** That makes "did anything else in here learn to write?" a one-line catalog query, and a read function that quietly becomes volatile is a review failure rather than a mystery.
+
+Abuse is the API's problem, not the policy's: nothing stops `app_role` calling it in a loop, so signup is rate limited at the boundary (429 — and §1.6 is explicit that 429 is not a quota).
 
 ### 2.2 Table classes
 
@@ -687,7 +697,7 @@ npm workspaces. Vitest for tests.
 
 **Mobile is Expo with `expo-sqlite`** for the offline queue in §8.2. Web and mobile do not share UI code; they share types and the API client from `packages/shared`. Two UI codebases is the accepted cost of a web surface good enough to sell subscriptions on (§8.3).
 
-**Hosting is deferred** until there is something worth deploying. Local development is Docker Postgres. The one binding constraint on whatever gets chosen: connection pooling must not break per-transaction `SET LOCAL`, which rules out session-level pooling and makes pooler configuration a correctness issue rather than a performance one.
+**Hosting is deferred** until there is something worth deploying. Local development is Docker Postgres. The one binding constraint on whatever gets chosen: connection pooling must not break per-transaction `SET LOCAL`, which rules out statement-level pooling and makes pooler configuration a correctness issue rather than a performance one. Session and transaction pooling are both fine — `SET LOCAL` is scoped to the transaction either way. Transaction pooling is in fact the mode that *requires* it: a plain `SET` there leaks one tenant's context onto the next request that borrows the connection, which is the §1.1 failure exactly.
 
 ```
 Install:        npm install
@@ -702,6 +712,18 @@ Mobile dev:     npx expo start          (from mobile/)
 ---
 
 ## 10. Open decisions
+
+### Decided
+
+**Provisioning is a seventh `auth.*` function** (2026-09-20). Creating a tenant and its first user provably cannot have tenant context — the tenant does not exist yet — which is §2.1's own admission test, and the only operation that passes it. `auth.provision_tenant` is the first *write* on the permitted list, and §2.1 now carries the four extra rules that a write door needs. The alternatives were putting public signup on the control-plane origin (§7.7 exists to keep that surface small) or making the global `users` table app-writable.
+
+**The database session carries user identity** (2026-09-20). `SET LOCAL app.user_id` accompanies `SET LOCAL app.tenant_id` on every transaction, read through `app.current_user_id()`. Row scoping (decision 3 below) will therefore be enforced in RLS rather than by a remembered `WHERE` clause, consistent with §1.1 — the database is the thing standing between people and data, not the application. This does not settle the *shape* of the permission model; decision 3 is still open.
+
+**Impersonation: deferred, with the seam kept open** (2026-09-20). Not built in v1 — §7.2's time-boxed, logged, tenant-consented content grant covers the actual support need. But §7.5's warning about retrofitting a second session type binds: **the sessions table carries a `session_type` discriminator and the audit log carries an acting-admin column from the migration that creates them**, even though only one value of each is ever written today.
+
+**`deleted_at` is a control-plane marker, not an application verb** (2026-09-20). §6 asks for a `deleted_at IS NULL` predicate in the RLS policy *and* for soft deletion; Postgres will not give both, because on UPDATE it re-checks the new row against the policies that apply to SELECT — so a row that sets `deleted_at` stops satisfying the policy that made it visible, and the write is refused. Resolved in favour of the invariant: `deleted_at` means account closure and purge (§7.3), written by the admin plane. **An application-facing "delete" is a status column** — a removed member is `status = 'removed'`, an archived aircraft will be an aircraft status. §5.5 requires archived records to keep their history and return on re-upgrade, so hiding them at the database level would have been wrong anyway.
+
+### Open
 
 These need your call; they are not blocking the first tables.
 
