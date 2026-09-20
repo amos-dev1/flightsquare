@@ -289,3 +289,74 @@ export interface AerodromeResponse {
   region: string | null;
   country: string;
 }
+
+// ---------------------------------------------------------------------------
+// Flights
+//
+// §3.4: this tracks the aircraft, not the pilot. No experience totals, no
+// currency, no landings, no endorsements. `flown_by` is who had the plane and
+// who owes for it, not the seed of an experience log — and the whole
+// pilot-logbook story is the CSV export, so people can transcribe into their
+// own.
+// ---------------------------------------------------------------------------
+
+export interface FlightResponse {
+  id: string;
+  aircraft_id: string;
+  aircraft_registration: string;
+  flown_by: string;
+  flown_by_email: string | null;
+  flight_date: string;
+  departed_from: string | null;
+  arrived_at: string | null;
+  remarks: string | null;
+  /** §8.2: a meter gap is flagged for an admin, never a reason to refuse. */
+  needs_review: boolean;
+  review_reason: string | null;
+  recorded_at: string;
+
+  /** Recorded as read. Neither meter is derived from the other. */
+  hobbs_start: string | null;
+  hobbs_end: string | null;
+  hobbs_hours: string | null;
+  tach_start: string | null;
+  tach_end: string | null;
+  tach_hours: string | null;
+
+  /** Aircraft state: what the next pilot is walking out to. */
+  fuel_remaining_after: string | null;
+  /** A transaction: what someone spent, in integer minor units. */
+  fuel_added_qty: string | null;
+  fuel_added_cost_cents: number | null;
+  currency: string | null;
+}
+
+/**
+ * The post-flight entry (§3.4) — the most important screen in the product.
+ *
+ * Every meter and fuel field is optional because the form records whatever
+ * was actually read. What is not optional is that *some* meter ended: that is
+ * what a flight record is for.
+ */
+export interface CreateFlightRequest {
+  aircraft_id: string;
+  flight_date: string;
+  /** A membership id. Defaults to the caller's own. */
+  flown_by?: string;
+  departed_from?: string;
+  arrived_at?: string;
+  remarks?: string;
+
+  hobbs_start?: string;
+  hobbs_end?: string;
+  tach_start?: string;
+  tach_end?: string;
+
+  fuel_remaining_after?: string;
+  fuel_added_qty?: string;
+  fuel_added_cost_cents?: number;
+  receipt_reference?: string;
+
+  /** When the flight ended. Defaults to now; an offline client sends its own. */
+  recorded_at?: string;
+}

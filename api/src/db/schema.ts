@@ -271,7 +271,68 @@ export interface MeterReadingsTable {
   created_at: Timestamp;
 }
 
+export interface FlightsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  /** §3.4: the billing subject and the accountability record — a membership. */
+  flown_by: string;
+  flight_date: ColumnType<string, string, string>;
+  departed_from: string | null;
+  arrived_at: string | null;
+  remarks: string | null;
+  /** §8.2: a meter gap is flagged for an admin, never rejected. */
+  needs_review: Generated<boolean>;
+  review_reason: string | null;
+  recorded_at: Timestamp;
+  received_at: Timestamp;
+  created_by: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface FlightMetersTable {
+  flight_id: string;
+  tenant_id: string;
+  hobbs_start: string | null;
+  hobbs_end: string | null;
+  tach_start: string | null;
+  tach_end: string | null;
+  /** GENERATED: an end minus a start is not a fact anyone observed. */
+  hobbs_hours: ColumnType<string | null, never, never>;
+  tach_hours: ColumnType<string | null, never, never>;
+  created_at: Timestamp;
+}
+
+export interface FlightFuelTable {
+  flight_id: string;
+  tenant_id: string;
+  /** State: latest wins, never summed across flights (§3.4). */
+  fuel_remaining_after: string | null;
+  /** Transaction: an immutable record of what someone spent. */
+  fuel_added_qty: string | null;
+  /** §3.7 rule 3: integer minor units, never a float. */
+  fuel_added_cost_cents: number | null;
+  currency: Generated<string>;
+  receipt_reference: string | null;
+  created_at: Timestamp;
+}
+
+export interface IdempotencyKeysTable {
+  tenant_id: string;
+  key: string;
+  endpoint: string;
+  fingerprint: string;
+  status_code: number;
+  response: unknown;
+  created_at: Timestamp;
+}
+
 export interface Database {
+  flights: FlightsTable;
+  flight_meters: FlightMetersTable;
+  flight_fuel: FlightFuelTable;
+  idempotency_keys: IdempotencyKeysTable;
   aircraft: AircraftTable;
   aircraft_config: AircraftConfigTable;
   aircraft_types: AircraftTypesTable;

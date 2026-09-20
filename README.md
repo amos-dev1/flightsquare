@@ -86,6 +86,7 @@ db/                             not an npm workspace — SQL and psql only
     0005_entitlements_and_roles.sql
                                 plans, quotas, usage counting, role bundles
     0006_fleet.sql              aircraft, meters, and the reference tables
+    0007_flights.sql            flights, fuel, and idempotent writes
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -97,6 +98,7 @@ db/                             not an npm workspace — SQL and psql only
     060_sessions.sql                       sessions, rotation, audit log
     070_entitlements_and_roles.sql         quotas, bundles, the §2.3 helpers
     080_fleet.sql                          aircraft, leaseback, meter totals
+    090_flights.sql                        the core loop, fuel, the gap flag
 api/
   src/
     config.ts                   env, client version floors, rate limits
@@ -113,6 +115,7 @@ api/
       context.ts                withSession / withTenant / withUser
       auth.ts                   the nine §2.1 functions, typed
       sessions.ts               creating, rotating and revoking sessions
+      idempotency.ts            §8.2's replay-safe writes
       entitlements.ts           loading the layers, and the quota gate
     http/
       session.ts                resolveSession — the one place a request
@@ -121,7 +124,7 @@ api/
       errors.ts                 the §1.6 gates: 404 / 403 / 402, and 429
       server.ts                 Fastify, error handler, version handshake
       routes/                   health, signup, auth, me, tenant,
-                                entitlements, aircraft, reference
+                                entitlements, aircraft, flights, reference
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -261,9 +264,12 @@ session, impersonation deferred with the session seam kept open, and
 `deleted_at` as a control-plane marker — and the stack and layout in §9. What
 is left:
 
-- **No flights yet.** `flights`, `flight_meters` and `flight_fuel` are next,
-  and with them the post-flight entry screen §3.4 says to optimise over
-  everything else. The meter log they write into already exists.
+- **The post-flight screen is not built yet.** The endpoint is, and §3.4 says
+  to optimise that screen over everything else: if it takes more than a
+  minute at the tiedown people skip it and the meters go stale.
+- **`exports.per_month` is declared but not enforced.** Flow quotas need
+  period-aware counting, and `tenant_usage` is a plain counter. §4.2 already
+  says the mechanism exists and nothing important uses it.
 - **`aircraft_documents` is absent** (§3.2). It is a table of pointers into
   object storage, and there is no object storage; it arrives with
   `attachments`.

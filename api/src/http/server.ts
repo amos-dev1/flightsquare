@@ -16,6 +16,7 @@ import {
 import { authRoutes } from './routes/auth.js';
 import { aircraftRoutes } from './routes/aircraft.js';
 import { entitlementsRoutes } from './routes/entitlements.js';
+import { flightRoutes } from './routes/flights.js';
 import { healthRoutes } from './routes/health.js';
 import { referenceRoutes } from './routes/reference.js';
 import { meRoutes } from './routes/me.js';
@@ -163,6 +164,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(tenantRoutes);
   void app.register(entitlementsRoutes);
   void app.register(aircraftRoutes);
+  void app.register(flightRoutes);
   void app.register(referenceRoutes);
 
   return app;

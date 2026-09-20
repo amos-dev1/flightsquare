@@ -4,7 +4,18 @@ import pg from 'pg';
 import { config } from '../config.js';
 import type { Database } from './schema.js';
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+/**
+ * A `date` column is a calendar day, not an instant.
+ *
+ * pg parses OID 1082 into a JS Date by default, which attaches the server's
+ * timezone to something that never had one — a flight flown on 2026-09-20
+ * then renders as the 19th or the 21st depending on where the reader is.
+ * §6 wants timestamptz for instants precisely so that dates can stay dates,
+ * so this hands them back as the 'YYYY-MM-DD' string Postgres sent.
+ */
+types.setTypeParser(types.builtins.DATE, (value) => value);
 
 export const pool = new Pool({
   host: config.db.host,

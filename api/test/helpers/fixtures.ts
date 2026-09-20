@@ -68,6 +68,17 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM invites WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
+    // flights own flight_meters and flight_fuel by cascade, but meter_readings
+    // point back at flights, so those go first.
+    await adminPool.query(`DELETE FROM meter_readings WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM flights WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM idempotency_keys WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
     await adminPool.query(`DELETE FROM meter_readings WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
