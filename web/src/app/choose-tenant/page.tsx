@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { selectTenant } from '@/app/actions';
 import { apiFetch } from '@/lib/api';
-import { Button, Card } from '@/components/ui';
+import { Button, Card, PageTitle } from '@/components/ui';
 import { readSession } from '@/lib/session';
 import type { MembershipSummaryResponse } from '@flightsquare/shared';
 
@@ -19,8 +19,8 @@ export default async function ChooseTenantPage() {
   if (memberships.length === 0) {
     return (
       <main className="mx-auto max-w-sm px-6 py-16">
-        <h1 className="mb-2 text-xl font-semibold tracking-tight">No organisations</h1>
-        <p className="text-sm text-muted">
+        <PageTitle>No organisations</PageTitle>
+        <p className="mt-2 text-sm text-secondary">
           Your account is not a member of any organisation yet.
         </p>
       </main>
@@ -29,7 +29,9 @@ export default async function ChooseTenantPage() {
 
   return (
     <main className="mx-auto max-w-sm px-6 py-16">
-      <h1 className="mb-6 text-xl font-semibold tracking-tight">Choose an organisation</h1>
+      <div className="mb-6">
+        <PageTitle>Choose an organisation</PageTitle>
+      </div>
       <ul className="space-y-3">
         {memberships.map((membership) => (
           <li key={membership.tenant_id}>
@@ -40,8 +42,8 @@ export default async function ChooseTenantPage() {
                 redirect('/aircraft');
               }}
             >
-              <Card className="flex items-center gap-4 p-4">
-                <span className="flex-1 text-sm font-medium">{membership.tenant_name}</span>
+              <Card className="flex items-center gap-4 p-5">
+                <span className="flex-1 text-base font-semibold">{membership.tenant_name}</span>
                 <Button type="submit" variant="secondary">
                   Open
                 </Button>

@@ -4,18 +4,18 @@ import Link from 'next/link';
 import { useActionState } from 'react';
 
 import { createAircraft, type FormState } from '@/app/actions';
-import { Alert, Button, Card, Field, Input, Select } from '@/components/ui';
+import { Alert, Button, Card, Field, Input, PageTitle, Select } from '@/components/ui';
 
 export default function NewAircraftPage() {
   const [state, action, pending] = useActionState<FormState, FormData>(createAircraft, {});
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-semibold tracking-tight">Add aircraft</h1>
+      <PageTitle>Add aircraft</PageTitle>
 
       <Card className="p-6">
         <form action={action} className="space-y-4">
-          <Field label="Registration" hint="The tail number, as painted.">
+          <Field label="Registration" required hint="The tail number, as painted.">
             <Input
               name="registration"
               required

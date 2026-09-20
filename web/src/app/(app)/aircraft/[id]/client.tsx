@@ -1,5 +1,6 @@
 'use client';
 
+import { Archive, Undo2 } from 'lucide-react';
 import { useActionState, useTransition } from 'react';
 
 import { logReading, setAircraftStatus, type FormState } from '@/app/actions';
@@ -50,13 +51,25 @@ export function ReadingForm({ aircraftId }: { aircraftId: string }) {
   );
 }
 
-export function ArchiveButton({ id, status }: { id: string; status: string }) {
+export function ArchiveButton({
+  id,
+  registration,
+  status,
+}: {
+  id: string;
+  registration: string;
+  status: string;
+}) {
   const [pending, startTransition] = useTransition();
   const archived = status !== 'active';
 
+  // Not a destructive action, and not dressed as one: §5.5 makes archiving
+  // reversible and non-destructive — the aircraft keeps its full flight and
+  // maintenance history and comes back on request. The label says which
+  // aircraft, so the button reads the same out of context.
   return (
     <Button
-      variant={archived ? 'secondary' : 'danger'}
+      variant="secondary"
       disabled={pending}
       onClick={() =>
         startTransition(async () => {
@@ -64,7 +77,8 @@ export function ArchiveButton({ id, status }: { id: string; status: string }) {
         })
       }
     >
-      {archived ? 'Restore' : 'Archive'}
+      {archived ? <Undo2 aria-hidden size={16} strokeWidth={2} /> : <Archive aria-hidden size={16} strokeWidth={2} />}
+      {archived ? `Restore ${registration}` : `Archive ${registration}`}
     </Button>
   );
 }

@@ -35,3 +35,37 @@ could not be corrected without a release (§8.1).
 `moduleResolution: bundler`, unlike the `api` workspace's NodeNext. A `.js`
 suffix on a relative import typechecks here and then fails to resolve in the
 bundler, which is a confusing way to spend an afternoon.
+
+## Design
+
+CLAUDE.md §11 governs every screen. The parts that live in code rather than in
+a reviewer's head:
+
+- **Tokens are centralised in `src/app/globals.css`**, as the exact §11 hex
+  values. Nothing hardcodes a colour.
+- **Manrope is loaded with `next/font/google`**, so it is self-hosted — no
+  runtime request to a font CDN and no swap-in shift.
+- **Primary buttons are black.** Teal is emphasis, not a button fill: it
+  appears exactly once in the app, as the active-navigation marker, and
+  §11 is explicit that it means *selection* and never airworthiness.
+- **Nothing is communicated by colour alone.** Status carries an icon and
+  explicit wording; validation carries an icon; the active nav item carries
+  weight as well as the marker.
+- **Controls use `--color-control` (#8A8A8A), not the decorative border
+  token.** §11 says the border token alone is not enough for accessible
+  control contrast, and #E5E5E5 on white is not.
+- Inputs are 16px, which is also what stops iOS zooming the page on focus.
+  Buttons and inputs are 44px tall for touch.
+
+### Missing asset: the logo symbol
+
+§11 specifies an aircraft-in-rounded-square symbol alongside the lowercase
+wordmark, says never to recreate the logo in CSS or from an icon library, and
+says to **request missing assets rather than invent a replacement**. The
+symbol has not been supplied, so the header and sign-in screen render the
+wordmark alone — which is lowercase Manrope by definition — and no invented
+symbol.
+
+To finish it: drop the approved SVG into `web/public/logo.svg` (and
+`logo-mark.svg` for the standalone symbol), then render it beside `Wordmark`
+at 28–32px in `src/app/(app)/layout.tsx`.

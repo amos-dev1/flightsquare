@@ -1,35 +1,57 @@
+import { AlertTriangle, Ban, Check, Clock, Info } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 
 /**
- * Copy-in components, owned outright: no component-library runtime, nothing
- * to theme around, and the post-flight form (§3.4) stays hand-tunable — it is
- * the screen the whole product depends on, and it has to be fast to fill in
- * on a phone at a tiedown.
+ * Shared components, owned outright — no component-library runtime and
+ * nothing to theme around.
+ *
+ * The §11 type scale lives here rather than being retyped per screen:
+ *
+ *   page title      text-3xl font-bold        (30px / 700)
+ *   section heading text-xl font-semibold     (20px / 600)
+ *   card heading    text-base font-semibold   (16px / 600)
+ *   body            text-sm / text-base       (14–16px / 400)
+ *   form input      text-base                 (16px — also stops iOS zooming
+ *                                              the page on focus)
+ *   button, label   text-sm font-semibold     (14px / 600)
+ *   supporting      text-xs                   (12px)
+ *   key metric      text-3xl font-semibold    (30px / 600)
+ *
+ * Radii: 8px on buttons and inputs, 12px on cards and dialogs. Borders rather
+ * than shadows, with elevation kept for things that genuinely float.
  */
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-xl border border-line bg-white shadow-sm ${className}`}>
-      {children}
-    </div>
+    <div className={`rounded-xl border border-line bg-surface ${className}`}>{children}</div>
   );
+}
+
+export function PageTitle({ children }: { children: ReactNode }) {
+  return <h1 className="text-3xl font-bold tracking-tight">{children}</h1>;
+}
+
+export function SectionHeading({ children }: { children: ReactNode }) {
+  return <h2 className="text-xl font-semibold tracking-tight">{children}</h2>;
 }
 
 export function Button({
   variant = 'primary',
   className = '',
   ...props
-}: ComponentProps<'button'> & { variant?: 'primary' | 'secondary' | 'danger' }) {
+}: ComponentProps<'button'> & { variant?: 'primary' | 'secondary' | 'tertiary' }) {
+  // §11: the primary action is black with white text. Teal is never a button
+  // fill — it is emphasis, and one dominant primary per workflow.
   const styles = {
-    primary: 'bg-accent text-white hover:opacity-90',
-    secondary: 'border border-line bg-white text-ink hover:bg-surface',
-    danger: 'border border-red-200 bg-white text-red-700 hover:bg-red-50',
+    primary: 'bg-brand-black text-surface hover:bg-[#1F1F1F] disabled:bg-secondary',
+    secondary: 'border border-control bg-surface text-brand-black hover:bg-subtle',
+    tertiary: 'text-brand-black hover:bg-subtle',
   }[variant];
 
   return (
     <button
       {...props}
-      className={`inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-medium transition disabled:opacity-50 ${styles} ${className}`}
+      className={`inline-flex h-11 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60 ${styles} ${className}`}
     />
   );
 }
@@ -37,46 +59,69 @@ export function Button({
 export function Field({
   label,
   hint,
+  required,
+  error,
   children,
 }: {
   label: string;
   hint?: string;
+  required?: boolean;
+  error?: string;
   children: ReactNode;
 }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-ink">{label}</span>
+      <span className="mb-2 block text-sm font-semibold">
+        {label}
+        {/* Required is marked with a word, not a colour or a bare asterisk. */}
+        {required ? <span className="ml-1 font-normal text-secondary">(required)</span> : null}
+      </span>
       {children}
-      {hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
+      {hint ? <span className="mt-1.5 block text-xs text-secondary">{hint}</span> : null}
+      {error ? (
+        <span className="mt-1.5 flex items-center gap-1.5 text-xs font-medium">
+          {/* Icon as well as text: never meaning through colour alone. */}
+          <AlertTriangle aria-hidden size={14} strokeWidth={2} />
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 }
 
+const controlStyles =
+  'h-11 w-full rounded-lg border border-control bg-surface px-3 text-base ' +
+  'transition-colors duration-150 placeholder:text-secondary ' +
+  'disabled:bg-subtle disabled:text-secondary read-only:bg-subtle ' +
+  'aria-[invalid=true]:border-brand-black aria-[invalid=true]:border-2';
+
 export function Input({ className = '', ...props }: ComponentProps<'input'>) {
-  return (
-    <input
-      {...props}
-      className={`h-10 w-full rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 ${className}`}
-    />
-  );
+  return <input {...props} className={`${controlStyles} ${className}`} />;
 }
 
 export function Select({ className = '', ...props }: ComponentProps<'select'>) {
+  return <select {...props} className={`${controlStyles} ${className}`} />;
+}
+
+export function Textarea({ className = '', ...props }: ComponentProps<'textarea'>) {
   return (
-    <select
+    <textarea
       {...props}
-      className={`h-10 w-full rounded-lg border border-line bg-white px-3 text-sm outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 ${className}`}
+      className={`${controlStyles} h-auto min-h-22 py-2.5 ${className}`}
     />
   );
 }
 
-export function Alert({ children }: { children: ReactNode }) {
+/** Form-level feedback, distinguished by an icon rather than by colour. */
+export function Alert({ children, tone = 'error' }: { children: ReactNode; tone?: 'error' | 'info' }) {
+  const Icon = tone === 'error' ? AlertTriangle : Info;
   return (
     <p
-      role="alert"
-      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      role={tone === 'error' ? 'alert' : 'status'}
+      className="flex items-start gap-2 rounded-lg border border-brand-black bg-subtle px-3 py-2.5 text-sm"
     >
-      {children}
+      <Icon aria-hidden size={16} strokeWidth={2} className="mt-0.5 shrink-0" />
+      <span>{children}</span>
     </p>
   );
 }
@@ -84,19 +129,98 @@ export function Alert({ children }: { children: ReactNode }) {
 export function Empty({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <div className="rounded-xl border border-dashed border-line px-6 py-12 text-center">
-      <p className="text-sm font-medium text-ink">{title}</p>
-      {children ? <div className="mt-2 text-sm text-muted">{children}</div> : null}
+      <p className="text-base font-semibold">{title}</p>
+      {children ? <div className="mt-2 text-sm text-secondary">{children}</div> : null}
     </div>
   );
 }
 
-/** A meter value, or an honest dash when nothing has been read yet. */
+/**
+ * A meter value, or an honest dash when nothing has been read yet.
+ *
+ * §11: Hobbs and tach are distinguished explicitly, and units are named — so
+ * the label always travels with the number rather than being implied by
+ * column position.
+ */
 export function Meter({ value, unit = 'hrs' }: { value: string | null; unit?: string }) {
-  if (value === null) return <span className="text-muted">—</span>;
+  if (value === null) return <span className="text-secondary">—</span>;
   return (
     <span className="tabular">
       {value}
-      <span className="ml-1 text-xs text-muted">{unit}</span>
+      <span className="ml-1 text-xs font-normal text-secondary">{unit}</span>
+    </span>
+  );
+}
+
+export function KeyMetric({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: string | null;
+  unit?: string;
+}) {
+  return (
+    <div className="bg-surface px-5 py-4">
+      <p className="text-xs font-medium text-secondary">{label}</p>
+      <p className="mt-1 text-3xl font-semibold">
+        {value === null ? (
+          <span className="text-secondary">—</span>
+        ) : (
+          <span className="tabular">
+            {value}
+            {unit ? <span className="ml-1 text-sm font-normal text-secondary">{unit}</span> : null}
+          </span>
+        )}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Status, as §11 specifies it: an icon and explicit wording, never colour
+ * alone, and never an airworthiness claim inferred from silence.
+ */
+export type StatusKind = 'available' | 'due_soon' | 'overdue' | 'grounded' | 'neutral';
+
+const STATUS: Record<StatusKind, { icon: typeof Check; label: string; emphatic: boolean }> = {
+  available: { icon: Check, label: 'Available', emphatic: false },
+  due_soon: { icon: Clock, label: 'Due soon', emphatic: false },
+  overdue: { icon: AlertTriangle, label: 'Overdue', emphatic: true },
+  grounded: { icon: Ban, label: 'Grounded', emphatic: true },
+  neutral: { icon: Info, label: '', emphatic: false },
+};
+
+export function Status({ kind, children }: { kind: StatusKind; children?: ReactNode }) {
+  const { icon: Icon, label, emphatic } = STATUS[kind];
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${
+        // Critical states get weight, a border and an icon — not a colour.
+        emphatic ? 'border border-brand-black bg-subtle' : 'bg-subtle text-secondary'
+      }`}
+    >
+      <Icon aria-hidden size={14} strokeWidth={2} />
+      {children ?? label}
+    </span>
+  );
+}
+
+/**
+ * The lowercase wordmark.
+ *
+ * §11's full logo is an aircraft-in-rounded-square symbol plus this wordmark,
+ * and it also says never to recreate the logo in CSS or from an icon library,
+ * and to request missing assets rather than invent a replacement. The symbol
+ * has not been supplied, so this renders the wordmark alone — which *is*
+ * lowercase Manrope by definition — and no invented symbol. Drop the approved
+ * SVG into web/public and render it beside this at 28–32px.
+ */
+export function Wordmark({ className = '' }: { className?: string }) {
+  return (
+    <span className={`text-base font-extrabold lowercase tracking-tight ${className}`}>
+      flightsquare
     </span>
   );
 }

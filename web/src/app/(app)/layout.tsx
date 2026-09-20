@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { logout } from '@/app/actions';
+import { Wordmark } from '@/components/ui';
 import { apiFetch, ApiError } from '@/lib/api';
 import { readSession } from '@/lib/session';
 import type { EntitlementsResponse, TenantResponse } from '@flightsquare/shared';
@@ -32,19 +33,36 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line bg-white">
-        <div className="mx-auto flex h-14 max-w-4xl items-center gap-6 px-6">
-          <Link href="/aircraft" className="text-sm font-semibold tracking-tight">
-            FlightSquare
+      <header className="border-b border-line bg-surface">
+        <div className="mx-auto flex h-16 max-w-4xl items-center gap-8 px-6">
+          {/* §11 keeps the logo separate from navigation. The approved symbol
+              belongs to its left at 28–32px once the asset is supplied. */}
+          <Link href="/aircraft" aria-label="FlightSquare home">
+            <Wordmark />
           </Link>
+
           <nav className="flex-1">
-            <Link href="/aircraft" className="text-sm text-muted hover:text-ink">
+            {/* Active item: black, heavier, and a small teal marker — the
+                weight carries it when colour is unavailable. */}
+            <Link
+              href="/aircraft"
+              aria-current="page"
+              className="relative inline-flex h-16 items-center text-sm font-semibold text-brand-black"
+            >
               Fleet
+              <span
+                aria-hidden
+                className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-accent"
+              />
             </Link>
           </nav>
-          <span className="hidden text-sm text-muted sm:inline">{tenant.name}</span>
+
+          <span className="hidden text-sm text-secondary sm:inline">{tenant.name}</span>
           <form action={logout}>
-            <button type="submit" className="text-sm text-muted hover:text-ink">
+            <button
+              type="submit"
+              className="rounded-lg px-2 py-1 text-sm font-semibold hover:bg-subtle"
+            >
               Sign out
             </button>
           </form>
@@ -58,7 +76,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         what the API resolved rather than a table of what each plan includes —
         that table would go stale and could not be corrected without a release.
       */}
-      <footer className="mx-auto max-w-4xl px-6 pb-8 text-xs text-muted">
+      <footer className="mx-auto max-w-4xl px-6 pb-8 text-xs text-secondary">
         {entitlements.plan_code} plan · aircraft{' '}
         {aircraftQuota?.limit === 'unlimited' ? 'unlimited' : aircraftQuota?.limit}
       </footer>

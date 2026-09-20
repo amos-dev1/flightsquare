@@ -1,7 +1,9 @@
 import Link from 'next/link';
 
 import { apiFetch } from '@/lib/api';
-import { Button, Card, Empty, Meter } from '@/components/ui';
+import { Plus } from 'lucide-react';
+
+import { Button, Card, Empty, Meter, PageTitle, Status } from '@/components/ui';
 import type { AircraftResponse } from '@flightsquare/shared';
 
 export default async function FleetPage() {
@@ -12,9 +14,13 @@ export default async function FleetPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">Fleet</h1>
+        <PageTitle>Fleet</PageTitle>
         <Link href="/aircraft/new">
-          <Button>Add aircraft</Button>
+          {/* §11: specific labels, one dominant primary per section. */}
+          <Button>
+            <Plus aria-hidden size={16} strokeWidth={2} />
+            Add aircraft
+          </Button>
         </Link>
       </div>
 
@@ -32,9 +38,7 @@ export default async function FleetPage() {
 
           {inactive.length > 0 ? (
             <section>
-              <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
-                Archived
-              </h2>
+              <h2 className="mb-3 text-xl font-semibold tracking-tight">Archived</h2>
               <ul className="space-y-3">
                 {inactive.map((aircraft) => (
                   <AircraftRow key={aircraft.id} aircraft={aircraft} />
@@ -52,31 +56,31 @@ function AircraftRow({ aircraft }: { aircraft: AircraftResponse }) {
   return (
     <li>
       <Link href={`/aircraft/${aircraft.id}`} className="block">
-        <Card className="flex items-center gap-4 p-4 transition hover:border-accent/40">
+        <Card className="flex items-center gap-4 p-5 transition-colors duration-150 hover:bg-subtle">
           <div className="flex-1">
-            <p className="font-medium tracking-tight">
+            <p className="flex items-center gap-2 text-base font-semibold">
               {aircraft.registration}
               {aircraft.status !== 'active' ? (
-                <span className="ml-2 rounded bg-surface px-1.5 py-0.5 text-xs text-muted">
-                  {aircraft.status}
-                </span>
+                <Status kind="neutral">{aircraft.status}</Status>
               ) : null}
             </p>
-            <p className="text-sm text-muted">
+            <p className="mt-0.5 text-sm text-secondary">
               {aircraft.type_code ?? 'Unknown type'}
               {aircraft.home_base ? ` · ${aircraft.home_base}` : ''}
             </p>
           </div>
-          <dl className="hidden gap-6 text-sm sm:flex">
-            <div>
-              <dt className="text-xs text-muted">Hobbs</dt>
-              <dd>
+          {/* Numbers right-aligned and labelled; Hobbs and tach never implied
+              by position alone. */}
+          <dl className="hidden gap-8 text-sm sm:flex">
+            <div className="text-right">
+              <dt className="text-xs font-medium text-secondary">Hobbs</dt>
+              <dd className="mt-0.5 font-semibold">
                 <Meter value={aircraft.hobbs} />
               </dd>
             </div>
-            <div>
-              <dt className="text-xs text-muted">Tach</dt>
-              <dd>
+            <div className="text-right">
+              <dt className="text-xs font-medium text-secondary">Tach</dt>
+              <dd className="mt-0.5 font-semibold">
                 <Meter value={aircraft.tach} />
               </dd>
             </div>

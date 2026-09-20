@@ -1,23 +1,67 @@
 @import "tailwindcss";
 
+/*
+ * §11 colour tokens, centralised here and nowhere else.
+ *
+ * The interface is ~95% monochrome. Teal is emphasis, not decoration: small
+ * active-navigation markers, a selected control, one emphasised chart series.
+ * It never means "safe" or "airworthy" — §11 is explicit that teal indicates
+ * selection, and airworthiness is never inferred from the absence of a
+ * warning.
+ *
+ * Utility names are shortened where the guideline name would read badly as a
+ * Tailwind class (text-text-secondary); the mapping is recorded per line.
+ */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --color-ink: oklch(0.21 0.02 250);
-  --color-muted: oklch(0.52 0.02 250);
-  --color-line: oklch(0.91 0.01 250);
-  --color-surface: oklch(0.99 0.002 250);
-  --color-accent: oklch(0.52 0.15 250);
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --color-brand-black: #000000;   /* brand-black          — text, primary buttons */
+  --color-surface: #FFFFFF;       /* surface              — backgrounds and cards */
+  --color-secondary: #6B6B6B;     /* text-secondary       — supporting text */
+  --color-subtle: #F4F4F4;        /* surface-subtle       — muted surfaces, hover */
+  --color-line: #E5E5E5;          /* border-subtle        — dividers, card borders */
+  --color-accent: #00C2B8;        /* accent               — sparse teal emphasis */
+  --color-accent-ink: #007A74;    /* accent-text-on-light — teal text on white */
+  --color-on-accent: #000000;     /* on-accent            — never white on teal */
+
+  /* Controls need a darker boundary than the decorative border token: §11
+     says the border token alone is not sufficient for accessible contrast. */
+  --color-control: #8A8A8A;
 }
 
 html {
-  background: oklch(0.97 0.005 250);
-  color: var(--color-ink);
+  background: var(--color-surface);
+  color: var(--color-brand-black);
+  /* Light mode by default; no dark theme unless asked for. */
+  color-scheme: light;
+}
+
+body {
+  line-height: 1.5;
+}
+
+h1, h2, h3 {
+  line-height: 1.25;
 }
 
 /*
- * Meters are the one number in this product people compare at a glance —
- * 1202.9 against 1200.4 — so they line up by digit rather than by shape.
+ * Meters are the numbers people compare at a glance — 1202.9 against 1200.4 —
+ * so they line up by digit rather than by shape. §11 asks for tabular
+ * numerals on hours, times and amounts.
  */
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* A visible, neutral focus ring that does not depend on colour to be seen. */
+:focus-visible {
+  outline: 2px solid var(--color-brand-black);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
