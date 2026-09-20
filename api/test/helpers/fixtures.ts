@@ -71,6 +71,22 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM memberships WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
+    // role_bundles is referenced by memberships and by its own permission
+    // rows, so it goes after both.
+    await adminPool.query(
+      `DELETE FROM role_bundle_permissions WHERE tenant_id IN (${tenants})`,
+      [`${TEST_PREFIX}%`],
+    );
+    await adminPool.query(`DELETE FROM role_bundles WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM tenant_usage WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(
+      `DELETE FROM tenant_entitlement_overrides WHERE tenant_id IN (${tenants})`,
+      [`${TEST_PREFIX}%`],
+    );
     await adminPool.query(`DELETE FROM users WHERE email LIKE '%@vitest.test'`);
     await adminPool.query(`DELETE FROM tenants WHERE slug LIKE $1`, [`${TEST_PREFIX}%`]);
   } finally {

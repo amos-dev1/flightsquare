@@ -5,8 +5,13 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { config } from '../config.js';
 import { ApiError, ClientTooOldError, isRlsRefusal } from './errors.js';
-import { requestContext, type RequestContextOptions } from './plugins/request-context.js';
+import {
+  assertRouteGatesDeclared,
+  requestContext,
+  type RequestContextOptions,
+} from './plugins/request-context.js';
 import { authRoutes } from './routes/auth.js';
+import { entitlementsRoutes } from './routes/entitlements.js';
 import { healthRoutes } from './routes/health.js';
 import { meRoutes } from './routes/me.js';
 import { signupRoutes } from './routes/signup.js';
@@ -46,6 +51,10 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     logger: { level: config.logLevel },
     genReqId: () => randomUUID(),
   });
+
+  // Synchronous, so it covers every route added from here on — including one
+  // added directly on the instance, which a deferred plugin's hook would miss.
+  app.addHook('onRoute', assertRouteGatesDeclared);
 
   /**
    * §8.1: a shipped iOS build cannot be force-updated, so the API needs a way
@@ -135,6 +144,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   // Session-scoped.
   void app.register(meRoutes);
   void app.register(tenantRoutes);
+  void app.register(entitlementsRoutes);
 
   return app;
 }

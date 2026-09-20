@@ -73,6 +73,8 @@ db/                             not an npm workspace — SQL and psql only
                                 auth.provision_tenant (§2.1 entry 7)
     0004_sessions_and_audit.sql sessions, refresh tokens, audit log, and
                                 §2.1 entries 8 and 9
+    0005_entitlements_and_roles.sql
+                                plans, quotas, usage counting, role bundles
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -82,24 +84,32 @@ db/                             not an npm workspace — SQL and psql only
     050_session_context_and_provisioning.sql
                                            user context and signup
     060_sessions.sql                       sessions, rotation, audit log
+    070_entitlements_and_roles.sql         quotas, bundles, the §2.3 helpers
 api/
   src/
     config.ts                   env, client version floors, rate limits
     password.ts                 scrypt from node:crypto, no native build step
     tokens.ts                   session token generation and hashing
+    permissions.ts              §1.5's twelve resources and three levels
+    entitlements/
+      registry.ts               every key, with a global default
+      resolver.ts               §1.4's chain: override -> plan -> default
+      values.ts                 Unlimited | Limit(n), never a sentinel
     db/
       schema.ts                 Kysely types for the four tables
       pool.ts                   pg pool, Kysely, and the boot-time role check
       context.ts                withSession / withTenant / withUser
       auth.ts                   the nine §2.1 functions, typed
       sessions.ts               creating, rotating and revoking sessions
+      entitlements.ts           loading the layers, and the quota gate
     http/
       session.ts                resolveSession — the one place a request
                                 becomes a session
       plugins/request-context.ts  binds context to the request
       errors.ts                 the §1.6 gates: 404 / 403 / 402, and 429
       server.ts                 Fastify, error handler, version handshake
-      routes/                   health, signup, auth, me, tenant
+      routes/                   health, signup, auth, me, tenant,
+                                entitlements
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -129,7 +139,7 @@ rewritten to `USING (true)`, `BYPASSRLS` granted to `app_role`, the
 provisioning insert policy dropped, and `auth.provision_tenant` stripped of
 its authenticated-user check.
 
-## Three things worth knowing before writing the next migration
+## Four things worth knowing before writing the next migration
 
 **1. `deleted_at` is a control-plane marker, not an application verb.**
 
@@ -175,7 +185,32 @@ User context is why `auth.provision_tenant` can refuse to attach an account
 other than the session's own, and why §4.4's row scoping will be a policy
 rather than a `WHERE` clause someone has to remember.
 
-**3. The bootstrap trap is solved with a flag scoped to a function call.**
+**3. Gates are declared on the route, not written in the handler.**
+
+```ts
+app.post('/aircraft', {
+  config: {
+    requiresTenant: true,
+    feature: 'maintenance_module',
+    permission: ['aircraft', 'write'],
+  },
+}, async (request) => request.withTenant(async (trx) => {
+  await assertQuota(trx, 'aircraft.active', entitlements.quota('aircraft.active'));
+  // ...
+}));
+```
+
+A preHandler enforces §1.6's order — feature 404, then permission 403 — so it
+cannot be typed in the wrong order, and **boot fails if a tenant-scoped route
+declares no permission**. §1.5 has no "authenticated therefore allowed"
+default, and a forgotten check fails *open*: the endpoint simply works for
+everyone and nothing says so.
+
+The quota stays in the handler because §4.5 needs its row lock inside the
+write transaction. That lock is what closes the check-then-insert race that
+lets two concurrent requests both slip past a limit of one.
+
+**4. The bootstrap trap is solved with a flag scoped to a function call.**
 
 `FORCE ROW LEVEL SECURITY` subjects the owner to policy, and the §2 functions
 run *as* the owner with no tenant context — so without something they would
@@ -212,22 +247,21 @@ is left:
 - **No domain tables.** The next migration is the fleet: `aircraft` unique on
   `(tenant_id, registration)` rather than globally, `meter_readings`
   append-only, and the global reference tables. After that, flight logging —
-  which is the point of the whole thing.
+  which is the point of the whole thing. `aircraft.active` already has its
+  quota, its plan rows and its registry entry, so the fleet migration only
+  adds the counting trigger.
+- **Row scoping is still open** (CLAUDE.md §10, decision 3). A Pilot's
+  `charges: read` currently means every charge in the tenant, which is wrong
+  in a club. It has to be settled before the ledger is built — not before, and
+  not after.
 - **MFA is reported but not enforced.** `login` returns `mfa_required` from
   the user row; nothing acts on it yet.
-- **Nothing writes to `audit_log`.** The table exists with its acting-admin
-  column because §10 binds that to the migration creating it. §5.9 wants every
-  plan change recorded there, so the first writer arrives with entitlements.
-- **`role_bundles` is absent, so `memberships` carries no role.** §1.5's
-  resources are domain vocabulary; the bundle column lands with that table
-  rather than as a FK to nothing. `auth.provision_tenant` makes the creator a
-  member, and "the creator is Admin" (§4.4) becomes real at that point.
-- **The §1.6 gates exist as error types but nothing resolves entitlements.**
-  `plans`, `plan_entitlements` and `tenant_entitlement_overrides` are the next
-  migration after sessions; the resolver and its registry (§1.4) plug in above
-  them. Until then no route can be feature-gated.
-- **Signup is not rate limited.** It must be before it is public — 429, and
-  §1.6 is explicit that 429 is not a quota.
+- **Nothing writes to `audit_log`.** §5.9 wants every plan change recorded
+  there with before/after resolved entitlements, which arrives with plan
+  changes rather than with the plans themselves.
+- **§5's downgrade machinery does not exist.** `over_quota`, the 14-day
+  remediation window and the deterministic auto-archive are a later phase; the
+  schema does not foreclose them.
 - **`packages/shared` has no build step.** It is consumed only with
   `import type`, which erases, so nothing resolves it at runtime. A *value*
   import from it would compile and then fail at runtime. The moment it needs

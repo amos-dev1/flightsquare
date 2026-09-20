@@ -197,6 +197,27 @@ Three classes, three different rules. Classify every new table when you create i
 - **Global reference** — shared, read-only to the application, no `tenant_id`, no RLS. Aerodromes, ICAO aircraft type designators, countries, timezones, currencies. Written only by migrations and reference-data import jobs. Never contains customer data.
 - **Platform / control plane** — `tenants`, `plans`, `plan_entitlements`, `tenant_entitlement_overrides`, `subscriptions`, `users`, billing events. Reached via §2 functions or with tenant context where it applies. Never joined casually into tenant queries.
 
+### 2.3 Privileged helpers — the second kind of definer function
+
+§2.1 is the bootstrap door: functions that run with **no** tenant context, because obtaining the context is what they are for. There is a second, opposite category, and it needs naming rather than smuggling in under §2.1's rules.
+
+A **privileged helper** runs only **with** tenant context. It exists because the application role must not hold a privilege directly — the case that forces it is §4.5's quota counter: `SELECT … FOR UPDATE` requires `UPDATE` privilege, and an application role that can update its own usage counters can set one to zero and walk past every quota.
+
+Rules, which are stricter than §2.1's in the way that matters:
+
+1. **It requires tenant context and fails closed without it.** No context is an exception, never a permissive default. This is the inverse of a §2.1 function and is what makes the category safe.
+2. **It derives the tenant from `app.current_tenant_id()`, never from an argument.** A helper that takes a `tenant_id` can be aimed at another tenant, which makes it a bypass wearing a different hat. This rule is absolute.
+3. **It exists only to hold a privilege the application role must not have.** Convenience is not a justification; if `app_role` could do the work under its own grants, it does.
+4. `SET search_path` pinned, `REVOKE ALL … FROM PUBLIC`, `GRANT EXECUTE` to the application role only. Trigger functions get no grant at all — nothing can call them directly, which is why they are doors that do not open.
+5. **It lives in `public` and is listed below.** Adding one is an architectural decision requiring review, exactly as in §2.1.
+
+| Function | Holds the privilege to | Tenant from |
+|---|---|---|
+| `public.assert_quota` | lock and read a `tenant_usage` row the app may only read | `app.current_tenant_id()` |
+| `public.refresh_members_active_usage` | write `tenant_usage` (trigger; not callable) | the row being changed |
+
+If a task seems to need a third, the first question is whether the application role could simply be granted what it needs without also being able to abuse it.
+
 ---
 
 ## 3. Domain model

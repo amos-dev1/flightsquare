@@ -88,22 +88,24 @@ describe('request context', () => {
       expect(second.json().id).not.toBe(first.json().id);
     });
 
-    it('cannot see a tenant it is not a member of, even named directly', async () => {
-      // Alpha's session, asking the database for Bravo's row by id. The
-      // policy, not the handler, is what returns nothing.
+    it('cannot use a tenant the user is not a member of', async () => {
       stub = { sessionId: SESSION_ID, userId: alpha.user_id, tenantId: alpha.tenant_id };
-      const rows = await stubbed
-        .inject({ method: 'GET', url: '/tenant' })
-        .then((r) => r.json());
-      expect(rows.id).toBe(alpha.tenant_id);
+      const ours = await stubbed.inject({ method: 'GET', url: '/tenant' });
+      expect(ours.json().id).toBe(alpha.tenant_id);
 
+      // A session claiming Bravo's tenant while being Alpha's user. Before
+      // permissions existed this read Bravo's row — tenancy was the tenant id
+      // and nothing checked that the user belonged there. Now the permission
+      // load finds no membership, so the bundle is empty and every level is
+      // 'none'. Two independent things have to agree before anything is read.
       stub = { sessionId: SESSION_ID, userId: alpha.user_id, tenantId: bravo.tenant_id };
-      // A session claiming Bravo while being Alpha's user still reads Bravo —
-      // tenancy is the tenant id, not the user. This is why resolveSession is
-      // the only place a session is minted, and why §1.1 forbids taking that
-      // id from the request.
       const crossed = await stubbed.inject({ method: 'GET', url: '/tenant' });
-      expect(crossed.json().id).toBe(bravo.tenant_id);
+      expect(crossed.statusCode).toBe(403);
+      expect(crossed.json()).toEqual({
+        error: 'forbidden',
+        resource: 'settings',
+        level: 'read',
+      });
     });
   });
 

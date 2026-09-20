@@ -11,7 +11,10 @@ export async function tenantRoutes(app: FastifyInstance): Promise<void> {
    * middleware: the only tenant this code can reach is the one the session
    * resolved to, and row-level security is what actually enforces it.
    */
-  app.get('/tenant', { config: { requiresSession: true } }, async (request) => {
+  app.get(
+    '/tenant',
+    { config: { requiresTenant: true, permission: ['settings', 'read'] } },
+    async (request) => {
     const tenant = await request.withTenant((trx) =>
       trx
         .selectFrom('tenants')
@@ -24,6 +27,7 @@ export async function tenantRoutes(app: FastifyInstance): Promise<void> {
     // cross-tenant existence, and this path cannot tell the two apart.
     if (!tenant) throw new NotFoundError();
 
-    return tenant;
-  });
+      return tenant;
+    },
+  );
 }

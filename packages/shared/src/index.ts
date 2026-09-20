@@ -172,3 +172,30 @@ export interface TenantResponse {
   archetype: TenantArchetype;
   branding: Record<string, unknown>;
 }
+
+// ---------------------------------------------------------------------------
+// Entitlements
+//
+// §8.1: the client fetches these and hides UI accordingly. It must never
+// carry a compiled-in table of what a plan includes — that goes stale on the
+// App Store and cannot be corrected without a release. Shapes travel here;
+// values are fetched.
+// ---------------------------------------------------------------------------
+
+/** Which layer of §1.4's chain supplied a value. */
+export type EntitlementSource = 'override' | 'plan' | 'default';
+
+export interface ResolvedQuota {
+  /** A finite limit, or the string "unlimited" — never a sentinel number. */
+  limit: number | 'unlimited';
+  source: EntitlementSource;
+}
+
+export interface EntitlementsResponse {
+  plan_code: string;
+  flags: Record<string, boolean>;
+  quotas: Record<string, ResolvedQuota>;
+  config: Record<string, string>;
+  /** What this member holds, so the client can hide what they cannot do. */
+  permissions: Record<string, 'none' | 'read' | 'write'>;
+}

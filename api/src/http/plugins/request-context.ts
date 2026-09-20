@@ -2,8 +2,21 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 
 import { withSession, type Tx } from '../../db/context.js';
-import { TenantRequiredError, UnauthorizedError } from '../errors.js';
+import { loadEntitlements, loadPermissions } from '../../db/entitlements.js';
+import type { Entitlements } from '../../entitlements/resolver.js';
+import type { FlagKey } from '../../entitlements/registry.js';
+import type { Permissions, RequiredLevel, Resource } from '../../permissions.js';
+import { NotFoundError, TenantRequiredError, UnauthorizedError } from '../errors.js';
 import { resolveSession as defaultResolver, type ResolvedSession, type SessionResolver } from '../session.js';
+
+/**
+ * What a tenant-scoped route requires of the caller.
+ *
+ * `'any_member'` is the explicit opt-out for routes every member may reach —
+ * reading your own entitlements, say. It exists so that "no permission" is a
+ * decision someone wrote down rather than a line they forgot.
+ */
+export type PermissionRequirement = readonly [Resource, RequiredLevel] | 'any_member';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -13,6 +26,13 @@ declare module 'fastify' {
     withTenant<T>(fn: (trx: Tx) => Promise<T>): Promise<T>;
     /** Run with user context only — the state before a tenant is picked. */
     withUser<T>(fn: (trx: Tx) => Promise<T>): Promise<T>;
+    /**
+     * This tenant's resolved entitlements and this member's permissions,
+     * loaded once per request (§1.4) by the gate and reusable by the handler.
+     */
+    gates: RequestGates | null;
+    /** Load the gates on demand, for a handler that needs them ungated. */
+    loadGates(): Promise<RequestGates>;
   }
 
   interface FastifyContextConfig {
@@ -21,6 +41,51 @@ declare module 'fastify' {
      * signup have no session by definition — signup is how you get one.
      */
     requiresSession?: boolean;
+    /**
+     * Opt a route into tenant scope. Implies requiresSession, and obliges the
+     * route to declare a permission — boot fails otherwise.
+     */
+    requiresTenant?: boolean;
+    /** The capability this route lives behind. Absent means ungated. */
+    feature?: FlagKey;
+    /** What the caller must hold. Required on every requiresTenant route. */
+    permission?: PermissionRequirement;
+  }
+}
+
+export interface RequestGates {
+  entitlements: Entitlements;
+  permissions: Permissions;
+}
+
+/**
+ * §1.5 has no "authenticated therefore allowed" default, and a forgotten
+ * check fails *open* — the endpoint simply works for everyone, and nothing
+ * says so. Catching it at registration rather than in review is the only way
+ * that stays true as the surface grows.
+ *
+ * Installed synchronously by buildServer rather than from inside this plugin:
+ * onRoute only fires for routes added after the hook exists, and a plugin
+ * registered with app.register() is not processed until ready(). A route
+ * added directly on the instance before then would have slipped past.
+ */
+export function assertRouteGatesDeclared(route: {
+  method: string | string[];
+  url: string;
+  config?: { requiresTenant?: boolean; permission?: unknown } | undefined;
+}): void {
+  const config = route.config;
+  if (config?.requiresTenant === true && config.permission === undefined) {
+    throw new Error(
+      `${String(route.method)} ${route.url} requires a tenant but declares no permission. ` +
+        "Declare one, or 'any_member' if every member of the tenant may reach it.",
+    );
+  }
+  if (config?.requiresTenant !== true && config?.permission !== undefined) {
+    throw new Error(
+      `${String(route.method)} ${route.url} declares a permission but not requiresTenant, ` +
+        'so the permission would never be checked.',
+    );
   }
 }
 
@@ -86,9 +151,55 @@ async function requestContextPlugin(
     return withSession({ userId: ctx.userId }, fn);
   });
 
+  app.decorateRequest('gates', null);
+
+  app.decorateRequest('loadGates', async function (this: FastifyRequest): Promise<RequestGates> {
+    if (this.gates) return this.gates;
+    // One transaction, one load, reused for the rest of the request — §1.4's
+    // per-request cache, and the reason invalidation is trivially correct.
+    const gates = await this.withTenant(async (trx) => ({
+      entitlements: await loadEntitlements(trx),
+      permissions: await loadPermissions(trx, requireSession(this).userId),
+    }));
+    this.gates = gates;
+    return gates;
+  });
+
   app.addHook('preHandler', async (request) => {
-    if (request.routeOptions.config?.requiresSession !== true) return;
+    const config = request.routeOptions.config;
+    const needsSession = config?.requiresSession === true || config?.requiresTenant === true;
+    if (!needsSession) return;
+
     request.ctx = await resolve(request);
+
+    if (config?.requiresTenant !== true) return;
+    const ctx = requireSession(request);
+    if (!ctx.tenantId) throw new TenantRequiredError();
+
+    if (config.feature === undefined && config.permission === 'any_member') return;
+
+    const gates = await request.loadGates();
+
+    /**
+     * §1.6's order, and the order is the point.
+     *
+     * Feature first, so a tenant without a module cannot tell from status
+     * codes whether the module exists, whether they would be allowed to use
+     * it, or how close to a limit they are. A gated capability has to be
+     * indistinguishable from one that was never built. Quota is third and
+     * lives in the handler, because its row lock belongs in the write
+     * transaction (§4.5).
+     */
+    if (config.feature !== undefined && !gates.entitlements.flag(config.feature)) {
+      // 404, never 402 — upsell copy belongs in the UI, reached through the
+      // entitlement data the client already has, not through a status code.
+      throw new NotFoundError();
+    }
+
+    if (config.permission !== undefined && config.permission !== 'any_member') {
+      const [resource, level] = config.permission;
+      gates.permissions.require(resource, level);
+    }
   });
 }
 

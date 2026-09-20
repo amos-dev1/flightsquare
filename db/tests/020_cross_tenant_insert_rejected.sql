@@ -21,12 +21,19 @@ SET LOCAL app.tenant_id = '01920000-0000-7000-8000-00000000000a';
 -- INSERT carrying tenant B's id.
 -- ---------------------------------------------------------------------------
 DO $t$
-DECLARE msg text;
+DECLARE
+  msg      text;
+  v_bundle uuid;
 BEGIN
+  SELECT id INTO v_bundle FROM public.role_bundles WHERE code = 'admin';
+  IF v_bundle IS NULL THEN
+    RAISE EXCEPTION 'tenant A has no admin bundle; provisioning is incomplete';
+  END IF;
+
   BEGIN
-    INSERT INTO public.memberships (tenant_id, user_id, status)
+    INSERT INTO public.memberships (tenant_id, user_id, status, role_bundle_id)
     VALUES ('01920000-0000-7000-8000-00000000000b',
-            '01920000-0000-7000-8000-0000000000a1', 'active');
+            '01920000-0000-7000-8000-0000000000a1', 'active', v_bundle);
     RAISE EXCEPTION 'WITH CHECK did not reject an insert into tenant B';
   EXCEPTION WHEN insufficient_privilege THEN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
@@ -96,11 +103,14 @@ $t$;
 -- above would pass for the wrong reason.
 -- ---------------------------------------------------------------------------
 DO $t$
-DECLARE n bigint;
+DECLARE
+  n        bigint;
+  v_bundle uuid;
 BEGIN
-  INSERT INTO public.memberships (tenant_id, user_id, status)
+  SELECT id INTO v_bundle FROM public.role_bundles WHERE code = 'pilot';
+  INSERT INTO public.memberships (tenant_id, user_id, status, role_bundle_id)
   VALUES ('01920000-0000-7000-8000-00000000000a',
-          '01920000-0000-7000-8000-0000000000b1', 'invited');
+          '01920000-0000-7000-8000-0000000000b1', 'invited', v_bundle);
   SELECT count(*) INTO n FROM public.memberships;
   IF n <> 3 THEN RAISE EXCEPTION 'own-tenant insert did not land (% rows)', n; END IF;
   RAISE NOTICE '   ok: in-tenant insert succeeds (positive control)';
@@ -153,9 +163,12 @@ BEGIN;
 DO $t$
 BEGIN
   BEGIN
-    INSERT INTO public.memberships (tenant_id, user_id, status)
+    -- The bundle id is a real one from tenant A, looked up by the fixtures.
+    -- With no context the policy refuses regardless of what it references.
+    INSERT INTO public.memberships (tenant_id, user_id, status, role_bundle_id)
     VALUES ('01920000-0000-7000-8000-00000000000a',
-            '01920000-0000-7000-8000-0000000000a1', 'active');
+            '01920000-0000-7000-8000-0000000000a1', 'active',
+            (SELECT id FROM public.role_bundles LIMIT 1));
     RAISE EXCEPTION 'insert succeeded with no tenant context';
   EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE '   ok: insert with no tenant context rejected';

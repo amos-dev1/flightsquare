@@ -26,11 +26,38 @@ BEGIN
 END
 $guard$;
 
+-- Foreign keys, leaves first. memberships and role_bundle_permissions both
+-- point at role_bundles, and tenant_usage at tenants, so the order matters
+-- more than it used to.
+DELETE FROM public.audit_log
+ WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
+                     '01920000-0000-7000-8000-00000000000b',
+                     '01920000-0000-7000-8000-00000000000c');
 DELETE FROM public.invites
  WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
                      '01920000-0000-7000-8000-00000000000b',
                      '01920000-0000-7000-8000-00000000000c');
+DELETE FROM public.sessions
+ WHERE user_id IN ('01920000-0000-7000-8000-0000000000a1',
+                   '01920000-0000-7000-8000-0000000000b1',
+                   '01920000-0000-7000-8000-0000000000c1');
 DELETE FROM public.memberships
+ WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
+                     '01920000-0000-7000-8000-00000000000b',
+                     '01920000-0000-7000-8000-00000000000c');
+DELETE FROM public.role_bundle_permissions
+ WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
+                     '01920000-0000-7000-8000-00000000000b',
+                     '01920000-0000-7000-8000-00000000000c');
+DELETE FROM public.role_bundles
+ WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
+                     '01920000-0000-7000-8000-00000000000b',
+                     '01920000-0000-7000-8000-00000000000c');
+DELETE FROM public.tenant_usage
+ WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
+                     '01920000-0000-7000-8000-00000000000b',
+                     '01920000-0000-7000-8000-00000000000c');
+DELETE FROM public.tenant_entitlement_overrides
  WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
                      '01920000-0000-7000-8000-00000000000b',
                      '01920000-0000-7000-8000-00000000000c');
@@ -66,20 +93,44 @@ VALUES
   ('01920000-0000-7000-8000-0000000000c1', 'carol@example.test',
    'argon2id$fixture$carol', false, 'active');
 
-INSERT INTO public.memberships (id, tenant_id, user_id, status, joined_at)
-VALUES
-  ('01920000-0000-7000-8000-0000000000a2',
-   '01920000-0000-7000-8000-00000000000a',
-   '01920000-0000-7000-8000-0000000000a1', 'active', now()),
-  ('01920000-0000-7000-8000-0000000000a3',
-   '01920000-0000-7000-8000-00000000000a',
-   '01920000-0000-7000-8000-0000000000c1', 'active', now()),
-  ('01920000-0000-7000-8000-0000000000b2',
-   '01920000-0000-7000-8000-00000000000b',
-   '01920000-0000-7000-8000-0000000000b1', 'active', now()),
-  ('01920000-0000-7000-8000-0000000000b3',
-   '01920000-0000-7000-8000-00000000000b',
-   '01920000-0000-7000-8000-0000000000c1', 'active', now());
+-- Role bundles, and memberships that point at them.
+--
+-- Alice and Bob are Admins of their own tenants; Carol is a Pilot in both,
+-- which is what makes her useful — a permission test needs somebody who is
+-- deliberately not allowed to do everything.
+DO $bundles$
+DECLARE
+  a_admin uuid;
+  b_admin uuid;
+  a_pilot uuid;
+  b_pilot uuid;
+BEGIN
+  a_admin := public.seed_default_role_bundles('01920000-0000-7000-8000-00000000000a');
+  b_admin := public.seed_default_role_bundles('01920000-0000-7000-8000-00000000000b');
+  PERFORM public.seed_default_role_bundles('01920000-0000-7000-8000-00000000000c');
+
+  SELECT id INTO a_pilot FROM public.role_bundles
+   WHERE tenant_id = '01920000-0000-7000-8000-00000000000a' AND code = 'pilot';
+  SELECT id INTO b_pilot FROM public.role_bundles
+   WHERE tenant_id = '01920000-0000-7000-8000-00000000000b' AND code = 'pilot';
+
+  INSERT INTO public.memberships
+    (id, tenant_id, user_id, status, joined_at, role_bundle_id)
+  VALUES
+    ('01920000-0000-7000-8000-0000000000a2',
+     '01920000-0000-7000-8000-00000000000a',
+     '01920000-0000-7000-8000-0000000000a1', 'active', now(), a_admin),
+    ('01920000-0000-7000-8000-0000000000a3',
+     '01920000-0000-7000-8000-00000000000a',
+     '01920000-0000-7000-8000-0000000000c1', 'active', now(), a_pilot),
+    ('01920000-0000-7000-8000-0000000000b2',
+     '01920000-0000-7000-8000-00000000000b',
+     '01920000-0000-7000-8000-0000000000b1', 'active', now(), b_admin),
+    ('01920000-0000-7000-8000-0000000000b3',
+     '01920000-0000-7000-8000-00000000000b',
+     '01920000-0000-7000-8000-0000000000c1', 'active', now(), b_pilot);
+END
+$bundles$;
 
 INSERT INTO public.invites
   (id, tenant_id, email, token_hash, invited_by, expires_at,

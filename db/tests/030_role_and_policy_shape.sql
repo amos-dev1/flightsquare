@@ -114,7 +114,11 @@ BEGIN
                             'invites.tenant_isolation',
                             'memberships.tenant_isolation',
                             'refresh_tokens.user_isolation',
+                            'role_bundle_permissions.tenant_isolation',
+                            'role_bundles.tenant_isolation',
                             'sessions.user_isolation',
+                            'tenant_entitlement_overrides.tenant_isolation',
+                            'tenant_usage.tenant_isolation',
                             'tenants.tenant_isolation',
                             'users.tenant_visibility']::text[] THEN
     RAISE EXCEPTION 'the set of app-facing policies is not what the migrations installed';
@@ -221,6 +225,59 @@ END
 $t$;
 
 -- ---------------------------------------------------------------------------
+-- §2.3: the other kind of definer function.
+--
+-- These hold a privilege app_role must not have, and the rule that keeps them
+-- safe is that they take no tenant argument — a helper that can be pointed at
+-- a tenant is a bypass wearing a different hat.
+-- ---------------------------------------------------------------------------
+DO $t$
+DECLARE
+  r     record;
+  names text[];
+BEGIN
+  SELECT array_agg(p.proname ORDER BY p.proname) INTO names
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.prosecdef;
+
+  IF names IS DISTINCT FROM ARRAY['assert_quota',
+                                  'refresh_members_active_usage']::text[] THEN
+    RAISE EXCEPTION 'public holds SECURITY DEFINER functions % — §2.3 is a closed list', names;
+  END IF;
+
+  FOR r IN
+    SELECT p.oid, p.proname, p.proconfig, o.rolname AS owner
+      FROM pg_proc p
+      JOIN pg_namespace n ON n.oid = p.pronamespace
+      JOIN pg_roles o ON o.oid = p.proowner
+     WHERE n.nspname = 'public' AND p.prosecdef
+  LOOP
+    IF r.owner <> 'flightsquare_owner' THEN
+      RAISE EXCEPTION 'public.% is owned by %, not the DDL role', r.proname, r.owner;
+    END IF;
+    IF r.proconfig IS NULL
+       OR NOT EXISTS (SELECT 1 FROM unnest(r.proconfig) c WHERE c LIKE 'search_path=%') THEN
+      RAISE EXCEPTION 'public.% has no pinned search_path', r.proname;
+    END IF;
+    IF has_function_privilege('public', r.oid, 'EXECUTE') THEN
+      RAISE EXCEPTION 'public.% is executable by PUBLIC', r.proname;
+    END IF;
+    -- Rule 2, the absolute one.
+    IF pg_get_function_arguments(r.oid) LIKE '%tenant_id%' THEN
+      RAISE EXCEPTION 'public.% takes a tenant id — it could be aimed elsewhere', r.proname;
+    END IF;
+  END LOOP;
+
+  -- A trigger function nothing can call is a door that does not open.
+  IF has_function_privilege('app_role', 'public.refresh_members_active_usage()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'app_role can call the usage trigger directly';
+  END IF;
+
+  RAISE NOTICE '   ok: §2.3 helpers take no tenant argument and are not public';
+END
+$t$;
+
+-- ---------------------------------------------------------------------------
 -- §7.2: the control plane reads metadata and nothing else, and writes nothing.
 -- ---------------------------------------------------------------------------
 DO $t$
@@ -254,7 +311,21 @@ BEGIN
     RAISE EXCEPTION 'audit_log is not append-only for app_role';
   END IF;
 
+  -- §4.5: a role that can update its own counters can set one to zero and
+  -- walk past every quota. The lock it needs comes from assert_quota instead.
+  IF has_table_privilege('app_role', 'public.tenant_usage', 'INSERT')
+     OR has_table_privilege('app_role', 'public.tenant_usage', 'UPDATE')
+     OR has_table_privilege('app_role', 'public.tenant_usage', 'DELETE') THEN
+    RAISE EXCEPTION 'app_role can write its own usage counters';
+  END IF;
+
+  -- An override is a support action, not something a tenant grants itself.
+  IF has_table_privilege('app_role', 'public.tenant_entitlement_overrides', 'INSERT')
+     OR has_table_privilege('app_role', 'public.tenant_entitlement_overrides', 'UPDATE') THEN
+    RAISE EXCEPTION 'app_role can grant itself entitlement overrides';
+  END IF;
+
   RAISE NOTICE '   ok: admin_role reads the metadata tier only, and writes nothing';
-  RAISE NOTICE '   ok: audit_log is append-only';
+  RAISE NOTICE '   ok: audit_log is append-only, and usage is not app-writable';
 END
 $t$;

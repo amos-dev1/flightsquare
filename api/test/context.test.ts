@@ -60,6 +60,18 @@ describe('session context', () => {
   });
 
   it('refuses a write carrying another tenant id', async () => {
+    // A real bundle from our own tenant: the row is otherwise valid, so what
+    // rejects it is the policy rather than a column constraint.
+    const bundle = await withTenant(
+      { tenantId: alpha.tenant_id, userId: alpha.user_id },
+      (trx) =>
+        trx
+          .selectFrom('role_bundles')
+          .select('id')
+          .where('code', '=', 'admin')
+          .executeTakeFirstOrThrow(),
+    );
+
     await expect(
       withTenant({ tenantId: alpha.tenant_id, userId: alpha.user_id }, (trx) =>
         trx
@@ -68,6 +80,7 @@ describe('session context', () => {
             tenant_id: bravo.tenant_id,
             user_id: alpha.user_id,
             status: 'active',
+            role_bundle_id: bundle.id,
           })
           .execute(),
       ),

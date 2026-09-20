@@ -44,6 +44,8 @@ export interface MembershipsTable {
   id: Generated<string>;
   tenant_id: string;
   user_id: string;
+  /** NOT NULL: a membership without a bundle would hold no permissions. */
+  role_bundle_id: string;
   status: Generated<MembershipStatus>;
   invited_at: Timestamp | null;
   joined_at: Timestamp | null;
@@ -121,7 +123,67 @@ export interface AuditLogTable {
   occurred_at: Generated<Timestamp>;
 }
 
+export interface PlansTable {
+  code: string;
+  name: string;
+  description: string | null;
+  sort_order: Generated<number>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface PlanEntitlementsTable {
+  plan_code: string;
+  key: string;
+  /** jsonb: boolean for a flag, number or "unlimited" for a quota, string for config. */
+  value: unknown;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface TenantEntitlementOverridesTable {
+  tenant_id: string;
+  key: string;
+  value: unknown;
+  reason: string | null;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+export interface TenantUsageTable {
+  tenant_id: string;
+  quota_key: string;
+  /** Maintained by triggers. app_role holds no write grant here on purpose. */
+  current_value: ColumnType<string, never, never>;
+  updated_at: ColumnType<Date, never, never>;
+}
+
+export interface RoleBundlesTable {
+  id: Generated<string>;
+  tenant_id: string;
+  code: string;
+  name: string;
+  is_default: Generated<boolean>;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+  deleted_at: ColumnType<Date | null, never, never>;
+}
+
+export interface RoleBundlePermissionsTable {
+  tenant_id: string;
+  role_bundle_id: string;
+  resource: string;
+  level: string;
+  created_at: Generated<Timestamp>;
+}
+
 export interface Database {
+  plans: PlansTable;
+  plan_entitlements: PlanEntitlementsTable;
+  tenant_entitlement_overrides: TenantEntitlementOverridesTable;
+  tenant_usage: TenantUsageTable;
+  role_bundles: RoleBundlesTable;
+  role_bundle_permissions: RoleBundlePermissionsTable;
   tenants: TenantsTable;
   users: UsersTable;
   memberships: MembershipsTable;
