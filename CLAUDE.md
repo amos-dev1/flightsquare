@@ -664,18 +664,39 @@ Mobile needs long-lived refresh tokens with short-lived access tokens, not sessi
 
 ---
 
-## 9. Stack and commands
+## 9. Stack and layout
 
-*To be filled in once the stack is chosen. Until then, do not assume a language, framework, ORM, or migration tool — ask.*
-
-The one hard constraint on the choice: the data layer must let us set `SET LOCAL app.tenant_id` per transaction and keep it out of the connection pool's reach. An ORM that transparently manages connections without exposing transaction boundaries is disqualified, however pleasant its API is.
+TypeScript everywhere — API, infra, web, and mobile — so one person can move between all four without a context switch.
 
 ```
-Install:
-Dev server:
-Test:
-Migrate:
-Lint / typecheck:
+flightsquare/
+├── CLAUDE.md
+├── db/                  numbered .sql migrations, RLS isolation tests
+├── api/                 Fastify + Kysely
+├── infra/               AWS CDK
+├── web/                 Next.js — marketing, signup, subscription checkout, full app
+├── mobile/              Expo (React Native) — iOS/iPadOS
+└── packages/shared/     shared types, generated API client
+```
+
+npm workspaces. Vitest for tests.
+
+**Database access is `pg` + Kysely, not a full ORM.** This is a constraint, not a taste: §1.1 requires `SET LOCAL app.tenant_id` inside the transaction that does the work, so the data layer must expose transaction boundaries explicitly. An ORM that transparently manages connections and hides transactions cannot satisfy that safely. Every request opens a transaction, sets the tenant context, runs its queries, commits.
+
+**Migrations are numbered plain SQL** (`0001_foundation.sql`), run by the owner role. The application never runs them and never holds the owner's credentials.
+
+**Mobile is Expo with `expo-sqlite`** for the offline queue in §8.2. Web and mobile do not share UI code; they share types and the API client from `packages/shared`. Two UI codebases is the accepted cost of a web surface good enough to sell subscriptions on (§8.3).
+
+**Hosting is deferred** until there is something worth deploying. Local development is Docker Postgres. The one binding constraint on whatever gets chosen: connection pooling must not break per-transaction `SET LOCAL`, which rules out session-level pooling and makes pooler configuration a correctness issue rather than a performance one.
+
+```
+Install:        npm install
+Dev database:   docker compose up -d
+Migrate:        npm run migrate
+Test:           npm test
+API dev:        npm run dev -w api
+Web dev:        npm run dev -w web
+Mobile dev:     npx expo start          (from mobile/)
 ```
 
 ---
@@ -685,14 +706,13 @@ Lint / typecheck:
 These need your call; they are not blocking the first tables.
 
 1. **Does FlightSquare move money, or only produce statements?** (§3.7). The largest scope question in the product. Producing a statement the treasurer settles by check, Venmo, or Zelle is a small feature. Processing pilot payments means a payment processor, platform-account structures, refunds, chargebacks, tax reporting, and a materially different regulatory posture. **Recommend statements only for v1**, with the ledger designed so payments could be recorded later without reshaping it.
-2. **iOS implementation: native Swift, cross-platform (React Native / Expo), or PWA?** (§8). Decides the repo layout, the CI pipeline, and whether the web and mobile clients share code. Blocking for repo creation.
-3. **The Pro → Enterprise gap.** Pro is one aircraft; Enterprise is unlimited. A club with three aircraft and twelve members has nowhere to land. That is a pricing question, not an architecture one — a middle tier is rows in `plans` whenever you want it (§4.3). Noted so it is a deliberate choice rather than an oversight.
+2. **The Pro → Enterprise gap.** Pro is one aircraft; Enterprise is unlimited. A club with three aircraft and twelve members has nowhere to land. That is a pricing question, not an architecture one — a middle tier is rows in `plans` whenever you want it (§4.3). Noted so it is a deliberate choice rather than an oversight.
 3. **Row scoping in the permission model** (§4.4). `charges: read` for a Pilot must mean their own ledger. Add a `scope` dimension to the model, or special-case `charges`? Decide before the ledger is built.
-4. **Keep or drop `member_credentials`** (§3.5). Two dates — flight review and medical expiry — as a booking gate. Defensible as aircraft-safety gating, but adjacent to the pilot-record line drawn in §3.4. Dropping it in v1 is a reasonable call. If kept, decide whether one pilot can see another's.
-5. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
-6. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
-7. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
-8. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
+3. **Keep or drop `member_credentials`** (§3.5). Two dates — flight review and medical expiry — as a booking gate. Defensible as aircraft-safety gating, but adjacent to the pilot-record line drawn in §3.4. Dropping it in v1 is a reasonable call. If kept, decide whether one pilot can see another's.
+4. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
+5. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
+6. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
+7. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
 2. **Free-tier quota values.** §4.2 has placeholders. Real numbers follow from decision 1.
 3. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
 4. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
