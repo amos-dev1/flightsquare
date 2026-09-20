@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import { apiFetch } from '@/lib/api';
-import { Plus } from 'lucide-react';
+import { Plus, PlaneTakeoff } from 'lucide-react';
 
 import { Button, Card, Empty, Meter, PageTitle, Status } from '@/components/ui';
 import type { AircraftResponse } from '@flightsquare/shared';
@@ -10,18 +10,35 @@ export default async function FleetPage() {
   const fleet = await apiFetch<AircraftResponse[]>('/aircraft');
   const active = fleet.filter((a) => a.status === 'active');
   const inactive = fleet.filter((a) => a.status !== 'active');
+  const soleAircraft = active.length === 1 ? active[0] : undefined;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <PageTitle>Fleet</PageTitle>
-        <Link href="/aircraft/new">
-          {/* §11: specific labels, one dominant primary per section. */}
-          <Button>
-            <Plus aria-hidden size={16} strokeWidth={2} />
-            Add aircraft
-          </Button>
-        </Link>
+
+        {/*
+          §11 allows one dominant primary per section, so which action gets it
+          depends on what the tenant is here to do. With a single aircraft —
+          the solo owner this release is built for — that is logging a flight,
+          not adding a second one.
+        */}
+        <div className="flex items-center gap-3">
+          {soleAircraft ? (
+            <Link href={`/aircraft/${soleAircraft.id}/log-flight`}>
+              <Button>
+                <PlaneTakeoff aria-hidden size={16} strokeWidth={2} />
+                Log flight
+              </Button>
+            </Link>
+          ) : null}
+          <Link href="/aircraft/new">
+            <Button variant={soleAircraft ? 'secondary' : 'primary'}>
+              <Plus aria-hidden size={16} strokeWidth={2} />
+              Add aircraft
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {fleet.length === 0 ? (

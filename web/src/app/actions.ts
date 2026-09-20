@@ -13,6 +13,11 @@ import type {
 
 export interface FormState {
   error?: string;
+  /**
+   * §11: preserve entered information after errors. A pilot who mistyped one
+   * field should not have to read all four meters off the panel again.
+   */
+  values?: Record<string, string>;
 }
 
 /**
@@ -153,4 +158,75 @@ export async function setAircraftStatus(aircraftId: string, status: string): Pro
   });
   revalidatePath('/aircraft');
   revalidatePath(`/aircraft/${aircraftId}`);
+}
+
+/**
+ * The post-flight entry (§3.4) — the most important screen in the product.
+ *
+ * Everything downstream is derived from it: the maintenance countdown, the
+ * next pilot's dispatch decision, and eventually the charge. If it takes more
+ * than a minute people skip it, the meters go stale, and every number in the
+ * app quietly becomes wrong.
+ */
+export async function logFlight(
+  aircraftId: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = Object.fromEntries(
+    ['flight_date', 'hobbs_start', 'hobbs_end', 'tach_start', 'tach_end',
+     'fuel_remaining_after', 'fuel_added_qty', 'fuel_added_cost',
+     'departed_from', 'arrived_at', 'remarks'].map((k) => [k, text(k)]),
+  );
+
+  const body: Record<string, unknown> = {
+    aircraft_id: aircraftId,
+    flight_date: text('flight_date'),
+  };
+
+  // Meters travel as decimal strings the whole way: they are `numeric` in
+  // Postgres, and a float round-trip is how a maintenance countdown drifts.
+  for (const key of ['hobbs_start', 'hobbs_end', 'tach_start', 'tach_end'] as const) {
+    if (values[key]) body[key] = values[key];
+  }
+  if (!body.hobbs_end && !body.tach_end) {
+    return { error: 'Enter the Hobbs or tach reading at shutdown.', values };
+  }
+
+  if (values.fuel_remaining_after) body.fuel_remaining_after = values.fuel_remaining_after;
+  if (values.fuel_added_qty) body.fuel_added_qty = values.fuel_added_qty;
+  if (values.fuel_added_cost) {
+    // §3.7 rule 3: money is integer minor units. The form takes dollars
+    // because that is what the receipt says; the conversion happens once,
+    // here, and never as floating-point arithmetic downstream.
+    const dollars = Number(values.fuel_added_cost);
+    if (!Number.isFinite(dollars) || dollars < 0) {
+      return { error: 'Enter the fuel cost as an amount, for example 204.10.', values };
+    }
+    body.fuel_added_cost_cents = Math.round(dollars * 100);
+  }
+
+  for (const key of ['departed_from', 'arrived_at'] as const) {
+    if (values[key]) body[key] = values[key].toUpperCase();
+  }
+  if (values.remarks) body.remarks = values.remarks;
+
+  const key = text('idempotency_key');
+  try {
+    await apiFetch('/flights', {
+      method: 'POST',
+      // §8.2: this write is made offline, retried, and advances the meters.
+      // The same form instance reuses its key, so a retry after a dropped
+      // connection cannot log the flight twice.
+      headers: { 'idempotency-key': key },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath(`/aircraft/${aircraftId}`);
+  revalidatePath('/aircraft');
+  redirect(`/aircraft/${aircraftId}?logged=1`);
 }

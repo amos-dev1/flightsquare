@@ -264,9 +264,12 @@ session, impersonation deferred with the session seam kept open, and
 `deleted_at` as a control-plane marker — and the stack and layout in §9. What
 is left:
 
-- **The post-flight screen is not built yet.** The endpoint is, and §3.4 says
-  to optimise that screen over everything else: if it takes more than a
-  minute at the tiedown people skip it and the meters go stale.
+- **The post-flight screen exists on web, not yet on a phone.** §3.4's
+  failure mode is a form that takes more than a minute at a tiedown, so it
+  prefills the "out" readings from the aircraft, autofocuses the first thing
+  you actually have to type, and keeps fuel and route behind one tap each.
+  The offline half of that — Expo, a write queue, syncing when signal
+  returns — is still ahead.
 - **`exports.per_month` is declared but not enforced.** Flow quotas need
   period-aware counting, and `tenant_usage` is a plain counter. §4.2 already
   says the mechanism exists and nothing important uses it.

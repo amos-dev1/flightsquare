@@ -1,13 +1,22 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { PlaneTakeoff } from 'lucide-react';
 
 import { ApiError, apiFetch } from '@/lib/api';
-import { Card, KeyMetric, Meter, PageTitle, SectionHeading, Status } from '@/components/ui';
+import { Alert, Button, Card, KeyMetric, Meter, PageTitle, SectionHeading, Status } from '@/components/ui';
 import type { AircraftResponse, MeterReadingResponse } from '@flightsquare/shared';
 
 import { ArchiveButton, ReadingForm } from './client';
 
-export default async function AircraftPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AircraftPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ logged?: string }>;
+}) {
   const { id } = await params;
+  const { logged } = await searchParams;
 
   let aircraft: AircraftResponse;
   let readings: MeterReadingResponse[];
@@ -23,7 +32,14 @@ export default async function AircraftPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      {/* §11: a success state, stated near where the work happened. */}
+      {logged ? (
+        <Alert tone="info">
+          Flight saved. The meters below now show the readings you entered.
+        </Alert>
+      ) : null}
+
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             {/* Registrations stay uppercase: §11 reserves it for exactly this. */}
@@ -38,11 +54,27 @@ export default async function AircraftPage({ params }: { params: Promise<{ id: s
               .join(' · ') || 'No details yet'}
           </p>
         </div>
-        <ArchiveButton
-          id={aircraft.id}
-          registration={aircraft.registration}
-          status={aircraft.status}
-        />
+        {/*
+          One dominant primary per section (§11), and on this screen it is
+          logging a flight — §3.4 puts that above everything else, because a
+          post-flight entry that does not get made is how every number in the
+          product goes quietly wrong.
+        */}
+        <div className="flex items-center gap-3">
+          {aircraft.status === 'active' ? (
+            <Link href={`/aircraft/${aircraft.id}/log-flight`}>
+              <Button>
+                <PlaneTakeoff aria-hidden size={16} strokeWidth={2} />
+                Log flight
+              </Button>
+            </Link>
+          ) : null}
+          <ArchiveButton
+            id={aircraft.id}
+            registration={aircraft.registration}
+            status={aircraft.status}
+          />
+        </div>
       </div>
 
       {/*
