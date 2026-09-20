@@ -1,0 +1,12 @@
+{
+  "$comment": [
+    "Vitest strips types without checking them, so without this config a type",
+    "error in api/test/ would never be reported by anything."
+  ],
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": ["src", "test"]
+}

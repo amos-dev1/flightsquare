@@ -1,0 +1,22 @@
+{
+  "$comment": [
+    "Shared compiler options for every TypeScript workspace.",
+    "",
+    "web/ (Next.js) and mobile/ (Expo) will need jsx and bundler module",
+    "resolution. When they become real they should override those keys",
+    "deliberately rather than inherit this file blindly — nodenext resolution",
+    "is right for the API and wrong for a bundled client."
+  ],
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "sourceMap": true
+  }
+}

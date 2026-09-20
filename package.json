@@ -1,0 +1,34 @@
+{
+  "name": "flightsquare",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Multi-tenant aircraft and flight management for FAA Part 91 general aviation",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "api",
+    "infra",
+    "web",
+    "mobile",
+    "packages/*"
+  ],
+  "scripts": {
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d",
+    "migrate": "./scripts/migrate.sh",
+    "psql": "./scripts/psql.sh",
+    "dev": "npm run dev -w api",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test:db && vitest run",
+    "test:db": "./scripts/test.sh",
+    "test:api": "vitest run --project api"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.1"
+  }
+}
