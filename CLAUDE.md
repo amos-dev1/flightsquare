@@ -1,0 +1,700 @@
+# FlightSquare
+
+Multi-tenant SaaS for aircraft and flight management, scoped to **FAA Part 91 general aviation**. Organizations register, invite their own members, and manage their own aircraft: scheduling, maintenance tracking, and flight logging. Subscription tiers run free → enterprise.
+
+**Current target tenants: single-aircraft owners and small flying clubs.** Flight schools are a deliberate later phase — they bring training records, endorsements, instructor scheduling, and student-privacy obligations that would distort the model if designed for now. Where a decision is cheap today and expensive to retrofit, the file notes the school case and leaves room; where it is not, it ignores schools entirely. Charter, Part 135, and passenger-carrying operations are out of scope, full stop.
+
+**Build the club model; every smaller shape is a degenerate case of it.** A tenant is some pilots sharing some aircraft. A club is many-to-many, a partnership is a few-to-one, a solo owner is one-to-one. The same schema serves all three, and the smaller cases simply have fewer rows.
+
+**Scheduling need tracks pilot count, not ownership.** A single owner who shares their aircraft with a partner and two friends has a real scheduling problem — arguably a sharper one than a club, because there is no dispatcher and no norms, just four people and a calendar. A solo owner flying alone needs no scheduling at all; they need maintenance tracking and a logbook. Do not infer scheduling need from aircraft count or from who holds title.
+
+The consequence for implementation: scheduling is **unused**, never **unavailable**, in the solo case. No separate code path, no "scheduling off" mode. One pilot means the reservations table is empty and the UI doesn't lead with it. The moment a second pilot is invited, the feature is already there and already correct.
+
+This file is the architectural constitution. The invariants below are not style preferences — violating one is a security or correctness bug, not a code-review nit. When a task appears to require breaking one, stop and raise it instead of working around it.
+
+---
+
+## 1. Architectural invariants
+
+### 1.1 Tenancy lives in Postgres, not in application code
+
+Isolation is enforced by row-level security. Application code is not the thing standing between tenant A and tenant B's data; the database is. Application code that filters by tenant is defence in depth at best and a false sense of security at worst.
+
+Every tenant-scoped table:
+
+```sql
+ALTER TABLE aircraft ENABLE ROW LEVEL SECURITY;
+ALTER TABLE aircraft FORCE ROW LEVEL SECURITY;   -- applies to the table owner too
+
+CREATE POLICY tenant_isolation ON aircraft
+  USING      (tenant_id = current_setting('app.tenant_id', true)::uuid)
+  WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid);
+```
+
+Rules that follow from this:
+
+- `USING` alone is not enough. Without `WITH CHECK`, a tenant can *insert* or *update* a row carrying someone else's `tenant_id`. Every policy gets both.
+- `current_setting('app.tenant_id', true)` returns NULL when unset, the comparison is NULL, and no rows match. **Unset context means zero rows, never all rows.** That is the desired failure mode.
+- Tenant context is set with `SET LOCAL` inside the transaction, never plain `SET`. Under transaction-level connection pooling, plain `SET` leaks one tenant's context onto the next request that borrows the connection.
+- The tenant id comes from the authenticated session, resolved server-side. It never comes from a request header, query parameter, path segment, or JSON body, even "just for admin tooling."
+- `tenant_id uuid NOT NULL REFERENCES tenants(id)` on every tenant-scoped table. No nullable tenant ids, no implicit "shared" rows in a tenant-scoped table.
+- Background jobs, schedulers, and data migrations have no request to inherit context from. They set context explicitly per tenant and loop. They do not run unscoped.
+
+### 1.2 Never grant the application role BYPASSRLS
+
+Not in production, not in staging, not "temporarily to debug the seeder." `BYPASSRLS` silently disables isolation everywhere at once, and nothing in the test suite will notice — every query keeps returning rows, just more of them than it should.
+
+The application role is also not a superuser and does not own the tables. Table ownership sits with a separate migration/DDL role. `FORCE ROW LEVEL SECURITY` closes the owner loophole for the cases where these overlap.
+
+Where genuinely unscoped access is required, use §2 (SECURITY DEFINER functions) — a small, enumerable, reviewable list — rather than a blanket capability.
+
+### 1.3 Never branch on tenant identity
+
+No code path anywhere may ask *which* tenant this is in order to decide what to do.
+
+Forbidden, in application code, SQL, templates, tests, and infrastructure:
+
+```ts
+if (tenantId === '…')            // no
+if (tenant.slug === 'acme-air')  // no
+switch (tenant.name) { … }       // no
+tenantOverrides[tenantId]?.foo   // no
+```
+
+Anything that varies between tenants is one of exactly three things:
+
+1. a **feature flag** (boolean capability),
+2. a **quota** (numeric limit),
+3. a **configuration value** (branding, locale, default units, retention window).
+
+All three are data, resolved through the same chain, stored in the same place, and readable by support without a deploy. If a requirement seems to need a fourth kind, that is a design conversation, not a conditional.
+
+This applies to tests. A test fixture may not be special-cased by tenant identity either — if a test needs different behaviour, it sets a different flag or quota.
+
+### 1.4 Entitlements resolve in one order, always
+
+```
+tenant override → plan → global default
+```
+
+First layer that has a value for the key wins. Same chain for flags, quotas, and config. There is no fourth layer and no per-call override argument.
+
+- Every key is declared in a registry with a global default, so resolution is **total** — it cannot fail or return "unknown."
+- An undeclared key is a startup error, not a runtime `false`. Boot fails loudly rather than silently disabling a feature in production.
+- The resolver is pure and side-effect free: `(tenant, key) → value`. It does not consult the request, the user, or the clock.
+- Resolution results are cached per request, invalidated on plan change or override write.
+
+### 1.5 Permissions are resource + level, enforced server-side
+
+A permission is a pair: a **resource** and a **level** from `none | read | write`. Levels are ordered — `write` implies `read`, `read` implies `none`.
+
+Resources for this domain:
+
+```
+aircraft       reservations   flights      squawks    maintenance
+rates          charges        qualifications
+documents      members        subscription settings
+```
+
+Two distinctions that are easy to lose and expensive to recover:
+
+- `squawks` is separate from `maintenance`. A pilot reports a defect but does not sign off work, close an item, or record compliance — `squawks: write` with `maintenance: read`. Collapsing them makes the central permission line in the product inexpressible.
+- `subscription` (what the tenant pays FlightSquare) is separate from `rates` and `charges` (what pilots pay their club). See §3.7.
+
+- **Roles are bundles of pairs, not code.** "Dispatcher," "Chief Pilot," "Maintenance Controller," "Owner," "Read-only Auditor" are named sets of (resource, level) rows. Adding a role is a data change. Nothing branches on a role name.
+- Enforcement is server-side at the API boundary. The client's job is to hide buttons; it is not a control.
+- Checks are explicit per endpoint. There is no "authenticated therefore allowed" default and no route that inherits its check from a parent router by accident.
+- Permission grants are per (user, tenant) via membership — see §3 on why a user can belong to several tenants.
+
+### 1.6 Gate responses: 404, 403, 402
+
+Three distinct failures, three distinct codes, checked in this order:
+
+| Gate | Question | Response |
+|---|---|---|
+| **Feature** | Is this capability in the tenant's entitlements? | **404** |
+| **Permission** | Does this user hold the required level on the resource? | **403** |
+| **Quota** | Is the tenant under its numeric limit? | **402** |
+
+Order matters. Feature first, so a tenant without the maintenance module cannot tell from status codes whether the module exists, whether they'd be allowed to use it, or how close to a limit they are. A gated capability is indistinguishable from a nonexistent one.
+
+Refinements:
+
+- 404 applies to resources and routes whose *existence* is gated. If a gated feature is a **field** on an otherwise-visible resource, omit the field — do not 404 the whole resource.
+- 402 bodies are machine-readable so the UI can offer the right remediation:
+  ```json
+  { "error": "quota_exceeded", "quota": "aircraft.active",
+    "limit": 3, "current": 3, "remediation": ["upgrade", "archive"] }
+  ```
+- **429** is reserved for rate limiting (requests per unit time). It is not a plan quota. Do not conflate them.
+- Never return 402 or 403 where 404 is required in the table above just because the message would be friendlier. Upsell copy lives in the UI, reached through entitlement data the client already has — not through error codes.
+
+---
+
+## 2. The bootstrap trap — read before touching auth
+
+**The problem.** With RLS enabled on `tenants`, the application cannot look up a tenant at the start of a request, because looking up the tenant *is* how it obtains the tenant context the policy requires. The policy fails closed, correctly, and the request dies before it begins. This bit us in the TMS. It will bite here.
+
+**The wrong fixes.** Granting `BYPASSRLS` (§1.2). Leaving `tenants` without RLS. Adding a policy so permissive it's decorative. All of these trade a narrow problem for a system-wide hole.
+
+**The fix.** A small, closed set of `SECURITY DEFINER` functions for the handful of lookups that legitimately run with no tenant context.
+
+```sql
+CREATE FUNCTION auth.resolve_tenant_by_host(p_host text)
+RETURNS TABLE (tenant_id uuid, status text, plan_code text)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+  SELECT id, status, plan_code
+  FROM public.tenants
+  WHERE host = p_host AND status <> 'deleted'
+$$;
+
+REVOKE ALL ON FUNCTION auth.resolve_tenant_by_host(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION auth.resolve_tenant_by_host(text) TO app_role;
+```
+
+**Rules for every SECURITY DEFINER function, without exception:**
+
+1. `SET search_path` is pinned explicitly. An unpinned search_path on a definer function is a privilege-escalation vector.
+2. `REVOKE ALL … FROM PUBLIC`, then `GRANT EXECUTE` to the application role only.
+3. Arguments are scalars matched on equality. No `LIKE`, no arrays, no arbitrary predicates, no `ORDER BY` or `LIMIT` passed in by the caller — those turn a lookup into an enumeration oracle.
+4. Returns the minimum columns needed, never `SELECT *`, never a row set spanning tenants.
+5. Every function lives in the `auth` schema and is listed in §2.1. Adding one is an architectural decision requiring review; it is not routine.
+
+### 2.1 The permitted list
+
+Each entry is a lookup that provably cannot have tenant context yet.
+
+| Function | Runs when | Returns |
+|---|---|---|
+| `auth.resolve_tenant_by_host` | Request routing, before session | tenant id, status, plan |
+| `auth.resolve_tenant_by_slug` | Login page, invite acceptance | tenant id, status, branding |
+| `auth.find_user_by_email` | Credential check | user id, hash, MFA state |
+| `auth.list_memberships_for_user` | Post-auth tenant picker | (tenant id, name) for that user only |
+| `auth.resolve_invite_token` | Invite acceptance, pre-membership | invite row, single-use |
+| `auth.tenant_for_billing_customer` | Billing-provider webhooks | tenant id |
+
+If a task seems to need a seventh, the first question is whether the caller could have set tenant context and simply didn't.
+
+### 2.2 Table classes
+
+Three classes, three different rules. Classify every new table when you create it.
+
+- **Tenant-scoped** — `tenant_id` column, RLS enabled and forced, isolation policy with `USING` + `WITH CHECK`. The default; assume a new table is this unless argued otherwise.
+- **Global reference** — shared, read-only to the application, no `tenant_id`, no RLS. Aerodromes, ICAO aircraft type designators, countries, timezones, currencies. Written only by migrations and reference-data import jobs. Never contains customer data.
+- **Platform / control plane** — `tenants`, `plans`, `plan_entitlements`, `tenant_entitlement_overrides`, `subscriptions`, `users`, billing events. Reached via §2 functions or with tenant context where it applies. Never joined casually into tenant queries.
+
+---
+
+## 3. Domain model
+
+Fresh model. No concept, table name, or abstraction is carried over from the TMS — only the structural rules above.
+
+### 3.1 Identity
+
+`users` are **global**, and memberships are tenant-scoped. This is not architectural neatness; it is the domain. A club member frequently also owns an aircraft of their own, and belongs to two clubs at the field. One human, one login, many memberships. (When instructors arrive, they are the same pattern at higher multiplicity.)
+
+```
+users                 global identity, credentials, MFA
+memberships           (user, tenant) + role bundle + status   [tenant-scoped]
+role_bundles          named sets of (resource, level)          [tenant-scoped]
+```
+
+A user with no memberships is valid (just invited, or removed from their last org). A membership is the only thing that grants a user any visibility into a tenant.
+
+**Tenant archetype** is a column on `tenants`: `solo | partnership | club` (`school` later). It is a descriptive label for onboarding copy, quota defaults at provisioning, and reading the control plane at a glance. Cheap to add now, annoying to backfill later.
+
+**It must never be read at runtime to decide behavior.** `if (tenant.archetype === 'solo')` is §1.3 in a better disguise. Behavior comes from flags, quotas, and permissions — never from this column.
+
+### 3.2 Fleet
+
+```
+aircraft              registration, type_code → aircraft_types, serial,
+                      year, home_base → aerodromes, status, ownership
+aircraft_config       seating, equipment, MEL reference, performance profile
+aircraft_documents    airworthiness cert, registration, insurance, W&B
+meter_readings        hobbs, tach, airframe hours, cycles — append-only
+```
+
+**Registration is unique per tenant, not globally.** A tail number is unique in the real world, but two tenants legitimately track the same aircraft. The concrete case is **leaseback**: an owner leases their aircraft to a club, the owner tracks maintenance and expenses, the club schedules it. Both are real tenants with real records against N123AB, and neither is a duplicate of the other. Unique constraint is `(tenant_id, registration)`.
+
+Whether those two tenants can ever *link* their records — shared squawks, shared meter readings — is a later product question. Do not pre-build it, but do not add a global uniqueness constraint that would make it impossible.
+
+### 3.3 Scheduling
+
+```
+reservations            booked_by, purpose, start, end, status, notes
+reservation_resources   (reservation, resource_type, resource_id)
+blackouts               aircraft unavailable: annual, AOG, owner-held
+```
+
+**A reservation holds resource lines, not a single `aircraft_id`.** Today every reservation has exactly one line, of type `aircraft`. This looks like pointless indirection and is the single most valuable twenty lines in the schema: when instructors arrive, an instructor is another `resource_type`, a lesson booking is a reservation with two lines, and the conflict query does not change — it already asks "does any resource line overlap another." The alternative is a schema migration plus a rewrite of every booking path.
+
+Conflict detection is a database-level exclusion constraint on `(resource_type, resource_id, tstzrange(start, end))`, not an application `SELECT`-then-`INSERT`. Two members hitting Book at the same moment is the normal case for a club with one popular aircraft on a Saturday, and application-level checking loses that race.
+
+**A grounded aircraft blocks new reservations.** This is the first real cross-module dependency: a squawk at grounding severity, or an overdue annual or 100-hour, has to reach the scheduler. Design the signal now even though the maintenance module is thin — a resolved `aircraft_availability` view the booking path consults — because retrofitting it means finding every booking path later. Existing future reservations are flagged for review, not silently cancelled; the club needs to call those members.
+
+### 3.4 Flight logging
+
+**Scope: this tracks the aircraft, not the pilot.** A flight record exists to advance the aircraft's meters and feed maintenance. FlightSquare is **not** building a pilot logbook — no experience totals, no currency computation, no day/night landing counts, no approach or endorsement history, no 8710 support. Pilots keep their own logbooks in ForeFlight, LogTen, or paper, and that is fine.
+
+This boundary is load-bearing. Pilot logbooks pull in certification, experience, and regulatory-credit logic that is a product of its own, and every feature request in that direction should be declined until it is a deliberate decision rather than a drift.
+
+```
+flights         aircraft, date, flown_by (member), from/to, remarks
+flight_meters   hobbs_start / hobbs_end, tach_start / tach_end
+flight_fuel     fuel_remaining_after, fuel_added_qty, fuel_added_cost, receipt
+```
+
+`flown_by` is the billing subject and the accountability record — who had the plane, who owes for it — not the seed of an experience log.
+
+**The post-flight entry is the most important screen in the product.** One form, filled in on a phone at the tiedown: Hobbs out/in, tach out/in, fuel remaining, fuel added if any. Everything downstream — billing, maintenance countdown, the next pilot's dispatch decision — is derived from it. If it takes more than a minute, people skip it, the meters go stale, and every number in the app quietly becomes wrong. Optimize this screen over everything else.
+
+**Fuel is two different things and must not be one field:**
+
+- `fuel_remaining_after` is **aircraft state**. Latest reading wins; it tells the next pilot what they're walking out to. It is not a running total and must never be computed by arithmetic across flights — pilots estimate, gauges lie, and someone always tops off without logging it.
+- `fuel_added_qty` / `fuel_added_cost` is a **transaction**. It feeds member billing (§3.7) when the aircraft is on a wet rate, and it is an immutable record of what someone spent.
+
+Fuel level is not a maintenance interval, despite sitting next to them on the form. It is current state with an optional low-level alert, and it never grounds an aircraft on its own.
+
+**Meters are the point.**
+
+- **Hobbs and tach are recorded as read, and neither is derived from the other.** They run at different rates by design, and the difference between them is real data about how the aircraft was flown.
+- Which meter drives what is **tenant configuration, not hardcoded.** Most tenants bill on Hobbs and run engine and 100-hour intervals on tach, but plenty do it differently, and some aircraft have only one meter. Per §1.3, that's a config value.
+- Meter readings are **append-only**; a correction is a new row referencing the one it supersedes. People fat-finger Hobbs constantly, and the maintenance numbers downstream need an audit trail, not a silent overwrite.
+- The aircraft carries current totals (airframe hours, engine time since overhaul) maintained from readings, so nothing has to sum the whole history to answer "what's it at?"
+
+**The core loop, which the rest of the product hangs off:**
+
+```
+flight logged → meters advance → maintenance items tick down
+   → item comes due, or a squawk grounds the aircraft
+   → aircraft_availability blocks new reservations
+
+            └→ charge computed against the pilot (§3.7)
+```
+
+A flight record should be creatable from a completed reservation with date and pilot prefilled.
+
+A CSV export of a member's own flight rows is a reasonable convenience so they can transcribe into their real logbook. That is the extent of the pilot-logbook story: an export, not a feature.
+
+### 3.5 Member qualifications
+
+**Scope-sensitive — see open decision 3.** Given §3.4's boundary, the only defensible reason for FlightSquare to hold anything about a pilot's qualifications is as a **gate on booking**, never as a record of their experience.
+
+```
+member_aircraft_authorizations  (member, aircraft, authorized_on, authorized_by)
+member_credentials              flight review due, medical expiry   -- see below
+```
+
+`member_aircraft_authorizations` stays regardless. It is the club and partnership checkout rule — "is Dave signed off in the 182?" — it gates booking, and it is about the aircraft, not the pilot's résumé.
+
+`member_credentials` is two dates and nothing else: no certificate numbers, no ratings, no history, no computed currency. Its only job is to stop a booking and tell the admin. It sits right on the line drawn in §3.4, so confirm it before building — a defensible alternative is dropping it entirely in v1 and letting tenants handle it the way they do now.
+
+If kept: medical expiry is health-adjacent personal data and a lapsed flight review is an FAA-enforcement-relevant fact about an individual. Both sit on the protected side of the control-plane split (§7.2).
+
+### 3.6 Maintenance
+
+```
+maintenance_items     annual, 100-hour, ELT, transponder, pitot-static,
+                      oil change — due by date / hobbs / tach / cycles
+squawks               reported defect: severity, grounding?, status
+work_orders           performed work, parts, A&P/IA signoff
+compliance_records    AD / SB compliance — append-only, never edited
+```
+
+`squawks.grounding` is the boolean that feeds §3.3. An overdue `maintenance_item` with `grounds_aircraft = true` does the same. Both resolve through `aircraft_availability`.
+
+**Interval presets.** Adding an aircraft should not mean typing in fifteen maintenance intervals from scratch. A global reference library (§2.2) holds suggested schedules keyed by aircraft and engine type — annual, 100-hour, oil change, oil filter, spark plugs, ELT battery, transponder and pitot-static checks, ADs — and adding an aircraft instantiates the applicable ones.
+
+**Instantiate a copy; never reference the template.** The tenant's `maintenance_items` are their own rows from the moment they are created, freely editable, with no live link back. If they pointed at the global library, editing a preset would silently rewrite thousands of tenants' compliance data — the same class of bug as a mutable billing rate (§3.7), and worse, because this one has regulatory consequences. Record which template version seeded a row for provenance, and nothing more.
+
+Intervals tick down against whichever meter the item specifies — tach for engine items, Hobbs or airframe hours for others, calendar months for ELT and transponder. Items can be due on more than one basis at once, and the earliest wins.
+
+Maintenance and compliance records carry regulatory weight and are **append-only**: corrections are new rows referencing the superseded one, with actor and timestamp. Never `UPDATE` a signed compliance record, and never hard-delete one.
+
+This is not abstract caution. After a GA accident, the squawk log, deferral history, and annual/100-hour compliance records are discoverable and get subpoenaed. Two consequences bind elsewhere in this file: control-plane read access to these tables is narrow and logged (§7.2), and a tenant under `legal_hold` is exempt from every purge, retention window, and downgrade auto-archive path in §5 (§7.4).
+
+### 3.7 Member billing
+
+**There are two entirely separate money systems in this product. Never call either one "billing" without a qualifier.**
+
+| | **Platform billing** | **Member billing** |
+|---|---|---|
+| Who pays whom | Tenant → FlightSquare | Pilot → their club/partnership |
+| Tables | `plans`, `subscriptions`, `plan_entitlements` | `aircraft_rates`, `flight_charges`, `member_ledger` |
+| Permission resource | `subscription` | `charges`, `rates` |
+
+They will be confused in conversation, in code, and in support tickets unless the names stay distinct everywhere. This section is member billing only.
+
+```
+aircraft_rates        (aircraft, amount, meter, wet_or_dry, effective_from)
+member_aircraft_rates (member, aircraft, amount, effective_from)   -- override
+flight_charges        (flight, member, meter_hours, rate_applied,
+                       rate_source, amount, currency)
+fuel_credits          (flight, member, quantity, amount)
+ledger_adjustments    (member, amount, reason, created_by)         -- admin manual
+```
+
+**Rate resolution follows the §1.4 pattern:**
+
+```
+member-specific rate for this aircraft → aircraft default rate
+```
+
+Two layers today. A third (a member-category rate — student, associate, instructor) drops in later without restructuring, which is the point of using the same shape as everything else.
+
+**Four rules that make this correct, in order of how expensive they are to get wrong:**
+
+1. **Charges snapshot the rate; they never reference it.** `flight_charges` stores the meter hours, the amount actually applied, *and which rule supplied it* — never a foreign key to a mutable rate row. When the club raises the rate from $140 to $155 in March, February's flights must still read $140 forever. A live join re-prices history the moment anyone edits a rate, and the first the treasurer hears of it is a member disputing a statement they already paid. This is the same principle as the entitlement inspector in §7.8: record the resolved value and its source, not a pointer.
+
+2. **Charges are append-only.** A correction is a reversing entry plus a new charge, with actor and reason. Never `UPDATE` an amount. This is money, and it will be disputed.
+
+3. **Money is integer minor units.** Never float, never `NUMERIC` in application code paths that do arithmetic in another language. Store a currency code even while USD is the only one.
+
+4. **Rates are effective-dated**, so a rate change is a new row, not an edit. Combined with rule 1 this makes historical re-pricing structurally impossible rather than merely discouraged.
+
+**Wet vs dry.** A wet rate includes fuel, so a pilot who buys fuel is credited back against their charges. A dry rate excludes it, and fuel is simply the pilot's own cost with no ledger effect. This is a per-aircraft setting and it decides whether `flight_fuel.fuel_added_cost` produces a `fuel_credits` row at all.
+
+**Which meter bills** is per-aircraft config and is frequently not the meter maintenance runs on. Hobbs for billing and tach for engine intervals is the common pairing, but it is configuration either way (§1.3).
+
+**Member billing is a Pro-and-up capability.** A free tenant has exactly one member, so there is nobody to bill — the module is feature-gated off and returns 404 (§1.6). This is a clean, honest tier boundary: the second pilot is simultaneously when scheduling starts mattering and when billing starts existing.
+
+### 3.8 Cross-cutting
+
+```
+audit_log             actor, tenant, resource, action, before/after — append-only
+attachments           object-store pointers, tenant-scoped metadata
+notifications         per-user, per-tenant
+```
+
+---
+
+## 4. Entitlements: flags and quotas
+
+A free tier means numeric limits, not just switches. Both resolve through the §1.4 chain; they differ in what enforcement looks like.
+
+### 4.1 Feature flags
+
+Boolean capabilities. Gated with 404. Examples: `maintenance_module`, `crew_currency_tracking`, `api_access`, `sso_saml`, `custom_branding`, `webhooks`, `audit_export`.
+
+### 4.2 Quotas
+
+Three kinds, and the distinction is load-bearing — they are enforced at different moments and behave differently on downgrade.
+
+**Stock quotas** — a count at a point in time. Enforced at creation. These are the ones that define the product today:
+
+```
+aircraft.active          free: 1      pro: 1        enterprise: unlimited
+members.active           free: 1      pro: 5        enterprise: unlimited
+storage.bytes            free: 1 GiB  pro: 25 GiB   enterprise: unlimited
+```
+
+**Flow quotas** — a count within a period. Enforced at creation, reset at the period boundary. The mechanism exists; nothing important uses it yet.
+
+```
+exports.per_month        free: 2      pro: unlimited
+api.calls_per_day        free: 0      pro: 0        enterprise: 10000
+```
+
+**Never cap flights.** Flight records are how meters advance (§3.4). A tenant that hits a monthly cap stops logging, the meters go stale, and every maintenance number in the product silently becomes wrong. This quota would damage the data, not just the experience. Unlimited on every tier including free.
+
+**Window quotas** — how far back data remains visible. Enforced at read. The mechanism exists and is **unused**: history retention is unlimited on all tiers.
+
+```
+history.retention_days   free: unlimited   pro: unlimited   enterprise: unlimited
+```
+
+Same reasoning. Airframe hours, meter history, and maintenance compliance follow the aircraft for its entire life — they are consulted at every annual, every prebuy inspection, and every sale, decades on. Hiding them behind a plan would be the fastest way to lose trust in this market. Keep the mechanism — it may suit some future high-volume data — but not meters or maintenance.
+
+### 4.3 Tiers as they stand today
+
+The whole tier definition is rows in `plans` and `plan_entitlements`. Nothing below is in code.
+
+| | Free | Pro | Enterprise |
+|---|---|---|---|
+| Aircraft | 1 | 1 | unlimited |
+| Members | 1 (creator only) | 5 | unlimited |
+| Scheduling | unused (no one to share with) | yes | yes |
+| Maintenance tracking | yes | yes | yes |
+| Flight logging | unlimited | unlimited | unlimited |
+
+Adding a tier — a "Club" plan at 3 aircraft and 25 members, say — is inserting rows. No deploy, no migration, no code change. That is the entire point of §1.4, and it is worth protecting: the moment a plan code appears in a conditional, the property is gone.
+
+### 4.4 Role bundles as they stand today
+
+Two bundles, also data (§1.5). Free tenants only ever have an Admin.
+
+| Resource | Admin | Pilot |
+|---|---|---|
+| `aircraft` | write | read |
+| `reservations` | write | write |
+| `flights` | write | write |
+| `squawks` | write | write |
+| `maintenance` | write | read |
+| `rates` | write | read |
+| `charges` | write | read — **own only, see below** |
+| `qualifications` | write | read |
+| `documents` | write | read |
+| `members` | write | none |
+| `subscription` | write | none |
+| `settings` | write | none |
+
+The account creator is Admin. A tenant must always have at least one member holding `members: write` — enforced on removal, on role change, and on downgrade auto-archive (§5.4).
+
+**Row scoping is now a real requirement, not a deferred one.** `charges: read` cannot mean "every pilot sees everyone's ledger" — in a club that is plainly wrong, and even a four-way partnership may not want it. Resource + level has no way to say "own rows only," so the permission model needs a third dimension (`scope: own | all`) or `charges` needs a bespoke rule. This is the first place the model genuinely does not stretch, and it should be designed deliberately before the ledger is built rather than patched in afterward. See open decision 3.
+
+The same question applies more mildly to `flights: write`, which today means any flight, not just one's own.
+
+Representation: the resolved value is a typed `Unlimited | Limit(n)`. Do not encode unlimited as `-1`, `0`, `NULL`, or `Number.MAX_SAFE_INTEGER` — every one of those eventually gets compared with `<` by accident.
+
+### 4.5 Enforcing quotas
+
+Counting belongs in the database, for the same reason isolation does: it is the only place that sees every write.
+
+- A `tenant_usage` table holds one row per `(tenant_id, quota_key)`, maintained by triggers on the counted tables.
+- The creation path calls `assert_quota(p_key text, p_limit int)`, which takes `SELECT … FOR UPDATE` on that usage row inside the caller's transaction and raises if the limit would be exceeded. The lock closes the check-then-insert race that lets two concurrent requests both slip past a limit of one.
+- The app resolves the limit (that needs plan config) and passes it in; the database does the counting and locking.
+- Archived and soft-deleted rows do not count toward stock quotas. Decrementing on archive is the trigger's job, not the caller's.
+- Window quotas are applied in the query layer as a date floor, never by deleting rows.
+
+---
+
+## 5. Downgrade policy
+
+Decided up front, as required. **A plan change never destroys data. It changes what is active and what is visible.**
+
+1. **Upgrades take effect immediately. Downgrades take effect at the end of the current paid period.** No proration surprises, and the remaining period is natural remediation time.
+
+2. **At the effective date, if the tenant is over a stock limit, it enters `over_quota` for that quota key.** Reads work normally. Existing records keep working. Creating more of *that resource type* returns 402. Nothing else is restricted — an over-aircraft tenant can still log flights.
+
+3. **14-day remediation window.** The UI shows what is over, by how much, and offers two paths: upgrade, or choose what to archive. The tenant picks. This is the intended resolution path.
+
+4. **If unresolved after 14 days, the system auto-archives deterministically** — least-recently-active first, ties broken by newest-created first — down to the limit. The rule is documented, stable, and shown in the UI *before* it runs, so the outcome is never a surprise. Two guards: never archive the last member holding `members: write`, and never archive an aircraft that has a flight scheduled in the next 72 hours (skip to the next candidate and flag it).
+
+5. **Archiving is reversible and non-destructive.** An archived aircraft keeps its full flight and maintenance history; it cannot be assigned to new flights or reservations. Re-upgrading un-archives on request — it does not auto-restore, because the tenant may have reorganized in the meantime.
+
+6. **Flow quotas apply from the next period boundary.** A mid-period downgrade never retroactively invalidates flights already logged.
+
+7. **Window quotas hide, they do not delete.** Data outside the new retention window becomes unreadable through the API, stays in the database for at least 90 days, and is fully restored by an upgrade within that window. Offer an export before the window shrinks.
+
+8. **Feature loss follows the same principle.** Losing `maintenance_module` makes those endpoints 404; the rows remain and return on re-upgrade.
+
+9. **Every plan change writes an audit record** capturing the before/after resolved entitlements, not just the plan code. When someone asks in six months why a tenant lost access to something, the answer must be reconstructable.
+
+---
+
+## 6. Conventions
+
+- **UUIDv7 primary keys.** Time-sortable, no sequence leakage across tenants.
+- **`timestamptz` everywhere.** No naive timestamps, no local-time columns.
+- **Soft delete via `deleted_at`**, plus a `deleted_at IS NULL` predicate in the RLS policy where the table supports it — so deleted rows are invisible by default at the database level, not by remembering to filter.
+- **Migrations are forward-only** and never disable RLS, even transiently. A migration that turns a policy off for the duration of a backfill is a window with no isolation.
+- **No raw SQL string interpolation.** Parameterized queries only, including in migrations and scripts.
+- **Errors do not leak cross-tenant existence.** "Aircraft not found" for a tail number in another tenant, never "you don't have access to that aircraft."
+
+### 6.1 Definition of done for any tenant-scoped table
+
+1. `tenant_id uuid NOT NULL REFERENCES tenants(id)`
+2. `ENABLE` + `FORCE ROW LEVEL SECURITY`
+3. Policy with both `USING` and `WITH CHECK`
+4. Index leading with `tenant_id`
+5. A test that sets context to tenant A, queries, and asserts zero rows from tenant B's fixtures
+6. A test that attempts to insert a row with tenant B's id while in tenant A's context, and asserts it fails
+
+Items 5 and 6 are not optional. A policy without a test proving it denies is an untested security control.
+
+### 6.2 Review checklist
+
+- [ ] No branch on tenant identity anywhere in the diff
+- [ ] New tables classified (§2.2) and, if tenant-scoped, meet §6.1
+- [ ] New `SECURITY DEFINER` functions? Justified against §2.1, search_path pinned, execute revoked from PUBLIC
+- [ ] New entitlement keys registered with a global default
+- [ ] Gates use the right code: feature 404, permission 403, quota 402, rate limit 429
+- [ ] Quota-bearing creates go through `assert_quota` with a row lock
+- [ ] Tenant context set with `SET LOCAL`, sourced from the session
+- [ ] Compliance/audit tables treated as append-only
+- [ ] New table classified for `admin_role` under §7.2 — metadata or content, with a policy either way (default is deny)
+- [ ] Any new destructive or data-hiding path checks `legal_hold`
+- [ ] Booking paths consult `aircraft_availability` rather than querying squawks directly
+
+---
+
+## 7. Control plane (app-owner administration)
+
+The FlightSquare team needs to see every tenant, review setup and settings, and disable an account. That is inherently cross-tenant, which makes it the one place where §1's invariants could be quietly abandoned. This section defines the legitimate door so nobody reaches for `BYPASSRLS` at 2am.
+
+### 7.1 A second role, not a bypass
+
+RLS policies are per-role and OR together, so cross-tenant access is expressible as policy — auditable, per-table, revocable, and greppable.
+
+```sql
+CREATE POLICY admin_read ON tenants  FOR SELECT TO admin_role USING (true);
+CREATE POLICY admin_read ON squawks  FOR SELECT TO admin_role USING (false);
+```
+
+- `admin_role` is a distinct database role. It is not the application role with extra grants.
+- It **does not have `BYPASSRLS`** either. §1.2 is absolute and has no admin exception.
+- Default posture is deny: a new table grants `admin_role` nothing until someone writes a policy and classifies it under §7.2.
+- Writes are rarer than reads and separately granted. Most admin actions are reads plus a small set of lifecycle transitions.
+
+### 7.2 Two tiers of visibility
+
+**Metadata — `admin_role` reads freely.** Everything needed for billing, support triage, and account review, with no operational content:
+
+```
+tenants  memberships  users (identity only)  plans  subscriptions
+tenant_entitlement_overrides  tenant_usage  audit_log
+aircraft (registration, type, status — not squawk or log detail)
+```
+
+**Content — requires a time-boxed, logged, tenant-consented grant:**
+
+```
+squawks  work_orders  compliance_records  maintenance_items
+flights  flight_times  flight_meters
+member_credentials  member_aircraft_authorizations
+attachments
+```
+
+The metadata tier answers nearly every real support ticket. Content access is for a customer saying "come look at this with me," and it should feel like a deliberate act: a grant row with an expiry, visible to the tenant, written to the audit log on creation and on every read it authorizes.
+
+The line is drawn at medical expiry, currency lapses, and maintenance discrepancy history — personal health-adjacent data, FAA-enforcement-relevant facts about individuals, and litigation-grade records respectively. "We are careful" is a worse answer to a prospect's security question than a list of per-table policies.
+
+### 7.3 Tenant lifecycle
+
+```
+trial → active → past_due → suspended → closed
+```
+
+This is the disable switch, and it is already wired: `auth.resolve_tenant_by_host` returns `status` on every request (§2.1), so rejecting at bootstrap costs nothing and reaches every entry point at once.
+
+- `suspended` — authentication rejected, data fully intact, reversible in one write. This is the normal disable.
+- `closed` — no login, retention clock started, still fully restorable until purge.
+- Suspension is never the same as deletion, and the UI must not let them be confused.
+- Define all five now. Accreting them later as independent booleans produces the permanent "is it `disabled` or `is_active = false` or `closed_at IS NOT NULL`" tax.
+
+### 7.4 Legal hold
+
+`tenants.legal_hold boolean NOT NULL DEFAULT false`. When true, it hard-blocks **every** destructive or hiding path: retention-window expiry, downgrade auto-archive (§5.4), window-quota hiding (§5.7), post-close purge, and tenant deletion. It is checked in the database, not only in application code, because it must survive a future code path nobody has written yet.
+
+### 7.5 Impersonation
+
+If it exists, it is a distinct session type — never a silent switch of `app.tenant_id`.
+
+- Expires (60 minutes, hard).
+- Banner visible to the tenant's own users while active.
+- Every request tagged with both the impersonating admin and the target tenant in the audit log.
+- Read-only unless the tenant granted write for a specific support session.
+
+Decide whether to build it before the session model hardens; retrofitting a second session type is painful.
+
+### 7.6 Admin audit log
+
+Append-only from day one. `REVOKE UPDATE, DELETE ON admin_audit_log FROM admin_role` — the admin plane cannot edit its own record. This cannot be backfilled, and it is the artifact that makes every claim in §7.2 verifiable rather than aspirational.
+
+### 7.7 Deployment
+
+**Separate application, separate origin, separate database role, MFA mandatory, IP-restricted if practical.** Not a route inside the tenant app behind an `isAdmin` check.
+
+The control plane is the only surface holding cross-tenant sessions. Sharing a codebase and origin with the tenant app means one routing bug, one middleware ordering mistake, or one forgotten guard exposes it. Separate deployment makes that a network-level impossibility rather than a code-level promise.
+
+### 7.8 What v1 actually is
+
+Ship the access model now; the interface can wait. Admin panel v1 is a set of reviewed SQL scripts run as `admin_role`, and that is adequate well past first customers. When a UI is built, these two screens come first:
+
+1. **Resolved entitlement inspector** — every flag and quota for a tenant, its resolved value, and *which layer supplied it* (override / plan / default). Given §1.4, most support tickets are "the customer says they can't do X." This ends that ticket class in one screen.
+2. **Downgrade dry-run** — §5.4 auto-archives deterministically after 14 days. Support needs to show a club exactly which aircraft and members would go, before it happens.
+
+Metrics dashboards, cohort reporting, and self-serve provisioning are later.
+
+### 7.9 The invariant still holds here
+
+Operating *on* a tenant is not branching *on* tenant identity. An admin tool taking `tenant_id` as a parameter and applying uniform logic is correct. `if (tenant.slug === 'bigclub')` is banned in the admin plane exactly as it is everywhere else (§1.3).
+
+---
+
+## 8. Clients
+
+FlightSquare ships as a **web application and a native iOS/iPadOS app**. Both are clients of one API. There is no server-rendered web path that bypasses it, and no endpoint that exists for only one client.
+
+### 8.1 The client is untrusted, and now it is also stale
+
+§1.5 already requires server-side enforcement. A shipped iOS build makes that non-negotiable in a new way: **you cannot force-update it.** Some fraction of users will run a six-month-old binary, and that binary is on a device you don't control, talking to your API with a valid token. It is not a trusted part of the system; it is an anonymous HTTP client that happens to have your logo.
+
+Consequences:
+
+- **The API is additive-only.** Never remove a field, never repurpose one, never tighten a validation rule that an old client would now fail. Breaking changes go in new endpoints or new fields.
+- **Entitlements are fetched, never compiled in.** The client receives the resolved flags and quotas (§1.4) and hides UI accordingly. It must never carry a hardcoded table of what Pro includes — that table goes stale on the App Store and cannot be corrected without a release.
+- **The client hiding a button is cosmetics.** Every gate is enforced server-side, every time (§1.6).
+- Ship a **minimum-supported-version handshake** from day one: the API can tell a client it is too old and must update. You will need it exactly once, at the worst possible moment, and it cannot be added retroactively to builds already in the wild.
+
+### 8.2 Offline is a requirement, not a nice-to-have
+
+The most important screen in the product (§3.4) is used standing at a tiedown on a rural field with one bar or none. If post-flight entry requires connectivity, it doesn't get done, and §3.4's failure mode — stale meters, wrong maintenance numbers — arrives by a different road.
+
+- **The client generates ids.** UUIDv7 (§6) already permits this; it is why the choice matters.
+- **Every write carries an idempotency key.** Sync retries, spotty connections, and app backgrounding all produce duplicate submissions.
+- **Records carry both a recorded-at and a received-at time.** They are frequently different, sometimes by days.
+- **The client never computes anything that matters.** Charges, maintenance countdowns, and availability are all computed server-side on sync. Rates may have changed; the client's view of the schedule may be old; and a client-computed charge is a client-asserted charge.
+- **Meter readings can arrive out of order.** Two pilots fly the same aircraft on the same afternoon and sync in the wrong sequence. Readings are append-only (§3.4) and the server orders by recorded-at, not arrival. A Hobbs start that doesn't match the previous flight's end is a **flag for the admin, never a rejection** — the gap is real information, usually a maintenance run or an unlogged flight.
+
+### 8.3 Subscription billing stays on the web
+
+Apple requires in-app purchase for digital subscriptions sold inside the app, with a 15–30% commission. The standard B2B SaaS posture — a free app that authenticates against an API, with plans purchased on the web — is explicitly permitted and is how Slack, Notion, and Figma operate. FlightSquare follows it.
+
+Two reasons beyond the commission:
+
+1. **An IAP subscription belongs to an Apple ID, not to an organization.** The member who subscribes owns it. When they leave the club, nobody else can cancel, upgrade, or manage it — and the service provider cannot cancel it either. For a multi-tenant product where the *tenant* is the customer, this is structurally broken, not merely expensive.
+2. Web checkout keeps Stripe as the single system of record for §3.7's platform billing, rather than reconciling two.
+
+Conditions this imposes, which the current design already satisfies:
+
+- **The free tier must have real standalone value.** An app that is only a login wall gets rejected as a thin client. Free — one pilot, one aircraft, full maintenance tracking and unlimited flight logging — is a genuinely useful product on its own. Do not erode this to drive upgrades; deliberately crippling the free tier to push people to the web is itself grounds for rejection.
+- **No steering from inside the app** outside the US and qualifying EU flows. The iOS app does not link to a signup or upgrade page. Hitting a quota returns 402 (§1.6) and the app explains the limit without pointing at a URL.
+
+App Store rules in this area are actively changing — the post-*Epic* US position, the EU's DMA regime, and Japan's and Brazil's new frameworks all moved recently. **Verify against Apple's current App Review Guidelines before submission rather than trusting this paragraph.**
+
+### 8.4 Auth
+
+Mobile needs long-lived refresh tokens with short-lived access tokens, not session cookies. If any third-party sign-in is offered, Apple requires Sign in with Apple alongside it. Push notifications (maintenance due, squawk filed, booking confirmed) mean APNs and a device-registration table — worth a placeholder in the schema now.
+
+---
+
+## 9. Stack and commands
+
+*To be filled in once the stack is chosen. Until then, do not assume a language, framework, ORM, or migration tool — ask.*
+
+The one hard constraint on the choice: the data layer must let us set `SET LOCAL app.tenant_id` per transaction and keep it out of the connection pool's reach. An ORM that transparently manages connections without exposing transaction boundaries is disqualified, however pleasant its API is.
+
+```
+Install:
+Dev server:
+Test:
+Migrate:
+Lint / typecheck:
+```
+
+---
+
+## 10. Open decisions
+
+These need your call; they are not blocking the first tables.
+
+1. **Does FlightSquare move money, or only produce statements?** (§3.7). The largest scope question in the product. Producing a statement the treasurer settles by check, Venmo, or Zelle is a small feature. Processing pilot payments means a payment processor, platform-account structures, refunds, chargebacks, tax reporting, and a materially different regulatory posture. **Recommend statements only for v1**, with the ledger designed so payments could be recorded later without reshaping it.
+2. **iOS implementation: native Swift, cross-platform (React Native / Expo), or PWA?** (§8). Decides the repo layout, the CI pipeline, and whether the web and mobile clients share code. Blocking for repo creation.
+3. **The Pro → Enterprise gap.** Pro is one aircraft; Enterprise is unlimited. A club with three aircraft and twelve members has nowhere to land. That is a pricing question, not an architecture one — a middle tier is rows in `plans` whenever you want it (§4.3). Noted so it is a deliberate choice rather than an oversight.
+3. **Row scoping in the permission model** (§4.4). `charges: read` for a Pilot must mean their own ledger. Add a `scope` dimension to the model, or special-case `charges`? Decide before the ledger is built.
+4. **Keep or drop `member_credentials`** (§3.5). Two dates — flight review and medical expiry — as a booking gate. Defensible as aircraft-safety gating, but adjacent to the pilot-record line drawn in §3.4. Dropping it in v1 is a reasonable call. If kept, decide whether one pilot can see another's.
+5. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
+6. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
+7. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
+8. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
+2. **Free-tier quota values.** §4.2 has placeholders. Real numbers follow from decision 1.
+3. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
+4. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
+5. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
+6. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
