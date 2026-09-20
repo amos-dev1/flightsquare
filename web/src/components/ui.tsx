@@ -208,19 +208,45 @@ export function Status({ kind, children }: { kind: StatusKind; children?: ReactN
 }
 
 /**
- * The lowercase wordmark.
+ * The approved logo, used as supplied.
  *
- * §11's full logo is an aircraft-in-rounded-square symbol plus this wordmark,
- * and it also says never to recreate the logo in CSS or from an icon library,
- * and to request missing assets rather than invent a replacement. The symbol
- * has not been supplied, so this renders the wordmark alone — which *is*
- * lowercase Manrope by definition — and no invented symbol. Drop the approved
- * SVG into web/public and render it beside this at 28–32px.
+ * §11: never stretched, rotated, redrawn or given effects, and never
+ * recreated in CSS or from an icon library. Both assets are pure black
+ * artwork for light backgrounds, so they are rendered as images rather than
+ * inlined and recoloured — there is no colour to set, and teal is forbidden
+ * here regardless.
+ *
+ * Intrinsic sizes are declared so the aspect ratio is exact and the header
+ * does not shift while the file loads: 1864 x 380 for the horizontal lockup,
+ * 394 x 394 for the standalone symbol.
  */
-export function Wordmark({ className = '' }: { className?: string }) {
+
+/** Symbol height in the header, from §11's 28-32px range. */
+const HEADER_SYMBOL_HEIGHT = 30;
+const HORIZONTAL_RATIO = 1864 / 380;
+
+export function Logo({ height = HEADER_SYMBOL_HEIGHT }: { height?: number }) {
   return (
-    <span className={`text-base font-extrabold lowercase tracking-tight ${className}`}>
-      flightsquare
-    </span>
+    <img
+      src="/logo.svg"
+      alt="FlightSquare"
+      height={height}
+      width={Math.round(height * HORIZONTAL_RATIO)}
+      // Clear space of at least a quarter of the symbol height, per §11.
+      style={{ height, width: 'auto', padding: height / 4 }}
+    />
+  );
+}
+
+/** The standalone symbol, for compact spaces. */
+export function LogoMark({ size = HEADER_SYMBOL_HEIGHT }: { size?: number }) {
+  return (
+    <img
+      src="/logo-mark.svg"
+      alt="FlightSquare"
+      height={size}
+      width={size}
+      style={{ height: size, width: size, padding: size / 4 }}
+    />
   );
 }

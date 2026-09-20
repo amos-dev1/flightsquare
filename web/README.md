@@ -57,15 +57,22 @@ a reviewer's head:
 - Inputs are 16px, which is also what stops iOS zooming the page on focus.
   Buttons and inputs are 44px tall for touch.
 
-### Missing asset: the logo symbol
+### Logo
 
-§11 specifies an aircraft-in-rounded-square symbol alongside the lowercase
-wordmark, says never to recreate the logo in CSS or from an icon library, and
-says to **request missing assets rather than invent a replacement**. The
-symbol has not been supplied, so the header and sign-in screen render the
-wordmark alone — which is lowercase Manrope by definition — and no invented
-symbol.
+The approved assets live in `public/`: `logo.svg` is the horizontal lockup
+(1864 × 380) and `logo-mark.svg` the standalone symbol (394 × 394). Both are
+pure black artwork for light backgrounds.
 
-To finish it: drop the approved SVG into `web/public/logo.svg` (and
-`logo-mark.svg` for the standalone symbol), then render it beside `Wordmark`
-at 28–32px in `src/app/(app)/layout.tsx`.
+`<Logo>` and `<LogoMark>` in `components/ui.tsx` render them **as supplied** —
+never stretched, rotated, redrawn, recoloured or given effects, and never
+recreated in CSS. Intrinsic dimensions are declared so the ratio is exact and
+the header does not shift while the file loads. Header height is 30px, from
+§11's 28–32px range, with clear space of a quarter of that.
+
+The mark is also `src/app/icon.svg`, which Next serves as the favicon — the
+same file, unmodified.
+
+§11 prefers the *stacked* lockup for centred brand presentations. There is no
+stacked asset, and constructing one by arranging the mark and wordmark would
+be inventing a lockup, so nothing here does that. Sign-in is left-aligned and
+uses the horizontal lockup, which is correct for that layout.

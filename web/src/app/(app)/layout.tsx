@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { logout } from '@/app/actions';
-import { Wordmark } from '@/components/ui';
+import { Logo } from '@/components/ui';
 import { apiFetch, ApiError } from '@/lib/api';
 import { readSession } from '@/lib/session';
 import type { EntitlementsResponse, TenantResponse } from '@flightsquare/shared';
@@ -35,10 +35,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <div className="min-h-screen">
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex h-16 max-w-4xl items-center gap-8 px-6">
-          {/* §11 keeps the logo separate from navigation. The approved symbol
-              belongs to its left at 28–32px once the asset is supplied. */}
-          <Link href="/aircraft" aria-label="FlightSquare home">
-            <Wordmark />
+          {/* §11 keeps the logo separate from the navigation icons, and uses
+              the horizontal lockup in desktop headers. */}
+          <Link href="/aircraft" className="-ml-2 shrink-0">
+            <Logo />
           </Link>
 
           <nav className="flex-1">
