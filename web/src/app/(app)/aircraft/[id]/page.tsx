@@ -10,12 +10,15 @@ import type {
   AircraftResponse,
   EntitlementsResponse,
   MaintenanceItemResponse,
+  AuthorizationResponse,
+  MemberResponse,
   MeterReadingResponse,
   SquawkResponse,
 } from '@flightsquare/shared';
 
 import { ArchiveButton, ReadingForm } from './client';
 import { AircraftSettingsForm } from './settings-form';
+import { Authorizations } from './authorizations';
 
 export default async function AircraftPage({
   params,
@@ -33,8 +36,11 @@ export default async function AircraftPage({
   let items: MaintenanceItemResponse[];
   let entitlements: EntitlementsResponse;
   let squawks: SquawkResponse[];
+  let authorizations: AuthorizationResponse[];
+  let members: MemberResponse[];
   try {
-    [aircraft, readings, availability, items, entitlements, squawks] = await Promise.all([
+    [aircraft, readings, availability, items, entitlements, squawks, authorizations, members] =
+      await Promise.all([
       apiFetch<AircraftResponse>(`/aircraft/${id}`),
       apiFetch<MeterReadingResponse[]>(`/aircraft/${id}/meter-readings`),
       apiFetch<AircraftAvailabilityResponse>(`/aircraft/${id}/availability`),
@@ -43,6 +49,11 @@ export default async function AircraftPage({
       // V1_SCOPE M5: open squawks are visible to every member here, because
       // the next pilot needs to know what the last one found.
       apiFetch<SquawkResponse[]>(`/squawks?aircraft_id=${id}&open=true`),
+      // §3.5: who may fly this one. A club question, not a pilot record.
+      apiFetch<AuthorizationResponse[]>(`/aircraft/${id}/authorizations`),
+      // Only an admin can sign somebody off, and only they can read the
+      // roster — so a Pilot gets an empty list and the form stays hidden.
+      apiFetch<MemberResponse[]>('/members').catch(() => [] as MemberResponse[]),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
@@ -237,6 +248,17 @@ export default async function AircraftPage({
             ))}
           </Card>
         )}
+      </section>
+
+      <section className="space-y-3">
+        <SectionHeading>Who may fly it</SectionHeading>
+        <Authorizations
+          aircraftId={aircraft.id}
+          registration={aircraft.registration}
+          authorizations={authorizations}
+          members={members}
+          canWrite={entitlements.permissions.qualifications === 'write'}
+        />
       </section>
 
       {canWrite ? (

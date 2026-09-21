@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 
 import { ApiError, apiFetch, messageFor } from '@/lib/api';
 import { clearSession, readSession, writeSession } from '@/lib/session';
+import { zonedToInstant } from '@/lib/time';
 import type {
   AircraftResponse,
   LoginResponse,
@@ -841,4 +842,168 @@ export async function updateProfile(_state: FormState, form: FormData): Promise<
 
   revalidatePath('/settings');
   return { saved: true };
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling (§3.3)
+//
+// Every time here is a wall clock at the club's field, converted once on the
+// way in and formatted on the way out. The API takes and returns instants;
+// nobody books "1600 Zulu".
+// ---------------------------------------------------------------------------
+
+/** The club's zone, for converting what somebody typed. */
+async function tenantZone(): Promise<string> {
+  const tenant = await apiFetch<{ timezone: string }>('/tenant');
+  return tenant.timezone || 'UTC';
+}
+
+export async function bookAircraft(_state: FormState, form: FormData): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    aircraft_id: text('aircraft_id'),
+    date: text('date'),
+    starts: text('starts'),
+    ends: text('ends'),
+    purpose: text('purpose'),
+    notes: text('notes'),
+  };
+
+  if (!values.date || !values.starts || !values.ends) {
+    return { error: 'Pick a date and the hours you want.', values };
+  }
+  if (values.ends <= values.starts) {
+    return { error: 'The end has to be after the start.', values };
+  }
+
+  const zone = await tenantZone();
+  try {
+    await apiFetch('/reservations', {
+      method: 'POST',
+      body: JSON.stringify({
+        aircraft_id: values.aircraft_id,
+        starts_at: zonedToInstant(values.date, values.starts, zone).toISOString(),
+        ends_at: zonedToInstant(values.date, values.ends, zone).toISOString(),
+        ...(values.purpose ? { purpose: values.purpose } : {}),
+        ...(values.notes ? { notes: values.notes } : {}),
+      }),
+    });
+  } catch (error) {
+    // The three refusals worth reading are all conflicts, and the API
+    // already wrote the sentence: the slot is taken, the aeroplane is
+    // grounded, or this member is not signed off in it.
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/schedule');
+  return { saved: true };
+}
+
+export async function cancelReservation(id: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/reservations/${id}/cancel`, { method: 'POST' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/schedule');
+  return {};
+}
+
+/** Clearing the flag is the admin saying they have spoken to the member. */
+export async function clearReservationFlag(id: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/reservations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ needs_review: false }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/schedule');
+  return {};
+}
+
+export async function createBlackout(_state: FormState, form: FormData): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    aircraft_id: text('aircraft_id'),
+    reason: text('reason'),
+    from_date: text('from_date'),
+    from_time: text('from_time') || '00:00',
+    to_date: text('to_date'),
+    to_time: text('to_time') || '00:00',
+  };
+
+  if (!values.reason || !values.from_date || !values.to_date) {
+    return { error: 'Say what it is for, and when it starts and ends.', values };
+  }
+
+  const zone = await tenantZone();
+  const startsAt = zonedToInstant(values.from_date, values.from_time, zone);
+  const endsAt = zonedToInstant(values.to_date, values.to_time, zone);
+  if (endsAt <= startsAt) {
+    return { error: 'The end has to be after the start.', values };
+  }
+
+  try {
+    await apiFetch('/blackouts', {
+      method: 'POST',
+      body: JSON.stringify({
+        aircraft_id: values.aircraft_id,
+        reason: values.reason,
+        starts_at: startsAt.toISOString(),
+        ends_at: endsAt.toISOString(),
+      }),
+    });
+  } catch (error) {
+    // The interesting failure is somebody already having those hours, and
+    // the API's answer says to call them rather than cancelling for you.
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/schedule');
+  return { saved: true };
+}
+
+export async function removeBlackout(id: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/blackouts/${id}`, { method: 'DELETE' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/schedule');
+  return {};
+}
+
+/** §3.5: the club checkout — "is Dave signed off in the 182?" */
+export async function authorizeMember(
+  aircraftId: string,
+  membershipId: string,
+  note: string,
+): Promise<ActionResult> {
+  try {
+    await apiFetch(`/aircraft/${aircraftId}/authorizations`, {
+      method: 'POST',
+      body: JSON.stringify({ membership_id: membershipId, ...(note ? { note } : {}) }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath(`/aircraft/${aircraftId}`);
+  return {};
+}
+
+export async function withdrawAuthorization(
+  aircraftId: string,
+  membershipId: string,
+): Promise<ActionResult> {
+  try {
+    await apiFetch(`/aircraft/${aircraftId}/authorizations/${membershipId}`, {
+      method: 'DELETE',
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath(`/aircraft/${aircraftId}`);
+  return {};
 }

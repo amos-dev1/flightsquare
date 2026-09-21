@@ -206,9 +206,11 @@ web/
   src/
     middleware.ts               rotates the access token before a render needs it
     lib/                        httpOnly session cookie, server-side API client
+    lib/time.ts                 wall-clock time in the club's zone
     components/ui.tsx           copy-in components, owned outright
-    app/                        login, tenant picker, fleet, aircraft detail,
-                                maintenance, squawks
+    app/                        signup, login, invitations, fleet, aircraft
+                                detail, schedule, maintenance, squawks,
+                                members, settings
 mobile/
   src/
     lib/queue.ts                expo-sqlite behind the shared QueueStore
@@ -366,8 +368,8 @@ is left:
   | Meter correction | the API takes `supersedes_id`, so the "Corrected" badge can never appear from the web |
   | Subscription and plan changes | no UI and no API — M7 |
   | Switching organisation after sign-in | the picker is only shown at login |
-  | Scheduling screens | the API is built; no calendar, booking form or blackout screen yet |
   | Member billing | M6; nothing exists yet, and the rates it resolves against are on the aircraft |
+  | Subscription and plan changes | M7 |
 
   These are honest gaps, not bugs. The web app tells the truth about what it
   can do; it just cannot do much yet.
@@ -411,6 +413,16 @@ is left:
   (§3.5). The authorization table gates booking and arrives with the
   scheduler; the credentials table is open decision 3 and should be settled
   rather than assumed.
+- **The calendar is a list, not a time grid.** Per aircraft there can be no
+  overlaps at all — the exclusion constraint forbids them — so an ordered
+  list of a day's bookings is complete information rather than a
+  simplification. A grid would spend a lot of CSS saying the same thing, and
+  say it worse on a phone at a tiedown. Worth revisiting if a tenant ever has
+  enough aircraft for a fleet-wide day view to feel crowded.
+- **Times are wall-clock in the tenant's zone, converted in `web/src/lib/time.ts`.**
+  No library: two `Intl` round-trips, applied twice so a booking either side
+  of a daylight-saving change lands on the hour somebody meant. The API only
+  ever sees instants.
 - **An admin settings hub is wanted, and is not built.** The idea: one
   `/settings` for admins, branching into aircraft settings, maintenance
   setup, members and permissions, invite and suspend, and subscription.
