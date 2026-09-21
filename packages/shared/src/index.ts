@@ -789,3 +789,90 @@ export interface AircraftAvailabilityResponse {
   overdue_grounding_items: number;
   grounding_reasons: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Scheduling (§3.3)
+//
+// A reservation holds resource *lines* rather than an aircraft id. Today
+// every one has exactly one line of type 'aircraft', which is why the wire
+// shape flattens it — but the shape underneath is what lets an instructor be
+// a second line later without the conflict logic changing.
+// ---------------------------------------------------------------------------
+
+export type ReservationStatus = 'booked' | 'cancelled' | 'completed';
+
+export interface ReservationResponse {
+  id: string;
+  aircraft_id: string;
+  aircraft_registration: string;
+  /** A membership id — who will be flying, not who filled in the form. */
+  booked_by: string;
+  booked_by_name: string | null;
+  booked_by_email: string | null;
+  starts_at: string;
+  ends_at: string;
+  purpose: string | null;
+  notes: string | null;
+  status: ReservationStatus;
+  /**
+   * §3.3: when an aircraft is grounded its future bookings are flagged for
+   * the club to act on, never cancelled by the system — somebody has to call
+   * those members, and only they know what else was arranged around it.
+   */
+  needs_review: boolean;
+  review_reason: string | null;
+  /** Whether this viewer may change it: their own, or any if they administer. */
+  can_edit: boolean;
+}
+
+export interface CreateReservationRequest {
+  aircraft_id: string;
+  starts_at: string;
+  ends_at: string;
+  purpose?: string;
+  notes?: string;
+  /** A membership id. Defaults to the caller's; only an admin may pass another. */
+  booked_by?: string;
+}
+
+export interface UpdateReservationRequest {
+  starts_at?: string;
+  ends_at?: string;
+  purpose?: string;
+  notes?: string;
+  /** Clearing the review flag is the admin saying they have made the call. */
+  needs_review?: boolean;
+}
+
+/** An admin taking the aeroplane off the calendar: annual, AOG, owner-held. */
+export interface BlackoutResponse {
+  id: string;
+  aircraft_id: string;
+  aircraft_registration: string;
+  reason: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+export interface CreateBlackoutRequest {
+  aircraft_id: string;
+  reason: string;
+  starts_at: string;
+  ends_at: string;
+}
+
+/** §3.5: the club checkout, and deliberately nothing about the pilot. */
+export interface AuthorizationResponse {
+  membership_id: string;
+  aircraft_id: string;
+  email: string;
+  name: string | null;
+  authorized_on: string;
+  authorized_by_email: string | null;
+  note: string | null;
+}
+
+export interface CreateAuthorizationRequest {
+  membership_id: string;
+  note?: string;
+}

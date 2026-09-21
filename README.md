@@ -151,6 +151,8 @@ db/                             not an npm workspace — SQL and psql only
     0009_identity.sql           invites, profiles, tokens and the outbox
     0010_permission_scope.sql   §4.4's third dimension: resource, level, scope
     0011_aircraft_config.sql    billing meter, wet/dry, rate, fuel, grounded
+    0012_scheduling.sql         reservations, resource lines, blackouts, and
+                                the exclusion constraint (§3.3)
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -168,6 +170,8 @@ db/                             not an npm workspace — SQL and psql only
     110_identity.sql                       the token doors, and the one
                                            member a tenant cannot lose
     120_permission_scope.sql               own rows versus all of them
+    130_scheduling.sql                     the race that cannot be lost, and
+                                           who may book what
 api/
   src/
     config.ts                   env, client version floors, rate limits
@@ -192,9 +196,9 @@ api/
       plugins/request-context.ts  binds context to the request
       errors.ts                 the §1.6 gates: 404 / 403 / 402, and 429
       server.ts                 Fastify, error handler, version handshake
-      routes/                   health, signup, auth, me, tenant,
-                                entitlements, aircraft, flights, maintenance,
-                                squawks, reference
+      routes/                   health, signup, auth, account, me, tenant,
+                                entitlements, members, aircraft, flights,
+                                maintenance, squawks, scheduling, reference
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -362,7 +366,8 @@ is left:
   | Meter correction | the API takes `supersedes_id`, so the "Corrected" badge can never appear from the web |
   | Subscription and plan changes | no UI and no API — M7 |
   | Switching organisation after sign-in | the picker is only shown at login |
-  | Scheduling, member billing | M5 and M6; nothing exists yet |
+  | Scheduling screens | the API is built; no calendar, booking form or blackout screen yet |
+  | Member billing | M6; nothing exists yet, and the rates it resolves against are on the aircraft |
 
   These are honest gaps, not bugs. The web app tells the truth about what it
   can do; it just cannot do much yet.

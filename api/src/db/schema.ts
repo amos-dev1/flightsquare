@@ -531,6 +531,81 @@ export interface AircraftAvailabilityView {
   grounding_reasons: ViewColumn<string[]>;
 }
 
+export type ReservationStatus = 'booked' | 'cancelled' | 'completed';
+
+/**
+ * §3.3. A booking's hours live here; what it holds lives in
+ * `reservation_resources`, one row per thing — always exactly one of type
+ * 'aircraft' today, and the reason an instructor can be a second one later
+ * without any of the conflict logic changing.
+ */
+export interface ReservationsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  /** Who will be flying. Not editable: the column carries no UPDATE grant. */
+  booked_by: ColumnType<string, string, never>;
+  purpose: string | null;
+  notes: string | null;
+  starts_at: Timestamp;
+  ends_at: Timestamp;
+  status: Generated<ReservationStatus>;
+  /** §3.3: grounded aircraft flag their future bookings, never cancel them. */
+  needs_review: Generated<boolean>;
+  review_reason: string | null;
+  cancelled_at: Timestamp | null;
+  cancelled_by: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/**
+ * One row per thing a booking or a blackout holds, and the table the
+ * exclusion constraint lives on.
+ *
+ * `during` and `blocking` are `never` on the write side because app_role
+ * holds no grant on them: they are copies of the parent kept in step by a
+ * §2.3 helper, and an application that could write them could move a line
+ * off the hours its booking claims while the constraint stayed satisfied.
+ */
+export interface ReservationResourcesTable {
+  id: Generated<string>;
+  tenant_id: string;
+  reservation_id: string | null;
+  blackout_id: string | null;
+  resource_type: 'aircraft';
+  resource_id: string;
+  during: ColumnType<string, string, never>;
+  blocking: ColumnType<boolean, never, never>;
+  created_at: Timestamp;
+}
+
+export interface BlackoutsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  reason: string;
+  starts_at: Timestamp;
+  ends_at: Timestamp;
+  created_by: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/**
+ * §3.5's checkout rule — "is Dave signed off in the 182?" — and nothing
+ * more. No certificate numbers, no ratings, no hours: §3.4's boundary holds,
+ * and this says only that somebody may fly a particular aeroplane.
+ */
+export interface MemberAircraftAuthorizationsTable {
+  tenant_id: string;
+  membership_id: string;
+  aircraft_id: string;
+  authorized_on: ColumnType<string, string | undefined, never>;
+  authorized_by: string | null;
+  note: string | null;
+  created_at: Timestamp;
+}
+
 export interface FlightsTable {
   id: Generated<string>;
   tenant_id: string;
@@ -589,6 +664,10 @@ export interface IdempotencyKeysTable {
 }
 
 export interface Database {
+  reservations: ReservationsTable;
+  reservation_resources: ReservationResourcesTable;
+  blackouts: BlackoutsTable;
+  member_aircraft_authorizations: MemberAircraftAuthorizationsTable;
   auth_tokens: AuthTokensTable;
   outbox: OutboxTable;
   maintenance_interval_templates: MaintenanceIntervalTemplatesTable;

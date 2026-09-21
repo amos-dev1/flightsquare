@@ -23,6 +23,7 @@ import { maintenanceRoutes } from './routes/maintenance.js';
 import { memberRoutes } from './routes/members.js';
 import { squawkRoutes } from './routes/squawks.js';
 import { referenceRoutes } from './routes/reference.js';
+import { schedulingRoutes } from './routes/scheduling.js';
 import { meRoutes } from './routes/me.js';
 import { signupRoutes } from './routes/signup.js';
 import { tenantRoutes } from './routes/tenant.js';
@@ -174,6 +175,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(flightRoutes);
   void app.register(maintenanceRoutes);
   void app.register(memberRoutes);
+  void app.register(schedulingRoutes);
   void app.register(squawkRoutes);
   void app.register(referenceRoutes);
 
