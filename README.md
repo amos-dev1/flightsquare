@@ -153,6 +153,8 @@ db/                             not an npm workspace — SQL and psql only
     0011_aircraft_config.sql    billing meter, wet/dry, rate, fuel, grounded
     0012_scheduling.sql         reservations, resource lines, blackouts, and
                                 the exclusion constraint (§3.3)
+    0013_member_billing.sql     effective-dated rates, charges that snapshot
+                                them, fuel credits and adjustments (§3.7)
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -172,6 +174,7 @@ db/                             not an npm workspace — SQL and psql only
     120_permission_scope.sql               own rows versus all of them
     130_scheduling.sql                     the race that cannot be lost, and
                                            who may book what
+    140_member_billing.sql                 February keeps February's price
 api/
   src/
     config.ts                   env, client version floors, rate limits
@@ -198,7 +201,8 @@ api/
       server.ts                 Fastify, error handler, version handshake
       routes/                   health, signup, auth, account, me, tenant,
                                 entitlements, members, aircraft, flights,
-                                maintenance, squawks, scheduling, reference
+                                maintenance, squawks, scheduling, billing,
+                                reference
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -368,7 +372,7 @@ is left:
   | Meter correction | the API takes `supersedes_id`, so the "Corrected" badge can never appear from the web |
   | Subscription and plan changes | no UI and no API — M7 |
   | Switching organisation after sign-in | the picker is only shown at login |
-  | Member billing | M6; nothing exists yet, and the rates it resolves against are on the aircraft |
+  | Member billing screens | the API is built; no rates, statement or balances screen yet |
   | Subscription and plan changes | M7 |
 
   These are honest gaps, not bugs. The web app tells the truth about what it

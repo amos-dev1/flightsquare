@@ -146,6 +146,20 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM invites WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
+    // The ledger leads everything: charges and credits point at flights,
+    // and every one of these tables is append-only to the application — so
+    // teardown is out-of-band by design rather than by omission.
+    for (const table of [
+      'flight_charges',
+      'fuel_credits',
+      'ledger_adjustments',
+      'member_aircraft_rates',
+      'aircraft_rates',
+    ]) {
+      await adminPool.query(`DELETE FROM ${table} WHERE tenant_id IN (${tenants})`, [
+        `${TEST_PREFIX}%`,
+      ]);
+    }
     // Scheduling leads: its lines point at reservations and blackouts, and
     // those point at memberships and aircraft.
     await adminPool.query(

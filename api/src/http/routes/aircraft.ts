@@ -8,6 +8,7 @@ import type {
 import { sql } from 'kysely';
 
 import { assertQuota } from '../../db/entitlements.js';
+import { ownMembership } from '../../db/membership.js';
 import { selectAvailability, toAvailability } from './maintenance.js';
 import {
   ConflictError,
@@ -118,8 +119,20 @@ async function selectAircraft(trx: Tx, id?: string) {
       'aircraft_config.seats',
       'aircraft_config.billing_meter',
       'aircraft_config.rate_basis',
-      'aircraft_config.default_rate_cents',
       'aircraft_config.currency',
+      /**
+       * Today's rate, resolved rather than stored (§3.7 rule 4). The rate
+       * table is effective-dated, so "what does it cost" is a question with
+       * a date in it — and the answer for a flight already logged lives on
+       * the charge, not here.
+       */
+      sql<number | null>`(
+        SELECT r.amount_cents
+          FROM public.aircraft_rates r
+         WHERE r.aircraft_id = aircraft.id
+           AND r.effective_from <= current_date
+         ORDER BY r.effective_from DESC, r.id DESC
+         LIMIT 1)`.as('default_rate_cents'),
       'aircraft_config.fuel_capacity',
       'aircraft_config.fuel_units',
       /**
@@ -265,11 +278,25 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
               ? { billing_meter: body.billing_meter }
               : {}),
             ...(body.rate_basis !== undefined ? { rate_basis: body.rate_basis } : {}),
-            default_rate_cents: body.default_rate_cents ?? null,
             fuel_capacity: body.fuel_capacity ?? null,
             ...(body.fuel_units !== undefined ? { fuel_units: body.fuel_units } : {}),
           })
           .execute();
+
+        // §3.7 rule 4: the rate is a row with a date on it, from the first
+        // one onwards. Dated today, because that is when it starts being
+        // true — and nothing has been flown yet to re-price.
+        if (body.default_rate_cents !== undefined) {
+          await trx
+            .insertInto('aircraft_rates')
+            .values({
+              tenant_id: request.ctx!.tenantId!,
+              aircraft_id: aircraft.id,
+              amount_cents: body.default_rate_cents,
+              created_by: await ownMembership(trx, request.ctx!.userId),
+            })
+            .execute();
+        }
 
         /**
          * Where the meters stand on the day the aeroplane is added.
@@ -341,9 +368,7 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
         ...(meter !== undefined ? { maintenance_meter: meter as 'hobbs' } : {}),
         ...(billingMeter !== undefined ? { billing_meter: billingMeter as 'hobbs' } : {}),
         ...(rateBasis !== undefined ? { rate_basis: rateBasis as 'wet' } : {}),
-        ...(rateCents !== undefined
-          ? { default_rate_cents: rateCents as number | null }
-          : {}),
+
         ...(fuelCapacity !== undefined
           ? { fuel_capacity: fuelCapacity as string | null }
           : {}),
@@ -375,6 +400,23 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
             .where('id', '=', request.params.id)
             .executeTakeFirst();
           if (result.numUpdatedRows === 0n) throw new NotFoundError();
+        }
+
+        /**
+         * Changing the rate writes a new row dated today, and leaves every
+         * charge already made exactly as it was. That is §3.7 rule 1 and
+         * rule 4 working together: February keeps February's price.
+         */
+        if (rateCents !== undefined && rateCents !== null) {
+          await trx
+            .insertInto('aircraft_rates')
+            .values({
+              tenant_id: request.ctx!.tenantId!,
+              aircraft_id: request.params.id,
+              amount_cents: rateCents as number,
+              created_by: await ownMembership(trx, request.ctx!.userId),
+            })
+            .execute();
         }
 
         if (Object.keys(configChanges).length > 0) {

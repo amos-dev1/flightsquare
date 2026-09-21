@@ -15,6 +15,7 @@ import {
 } from './plugins/request-context.js';
 import { accountRoutes } from './routes/account.js';
 import { authRoutes } from './routes/auth.js';
+import { billingRoutes } from './routes/billing.js';
 import { aircraftRoutes } from './routes/aircraft.js';
 import { entitlementsRoutes } from './routes/entitlements.js';
 import { flightRoutes } from './routes/flights.js';
@@ -172,6 +173,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(tenantRoutes);
   void app.register(entitlementsRoutes);
   void app.register(aircraftRoutes);
+  void app.register(billingRoutes);
   void app.register(flightRoutes);
   void app.register(maintenanceRoutes);
   void app.register(memberRoutes);

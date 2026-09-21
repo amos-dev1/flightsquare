@@ -352,7 +352,13 @@ export interface AircraftResponse {
   billing_meter: BillingMeter;
   /** Wet includes fuel; dry does not, and fuel is then the pilot's own cost. */
   rate_basis: RateBasis;
-  /** Integer minor units, never a float. Null until somebody sets one. */
+  /**
+   * What the aircraft costs an hour *today*, in integer minor units.
+   *
+   * Resolved from the effective-dated rates rather than stored: §3.7 rule 4
+   * makes a rate change a new row, so there is no single column to read and
+   * a charge already made keeps the rate it was made at.
+   */
   default_rate_cents: number | null;
   currency: string;
   fuel_capacity: string | null;
@@ -875,4 +881,102 @@ export interface AuthorizationResponse {
 export interface CreateAuthorizationRequest {
   membership_id: string;
   note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Member billing (§3.7, M6)
+//
+// Pilot → their club. Not platform billing, which is the tenant →
+// FlightSquare. §3.7 opens by insisting the two never share a name, and
+// nothing here touches the other one.
+//
+// **v1 produces statements and does not move money.** Recording that somebody
+// paid is a manual adjustment, which is the smallest thing that makes a
+// ledger balance.
+// ---------------------------------------------------------------------------
+
+export type RateSource = 'member' | 'aircraft';
+export type StatementLineKind = 'charge' | 'credit' | 'adjustment';
+
+export interface RateResponse {
+  id: string;
+  aircraft_id: string;
+  aircraft_registration: string;
+  /** Integer minor units, always. Never a float, never a decimal string. */
+  amount_cents: number;
+  currency: string;
+  effective_from: string;
+  /** Set on a member override; absent on the club's own rate. */
+  membership_id?: string;
+  member_email?: string;
+}
+
+export interface CreateRateRequest {
+  aircraft_id: string;
+  amount_cents: number;
+  /** Defaults to today. A rate change is a new row, never an edit (§3.7). */
+  effective_from?: string;
+  /** Present for a member-specific override; absent for the club rate. */
+  membership_id?: string;
+}
+
+/**
+ * One line of a statement.
+ *
+ * A charge says which rule priced it, because a statement that cannot
+ * explain itself is a statement somebody disputes.
+ */
+export interface StatementLine {
+  id: string;
+  kind: StatementLineKind;
+  occurred_at: string;
+  description: string;
+  /** Positive is owed, negative is credited back. Integer minor units. */
+  amount_cents: number;
+  currency: string;
+  flight_id: string | null;
+  /** Charges only: which layer of §3.7's chain answered. */
+  rate_source: RateSource | null;
+  rate_cents: number | null;
+  meter: string | null;
+  meter_hours: string | null;
+  /** Set when a later entry reverses this one. Both rows stay. */
+  reversed: boolean;
+  reverses_id: string | null;
+}
+
+export interface StatementResponse {
+  membership_id: string;
+  email: string;
+  name: string | null;
+  from: string | null;
+  to: string | null;
+  lines: StatementLine[];
+  charged_cents: number;
+  credited_cents: number;
+  adjusted_cents: number;
+  /** What they owe at the end of the period. Charges − credits + adjustments. */
+  balance_cents: number;
+  currency: string;
+}
+
+/** The treasurer's view: everybody, and what each of them owes. */
+export interface MemberBalanceResponse {
+  membership_id: string;
+  email: string;
+  name: string | null;
+  balance_cents: number;
+  currency: string;
+}
+
+export interface CreateAdjustmentRequest {
+  membership_id: string;
+  /** Negative records a payment; positive adds something they owe. */
+  amount_cents: number;
+  /** Not optional: an unexplained line in a ledger is an argument later. */
+  reason: string;
+}
+
+export interface ReverseChargeRequest {
+  reason: string;
 }
