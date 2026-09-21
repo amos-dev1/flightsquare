@@ -1,7 +1,11 @@
 /**
- * The API contract — the shapes a client can rely on, and nothing else.
+ * The API contract — the shapes a client can rely on — and the client that
+ * speaks it (§9).
  *
- * This package is **types only and has no build step**. Everything here is
+ * This package has **no build step**. Its consumers are bundlers (Next via
+ * transpilePackages, Metro via watchFolders) which compile the TypeScript
+ * directly, and the `api` workspace imports from here with `import type`
+ * only, so nothing resolves this package at runtime on the server. Everything here is
  * consumed with `import type`, which TypeScript erases, so nothing resolves
  * `@flightsquare/shared` at runtime.
  *
@@ -28,6 +32,10 @@
 // Checked in that order, so a gated capability is indistinguishable from one
 // that does not exist. 429 is rate limiting and is never a plan quota.
 // ---------------------------------------------------------------------------
+
+export * from './client.js';
+export * from './offline.js';
+export * from './uuidv7.js';
 
 export type PermissionLevel = 'none' | 'read' | 'write';
 

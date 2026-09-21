@@ -1,6 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // fetch, Response and friends. This package runs in a browser and on a
+    // phone, never on the server — api imports it with `import type` only.
+    "lib": ["es2023", "dom"],
     "noEmit": true
   },
   "include": ["src"]

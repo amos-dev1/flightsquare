@@ -134,7 +134,11 @@ web/
     lib/                        httpOnly session cookie, server-side API client
     components/ui.tsx           copy-in components, owned outright
     app/                        login, tenant picker, fleet, aircraft detail
-mobile/                         Expo. Empty.
+mobile/
+  src/
+    lib/queue.ts                expo-sqlite behind the shared QueueStore
+    lib/sync.ts                 save-locally-first, flush when there is signal
+    app/                        sign in, fleet, post-flight entry
 scripts/
 ```
 
@@ -264,12 +268,12 @@ session, impersonation deferred with the session seam kept open, and
 `deleted_at` as a control-plane marker — and the stack and layout in §9. What
 is left:
 
-- **The post-flight screen exists on web, not yet on a phone.** §3.4's
-  failure mode is a form that takes more than a minute at a tiedown, so it
-  prefills the "out" readings from the aircraft, autofocuses the first thing
-  you actually have to type, and keeps fuel and route behind one tap each.
-  The offline half of that — Expo, a write queue, syncing when signal
-  returns — is still ahead.
+- **The Expo app has never run on a device.** It bundles, typechecks, and its
+  queue logic is tested in Node — but nothing here has been through a
+  simulator, so treat the screens as unverified until someone opens them.
+- **`web/` still has its own API client.** §9 says both clients share the one
+  in `packages/shared`; mobile uses it, web predates it and duplicates a
+  little of it. Worth collapsing next time web's data layer is touched.
 - **`exports.per_month` is declared but not enforced.** Flow quotas need
   period-aware counting, and `tenant_usage` is a plain counter. §4.2 already
   says the mechanism exists and nothing important uses it.
