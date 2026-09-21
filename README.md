@@ -406,10 +406,26 @@ is left:
   (§3.5). The authorization table gates booking and arrives with the
   scheduler; the credentials table is open decision 3 and should be settled
   rather than assumed.
-- **Row scoping is still open** (CLAUDE.md §10, decision 3). A Pilot's
-  `charges: read` currently means every charge in the tenant, which is wrong
-  in a club. It has to be settled before the ledger is built — not before, and
-  not after.
+- **An admin settings hub is wanted, and is not built.** The idea: one
+  `/settings` for admins, branching into aircraft settings, maintenance
+  setup, members and permissions, invite and suspend, and subscription.
+  Today those live where the thing lives — per-aircraft settings on the
+  aircraft, members at `/members`, tenant settings at `/settings` — and that
+  is not an accident worth undoing lightly:
+
+  - Per-aircraft settings are most findable on the aircraft. A hub makes them
+    two navigations away from the page that shows the aeroplane they belong
+    to, and a club with three aircraft then picks from a list twice.
+  - Members is a daily screen for a club of five, not a setting. Filing it
+    under settings makes the most-used admin page the most buried one.
+  - Subscription genuinely belongs in a hub, and does not exist yet (M7).
+
+  The version worth building is probably a hub that **links** rather than
+  absorbs: one page an admin can start from, pointing at the screens where
+  the things already are, plus subscription and maintenance-preset setup
+  which have nowhere else to be. That keeps one place to look without making
+  anything harder to reach. Worth deciding when M7 lands and there is
+  actually a third thing to put in it.
 - **MFA is reported but not enforced.** `login` returns `mfa_required` from
   the user row; nothing acts on it yet.
 - **Nothing writes to `audit_log`.** §5.9 wants every plan change recorded
