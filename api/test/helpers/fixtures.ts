@@ -68,6 +68,25 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM invites WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
+    // Maintenance leads, because squawks point at flights and at work
+    // orders, and compliance records point at items and orders. app_role
+    // could not do any of this — compliance_records holds SELECT and INSERT
+    // and nothing else — which is the design working rather than a gap.
+    await adminPool.query(`DELETE FROM compliance_records WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM squawk_deferrals WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM squawks WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM work_orders WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM maintenance_items WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
     // flights own flight_meters and flight_fuel by cascade, but meter_readings
     // point back at flights, so those go first.
     await adminPool.query(`DELETE FROM meter_readings WHERE tenant_id IN (${tenants})`, [

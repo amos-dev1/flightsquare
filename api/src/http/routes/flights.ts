@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { CreateFlightRequest, FlightResponse } from '@flightsquare/shared';
 
 import { withIdempotency } from '../../db/idempotency.js';
+import { ownMembership } from '../../db/membership.js';
 import { NotFoundError } from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
@@ -76,18 +77,6 @@ type FlightRow = Awaited<ReturnType<ReturnType<typeof selectFlights>['execute']>
 
 function toResponse(row: FlightRow): FlightResponse {
   return { ...row, recorded_at: row.recorded_at.toISOString() };
-}
-
-/** The caller's own membership in this tenant. */
-async function ownMembership(trx: Tx, userId: string): Promise<string> {
-  const row = await trx
-    .selectFrom('memberships')
-    .select('id')
-    .where('user_id', '=', userId)
-    .where('status', '=', 'active')
-    .executeTakeFirst();
-  if (!row) throw new NotFoundError();
-  return row.id;
 }
 
 export async function flightRoutes(app: FastifyInstance): Promise<void> {

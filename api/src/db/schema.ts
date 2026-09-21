@@ -271,6 +271,211 @@ export interface MeterReadingsTable {
   created_at: Timestamp;
 }
 
+export type MaintenanceItemStatus = 'active' | 'archived';
+export type MaintenanceState = 'ok' | 'due_soon' | 'overdue' | 'inactive';
+export type SquawkSeverity = 'advisory' | 'minor' | 'major' | 'grounding';
+export type SquawkStatus = 'open' | 'deferred' | 'resolved';
+export type DeferralBasis = 'mel' | 'cdl' | 'far_91_213' | 'other';
+export type ComplianceKind = 'inspection' | 'ad' | 'sb' | 'overhaul' | 'repair' | 'other';
+export type ComplianceMethod = 'inspection' | 'modification' | 'replacement' | 'recurring';
+export type WorkOrderStatus = 'open' | 'closed';
+export type SignoffKind = 'a_and_p' | 'ia' | 'repairman' | 'owner' | 'other';
+
+/** A `date` column: a calendar day, with no time and no zone to get wrong. */
+type CalendarDate = ColumnType<string, string, string>;
+
+/** A view column. Selectable, and `never` on both write sides because it is. */
+type ViewColumn<T> = ColumnType<T, never, never>;
+
+/**
+ * §2.2 global reference. Instantiated as a copy and never referenced (§3.6),
+ * so nothing in the application writes here and no tenant row points at it.
+ */
+export interface MaintenanceIntervalTemplatesTable {
+  code: string;
+  version: number;
+  name: string;
+  description: string | null;
+  regulatory_reference: string | null;
+  applies_to: string;
+  applies_value: string | null;
+  auto_instantiate: Generated<boolean>;
+  interval_months: number | null;
+  interval_hours: string | null;
+  interval_cycles: number | null;
+  hours_meter: MaintenanceMeter | null;
+  grounds_aircraft: Generated<boolean>;
+  warn_within_days: Generated<number>;
+  warn_within_hours: Generated<string>;
+  created_at: Timestamp;
+}
+
+export interface MaintenanceItemsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  name: string;
+  description: string | null;
+  regulatory_reference: string | null;
+  /** §5.5: archiving is a status, and an archived item keeps its history. */
+  status: Generated<MaintenanceItemStatus>;
+  /** Feeds aircraft_availability once the item goes overdue (§3.3). */
+  grounds_aircraft: Generated<boolean>;
+  due_on: CalendarDate | null;
+  due_at_hours: string | null;
+  due_at_cycles: number | null;
+  hours_meter: MaintenanceMeter | null;
+  interval_months: number | null;
+  interval_hours: string | null;
+  interval_cycles: number | null;
+  warn_within_days: Generated<number>;
+  warn_within_hours: Generated<string>;
+  // Rolled forward by a trigger when compliance lands, never by the caller.
+  last_complied_on: ColumnType<string | null, never, never>;
+  last_complied_hours: ColumnType<string | null, never, never>;
+  last_complied_cycles: ColumnType<number | null, never, never>;
+  /** Provenance only: which preset version seeded this row (§3.6). */
+  template_code: string | null;
+  template_version: number | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+export interface SquawksTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  /**
+   * `never` on update: app_role holds no UPDATE grant on this column. The
+   * defect someone wrote down is the record, and a correction is a new
+   * squawk rather than a rewrite of the one an investigator reads.
+   */
+  summary: ColumnType<string, string, never>;
+  details: string | null;
+  /** How bad it is. Whether it flies is `grounding`, which is a judgement. */
+  severity: Generated<SquawkSeverity>;
+  grounding: Generated<boolean>;
+  status: Generated<SquawkStatus>;
+  reported_by: ColumnType<string, string, never>;
+  reported_at: Timestamp;
+  received_at: Timestamp;
+  found_on_flight_id: string | null;
+  resolved_at: Timestamp | null;
+  resolved_by: string | null;
+  resolution_note: string | null;
+  work_order_id: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/** Append-only: §7.2 names deferral history among what gets subpoenaed. */
+export interface SquawkDeferralsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  squawk_id: string;
+  basis: DeferralBasis;
+  reference: string | null;
+  expires_on: CalendarDate | null;
+  note: string | null;
+  deferred_by: string;
+  deferred_at: Timestamp;
+  created_at: Timestamp;
+}
+
+export interface WorkOrdersTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  reference: string | null;
+  description: string;
+  performed_by: string | null;
+  performed_on: CalendarDate | null;
+  parts: Generated<unknown>;
+  labor_hours: string | null;
+  /** §3.7 rule 3: integer minor units, never a float. */
+  cost_cents: number | null;
+  currency: Generated<string>;
+  status: Generated<WorkOrderStatus>;
+  signoff_name: string | null;
+  signoff_certificate: string | null;
+  signoff_kind: SignoffKind | null;
+  /** Once set, a trigger refuses every further UPDATE on the row. */
+  signed_at: Timestamp | null;
+  created_by: string | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/**
+ * Append-only, never edited (§3.6). `never` on every update side is not
+ * decoration: app_role holds SELECT and INSERT and nothing else, so a query
+ * that tried would be refused by the database anyway.
+ */
+export interface ComplianceRecordsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  maintenance_item_id: string | null;
+  work_order_id: string | null;
+  kind: ComplianceKind;
+  reference: string | null;
+  title: string;
+  method: ComplianceMethod | null;
+  complied_on: CalendarDate;
+  complied_at_hours: string | null;
+  complied_at_cycles: number | null;
+  hours_meter: MaintenanceMeter | null;
+  next_due_on: CalendarDate | null;
+  next_due_at_hours: string | null;
+  signed_by: string | null;
+  signed_certificate: string | null;
+  /** A correction points at the row it replaces; neither is ever deleted. */
+  supersedes_id: string | null;
+  note: string | null;
+  recorded_by: string | null;
+  recorded_at: Timestamp;
+  created_at: Timestamp;
+}
+
+/**
+ * Views, not tables. Both are `security_invoker`, so the policies of the
+ * tables underneath stay in the path — without that they would read every
+ * tenant, and they would do it silently.
+ */
+export interface MaintenanceItemStatusView {
+  maintenance_item_id: ViewColumn<string>;
+  tenant_id: ViewColumn<string>;
+  aircraft_id: ViewColumn<string>;
+  name: ViewColumn<string>;
+  status: ViewColumn<MaintenanceItemStatus>;
+  grounds_aircraft: ViewColumn<boolean>;
+  due_on: ViewColumn<string | null>;
+  due_at_hours: ViewColumn<string | null>;
+  due_at_cycles: ViewColumn<number | null>;
+  hours_meter: ViewColumn<MaintenanceMeter>;
+  current_hours: ViewColumn<string | null>;
+  template_code: ViewColumn<string | null>;
+  last_complied_on: ViewColumn<string | null>;
+  /** False means "no record", which is not the same claim as "overdue". */
+  ever_complied: ViewColumn<boolean>;
+  days_remaining: ViewColumn<number | null>;
+  hours_remaining: ViewColumn<string | null>;
+  cycles_remaining: ViewColumn<number | null>;
+  state: ViewColumn<MaintenanceState>;
+}
+
+/** §3.3: the one place that decides whether an aircraft may be booked. */
+export interface AircraftAvailabilityView {
+  aircraft_id: ViewColumn<string>;
+  tenant_id: ViewColumn<string>;
+  registration: ViewColumn<string>;
+  aircraft_status: ViewColumn<AircraftStatus>;
+  grounding_squawks: ViewColumn<string>;
+  overdue_grounding_items: ViewColumn<string>;
+  available: ViewColumn<boolean>;
+  grounding_reasons: ViewColumn<string[]>;
+}
+
 export interface FlightsTable {
   id: Generated<string>;
   tenant_id: string;
@@ -329,6 +534,14 @@ export interface IdempotencyKeysTable {
 }
 
 export interface Database {
+  maintenance_interval_templates: MaintenanceIntervalTemplatesTable;
+  maintenance_items: MaintenanceItemsTable;
+  maintenance_item_status: MaintenanceItemStatusView;
+  aircraft_availability: AircraftAvailabilityView;
+  squawks: SquawksTable;
+  squawk_deferrals: SquawkDeferralsTable;
+  work_orders: WorkOrdersTable;
+  compliance_records: ComplianceRecordsTable;
   flights: FlightsTable;
   flight_meters: FlightMetersTable;
   flight_fuel: FlightFuelTable;

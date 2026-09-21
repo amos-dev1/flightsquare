@@ -71,7 +71,8 @@ BEGIN
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public' AND c.relkind = 'r'
        AND c.relname NOT IN ('schema_migrations',          -- DDL bookkeeping
-                             'aircraft_types', 'aerodromes')  -- §2.2 reference
+                             'aircraft_types', 'aerodromes',  -- §2.2 reference
+                             'maintenance_interval_templates')
        AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
   LOOP
     RAISE EXCEPTION '%: a table in public without ENABLE + FORCE RLS', r.relname;
@@ -83,14 +84,16 @@ BEGIN
       JOIN pg_namespace n ON n.oid = c.relnamespace
       JOIN pg_attribute a ON a.attrelid = c.oid
      WHERE n.nspname = 'public'
-       AND c.relname IN ('aircraft_types', 'aerodromes')
+       AND c.relname IN ('aircraft_types', 'aerodromes',
+                         'maintenance_interval_templates')
        AND a.attname = 'tenant_id' AND NOT a.attisdropped
   LOOP
     RAISE EXCEPTION '%: on the no-RLS allowlist but carries tenant_id', r.relname;
   END LOOP;
 
   -- And they really are read-only to the application.
-  FOR r IN SELECT unnest(ARRAY['aircraft_types', 'aerodromes']) AS relname LOOP
+  FOR r IN SELECT unnest(ARRAY['aircraft_types', 'aerodromes',
+                               'maintenance_interval_templates']) AS relname LOOP
     IF has_table_privilege('app_role', 'public.' || r.relname, 'INSERT')
        OR has_table_privilege('app_role', 'public.' || r.relname, 'UPDATE')
        OR has_table_privilege('app_role', 'public.' || r.relname, 'DELETE') THEN
@@ -141,22 +144,27 @@ BEGIN
      IS DISTINCT FROM ARRAY['aircraft.tenant_isolation',
                             'aircraft_config.tenant_isolation',
                             'audit_log.tenant_isolation',
+                            'compliance_records.tenant_isolation',
                             'device_registrations.user_isolation',
                             'flight_fuel.tenant_isolation',
                             'flight_meters.tenant_isolation',
                             'flights.tenant_isolation',
                             'idempotency_keys.tenant_isolation',
                             'invites.tenant_isolation',
+                            'maintenance_items.tenant_isolation',
                             'memberships.tenant_isolation',
                             'meter_readings.tenant_isolation',
                             'refresh_tokens.user_isolation',
                             'role_bundle_permissions.tenant_isolation',
                             'role_bundles.tenant_isolation',
                             'sessions.user_isolation',
+                            'squawk_deferrals.tenant_isolation',
+                            'squawks.tenant_isolation',
                             'tenant_entitlement_overrides.tenant_isolation',
                             'tenant_usage.tenant_isolation',
                             'tenants.tenant_isolation',
-                            'users.tenant_visibility']::text[] THEN
+                            'users.tenant_visibility',
+                            'work_orders.tenant_isolation']::text[] THEN
     RAISE EXCEPTION 'the set of app-facing policies is not what the migrations installed';
   END IF;
   RAISE NOTICE '   ok: every app-facing policy carries USING and WITH CHECK';

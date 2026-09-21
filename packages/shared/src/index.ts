@@ -368,3 +368,282 @@ export interface CreateFlightRequest {
   /** When the flight ended. Defaults to now; an offline client sends its own. */
   recorded_at?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Maintenance (§3.6)
+//
+// The second half of the core loop. Meters advance from flights, items tick
+// down against them, and an overdue item or a grounding squawk reaches the
+// scheduler through one resolved view rather than through every booking path
+// asking about squawks itself (§3.3).
+//
+// `squawks` is a separate resource from `maintenance` here for the same
+// reason it is separate in §1.5: a pilot reports a defect and does not sign
+// off the work. Collapsing them makes the central permission line in the
+// product inexpressible.
+// ---------------------------------------------------------------------------
+
+export type MaintenanceItemStatus = 'active' | 'archived';
+export type MaintenanceState = 'ok' | 'due_soon' | 'overdue' | 'inactive';
+export type SquawkSeverity = 'advisory' | 'minor' | 'major' | 'grounding';
+export type SquawkStatus = 'open' | 'deferred' | 'resolved';
+export type DeferralBasis = 'mel' | 'cdl' | 'far_91_213' | 'other';
+export type ComplianceKind = 'inspection' | 'ad' | 'sb' | 'overhaul' | 'repair' | 'other';
+export type ComplianceMethod = 'inspection' | 'modification' | 'replacement' | 'recurring';
+export type WorkOrderStatus = 'open' | 'closed';
+export type SignoffKind = 'a_and_p' | 'ia' | 'repairman' | 'owner' | 'other';
+
+/**
+ * An item, with the resolution the server did for it.
+ *
+ * The countdown is computed server-side and sent whole. §8.2: the client
+ * never computes anything that matters, and "is this aeroplane legal to fly"
+ * is as close to mattering as this product gets.
+ */
+export interface MaintenanceItemResponse {
+  id: string;
+  aircraft_id: string;
+  name: string;
+  description: string | null;
+  regulatory_reference: string | null;
+  status: MaintenanceItemStatus;
+  /** Whether going overdue stops the aircraft flying (§3.3). */
+  grounds_aircraft: boolean;
+
+  due_on: string | null;
+  due_at_hours: string | null;
+  due_at_cycles: number | null;
+  /** Which meter the hours are counted on — tach for engine items (§3.6). */
+  hours_meter: MaintenanceMeter;
+  current_hours: string | null;
+
+  interval_months: number | null;
+  interval_hours: string | null;
+  interval_cycles: number | null;
+
+  days_remaining: number | null;
+  hours_remaining: string | null;
+  cycles_remaining: number | null;
+  state: MaintenanceState;
+
+  last_complied_on: string | null;
+  /**
+   * False means nobody has recorded compliance yet — seeded from the preset
+   * library and never confirmed. The UI says "not recorded", not "overdue":
+   * they are different claims and only one of them is about the aircraft.
+   */
+  ever_complied: boolean;
+  /** Which preset version seeded this row. Provenance only (§3.6). */
+  template_code: string | null;
+  template_version: number | null;
+}
+
+export interface CreateMaintenanceItemRequest {
+  name: string;
+  description?: string;
+  regulatory_reference?: string;
+  grounds_aircraft?: boolean;
+  due_on?: string;
+  due_at_hours?: string;
+  due_at_cycles?: number;
+  hours_meter?: MaintenanceMeter;
+  interval_months?: number;
+  interval_hours?: string;
+  interval_cycles?: number;
+  warn_within_days?: number;
+  warn_within_hours?: string;
+}
+
+export type UpdateMaintenanceItemRequest = Partial<CreateMaintenanceItemRequest> & {
+  status?: MaintenanceItemStatus;
+};
+
+/** One entry in the preset library (§3.6), offered before it is instantiated. */
+export interface MaintenanceTemplateResponse {
+  code: string;
+  version: number;
+  name: string;
+  description: string | null;
+  regulatory_reference: string | null;
+  auto_instantiate: boolean;
+  interval_months: number | null;
+  interval_hours: string | null;
+  hours_meter: MaintenanceMeter | null;
+  grounds_aircraft: boolean;
+}
+
+export interface ComplianceRecordResponse {
+  id: string;
+  aircraft_id: string;
+  maintenance_item_id: string | null;
+  work_order_id: string | null;
+  kind: ComplianceKind;
+  reference: string | null;
+  title: string;
+  method: ComplianceMethod | null;
+  complied_on: string;
+  complied_at_hours: string | null;
+  complied_at_cycles: number | null;
+  hours_meter: MaintenanceMeter | null;
+  next_due_on: string | null;
+  next_due_at_hours: string | null;
+  signed_by: string | null;
+  signed_certificate: string | null;
+  supersedes_id: string | null;
+  note: string | null;
+  recorded_at: string;
+  /** Set when a later correction supersedes this row. Both stay (§3.6). */
+  superseded: boolean;
+}
+
+/**
+ * Recording compliance. Append-only: a correction is a new record naming the
+ * one it supersedes, and nothing here is ever edited.
+ */
+export interface CreateComplianceRecordRequest {
+  aircraft_id: string;
+  maintenance_item_id?: string;
+  work_order_id?: string;
+  kind: ComplianceKind;
+  reference?: string;
+  title: string;
+  method?: ComplianceMethod;
+  complied_on: string;
+  complied_at_hours?: string;
+  complied_at_cycles?: number;
+  hours_meter?: MaintenanceMeter;
+  /** A recurring AD states its own next due point; it is not an interval. */
+  next_due_on?: string;
+  next_due_at_hours?: string;
+  signed_by?: string;
+  signed_certificate?: string;
+  supersedes_id?: string;
+  note?: string;
+}
+
+export interface SquawkResponse {
+  id: string;
+  aircraft_id: string;
+  aircraft_registration: string;
+  summary: string;
+  details: string | null;
+  severity: SquawkSeverity;
+  /** Whether the aircraft flies. Separate from severity, because it is a
+   * separate judgement: an inspection can ground something reported as minor. */
+  grounding: boolean;
+  status: SquawkStatus;
+  reported_by: string;
+  reported_by_email: string | null;
+  reported_at: string;
+  found_on_flight_id: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+  work_order_id: string | null;
+  deferrals: SquawkDeferralResponse[];
+}
+
+export interface SquawkDeferralResponse {
+  id: string;
+  basis: DeferralBasis;
+  reference: string | null;
+  expires_on: string | null;
+  note: string | null;
+  deferred_at: string;
+}
+
+export interface CreateSquawkRequest {
+  aircraft_id: string;
+  summary: string;
+  details?: string;
+  severity?: SquawkSeverity;
+  grounding?: boolean;
+  /** Filed from the post-flight screen, so the flight it was found on. */
+  found_on_flight_id?: string;
+  /** §8.2: when it was noticed, which is not when the phone found signal. */
+  reported_at?: string;
+}
+
+/**
+ * Resolving or deferring needs `maintenance: write`, not `squawks: write` —
+ * a pilot reports a defect and does not close it. The server enforces that;
+ * the client hides the buttons (§8.1).
+ */
+export interface UpdateSquawkRequest {
+  details?: string;
+  severity?: SquawkSeverity;
+  grounding?: boolean;
+  status?: SquawkStatus;
+  resolution_note?: string;
+  work_order_id?: string;
+}
+
+export interface CreateSquawkDeferralRequest {
+  basis: DeferralBasis;
+  reference?: string;
+  expires_on?: string;
+  note?: string;
+}
+
+export interface WorkOrderResponse {
+  id: string;
+  aircraft_id: string;
+  reference: string | null;
+  description: string;
+  performed_by: string | null;
+  performed_on: string | null;
+  parts: unknown;
+  labor_hours: string | null;
+  /** §3.7 rule 3: integer minor units, never a float. */
+  cost_cents: number | null;
+  currency: string;
+  status: WorkOrderStatus;
+  signoff_name: string | null;
+  signoff_certificate: string | null;
+  signoff_kind: SignoffKind | null;
+  /** Once this is set the record is closed to edits — a signature is not
+   * revisable, and a correction is a new work order. */
+  signed_at: string | null;
+}
+
+export interface CreateWorkOrderRequest {
+  aircraft_id: string;
+  description: string;
+  reference?: string;
+  performed_by?: string;
+  performed_on?: string;
+  parts?: unknown[];
+  labor_hours?: string;
+  cost_cents?: number;
+}
+
+export interface UpdateWorkOrderRequest {
+  description?: string;
+  reference?: string;
+  performed_by?: string;
+  performed_on?: string;
+  parts?: unknown[];
+  labor_hours?: string;
+  cost_cents?: number;
+  status?: WorkOrderStatus;
+  /** Signing. Supplying these closes the record to every further edit. */
+  signoff_name?: string;
+  signoff_certificate?: string;
+  signoff_kind?: SignoffKind;
+}
+
+/**
+ * §3.3: the one place that decides whether an aircraft may be booked.
+ *
+ * The scheduler consults this rather than querying squawks, so the rule
+ * exists once. `grounding_reasons` is plain language because a club calling
+ * a member to cancel their Saturday has to be able to say what did it.
+ */
+export interface AircraftAvailabilityResponse {
+  aircraft_id: string;
+  registration: string;
+  aircraft_status: AircraftStatus;
+  available: boolean;
+  grounding_squawks: number;
+  overdue_grounding_items: number;
+  grounding_reasons: string[];
+}

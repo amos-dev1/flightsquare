@@ -5,7 +5,10 @@ import type {
   MeterReadingResponse,
 } from '@flightsquare/shared';
 
+import { sql } from 'kysely';
+
 import { assertQuota } from '../../db/entitlements.js';
+import { selectAvailability, toAvailability } from './maintenance.js';
 import { NotFoundError } from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
@@ -175,6 +178,19 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
           })
           .execute();
 
+        // §3.6: adding an aircraft instantiates the applicable presets, as
+        // copies with no link back to the library. They arrive due *now*
+        // with no compliance date behind them — the system knows nothing
+        // about this airframe's history yet, and dating an annual twelve
+        // months out would assert that it is in annual.
+        //
+        // Gated on the flag rather than assumed: seeding rows for a module
+        // the tenant does not have would be creating data they cannot see.
+        if (entitlements.flag('maintenance_module')) {
+          await sql`SELECT public.instantiate_maintenance_templates(${aircraft.id}::uuid)`
+            .execute(trx);
+        }
+
         return selectAircraft(trx, aircraft.id);
       });
 
@@ -218,6 +234,43 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
       const row = rows[0];
       if (!row) throw new NotFoundError();
       return toResponse(row);
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // Availability (§3.3)
+  //
+  // `aircraft: read`, not `maintenance: read`, and no feature gate. Everyone
+  // who can see the fleet needs to know what is dispatchable — a Pilot holds
+  // `maintenance: read` today, but tying "can I book this" to the
+  // maintenance module would mean a tenant without it booked grounded
+  // aircraft.
+  //
+  // The rule itself is not here. It is one view (§6.2: booking paths consult
+  // aircraft_availability rather than querying squawks), so the scheduler
+  // will ask the same question this endpoint asks and get the same answer.
+  // -------------------------------------------------------------------------
+
+  app.get(
+    '/availability',
+    { config: { requiresTenant: true, permission: ['aircraft', 'read'] } },
+    async (request) => {
+      const rows = await request.withTenant((trx) =>
+        selectAvailability(trx).orderBy('registration').execute(),
+      );
+      return rows.map(toAvailability);
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/aircraft/:id/availability',
+    { config: { requiresTenant: true, permission: ['aircraft', 'read'] } },
+    async (request) => {
+      const row = await request.withTenant((trx) =>
+        selectAvailability(trx).where('aircraft_id', '=', request.params.id).executeTakeFirst(),
+      );
+      if (!row) throw new NotFoundError();
+      return toAvailability(row);
     },
   );
 

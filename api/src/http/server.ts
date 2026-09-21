@@ -18,6 +18,8 @@ import { aircraftRoutes } from './routes/aircraft.js';
 import { entitlementsRoutes } from './routes/entitlements.js';
 import { flightRoutes } from './routes/flights.js';
 import { healthRoutes } from './routes/health.js';
+import { maintenanceRoutes } from './routes/maintenance.js';
+import { squawkRoutes } from './routes/squawks.js';
 import { referenceRoutes } from './routes/reference.js';
 import { meRoutes } from './routes/me.js';
 import { signupRoutes } from './routes/signup.js';
@@ -165,6 +167,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(entitlementsRoutes);
   void app.register(aircraftRoutes);
   void app.register(flightRoutes);
+  void app.register(maintenanceRoutes);
+  void app.register(squawkRoutes);
   void app.register(referenceRoutes);
 
   return app;
