@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { provisionTenantForNewUser } from '../../db/auth.js';
 import { hashPassword } from '../../password.js';
+import { sendVerificationEmail } from './account.js';
 import { ConflictError, isUniqueViolation } from '../errors.js';
 import type { TenantArchetype } from '../../db/schema.js';
 
@@ -62,6 +63,16 @@ export async function signupRoutes(
         passwordHash,
         archetype: archetype ?? 'solo',
       });
+
+      // M1: verify the address on the way in. Best effort — a club that
+      // cannot receive mail today should still have an account tomorrow, and
+      // nothing in v1 is gated on being verified. They can ask again from
+      // their profile.
+      try {
+        await sendVerificationEmail(email);
+      } catch (mailError) {
+        request.log.error({ err: mailError }, 'could not enqueue the verification email');
+      }
 
       return await reply.status(201).send({
         tenant_id: provisioned.tenant_id,

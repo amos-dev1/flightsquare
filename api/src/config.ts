@@ -73,6 +73,14 @@ export const config = {
   clients: {
     minimumVersions: parseMinimumVersions(process.env.FS_MIN_CLIENT_VERSIONS),
   },
+  web: {
+    /**
+     * Where the links in emails point. The API is not a place a person
+     * clicks — verification, invitation and reset all land on a page in the
+     * web app, which then calls back here.
+     */
+    baseUrl: process.env.FS_WEB_URL ?? 'http://127.0.0.1:3001',
+  },
   /**
    * Rate limits on the unauthenticated endpoints. 429 is requests per unit
    * time and is never a plan quota (§1.6) — nothing here touches

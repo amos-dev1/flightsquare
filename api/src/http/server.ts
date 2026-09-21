@@ -13,12 +13,14 @@ import {
   requestContext,
   type RequestContextOptions,
 } from './plugins/request-context.js';
+import { accountRoutes } from './routes/account.js';
 import { authRoutes } from './routes/auth.js';
 import { aircraftRoutes } from './routes/aircraft.js';
 import { entitlementsRoutes } from './routes/entitlements.js';
 import { flightRoutes } from './routes/flights.js';
 import { healthRoutes } from './routes/health.js';
 import { maintenanceRoutes } from './routes/maintenance.js';
+import { memberRoutes } from './routes/members.js';
 import { squawkRoutes } from './routes/squawks.js';
 import { referenceRoutes } from './routes/reference.js';
 import { meRoutes } from './routes/me.js';
@@ -160,6 +162,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(healthRoutes);
   void app.register(signupRoutes, { prefix: '/auth', limit: limits.signup });
   void app.register(authRoutes, { prefix: '/auth', limits });
+  // Verification and reset are public by necessity: they are for people who
+  // cannot get in. PATCH /me inside the same module takes a session.
+  void app.register(accountRoutes, { prefix: '/auth', limits });
 
   // Session-scoped.
   void app.register(meRoutes);
@@ -168,6 +173,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(aircraftRoutes);
   void app.register(flightRoutes);
   void app.register(maintenanceRoutes);
+  void app.register(memberRoutes);
   void app.register(squawkRoutes);
   void app.register(referenceRoutes);
 

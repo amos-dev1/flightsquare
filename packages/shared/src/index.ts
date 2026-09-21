@@ -167,7 +167,16 @@ export interface SelectTenantResponse {
 export interface MeResponse {
   id: string;
   email: string;
+  name: string | null;
+  phone: string | null;
   mfa_enabled: boolean;
+  /** Recorded, not enforced: nothing in v1 is gated on it. */
+  email_verified: boolean;
+}
+
+export interface UpdateProfileRequest {
+  name?: string | null;
+  phone?: string | null;
 }
 
 export type TenantArchetype = 'solo' | 'partnership' | 'club';
@@ -178,7 +187,84 @@ export interface TenantResponse {
   slug: string;
   name: string;
   archetype: TenantArchetype;
+  /** An IANA zone. How this club wants its timestamps rendered. */
+  timezone: string;
   branding: Record<string, unknown>;
+}
+
+/** Settings. Not the slug — it is in URLs and invite links already sent. */
+export interface UpdateTenantRequest {
+  name?: string;
+  timezone?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Members and invitations (M1)
+//
+// §3.1: `users` are global and memberships are tenant-scoped, so everything
+// here is a membership rather than a person. The same human is an Admin of
+// their own aircraft and a Pilot at their club, and this is the row that says
+// which.
+// ---------------------------------------------------------------------------
+
+/** The two v1 roles (§4.4). Adding a third is rows, not a release. */
+export type RoleCode = 'admin' | 'pilot';
+
+export interface MemberResponse {
+  id: string;
+  user_id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  role_name: string;
+  status: MembershipStatus;
+  joined_at: string | null;
+  invited_at: string | null;
+}
+
+export interface UpdateMemberRequest {
+  role?: RoleCode;
+  /** §10: removal is a status. Their flights and charges stay attached. */
+  status?: 'active' | 'suspended' | 'removed';
+}
+
+export interface InviteResponse {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string | null;
+  expires_at: string;
+  created_at: string;
+  expired: boolean;
+}
+
+export interface CreateInviteRequest {
+  email: string;
+  name?: string;
+  /** Defaults to pilot — the role that cannot invite anybody else. */
+  role?: RoleCode;
+}
+
+/** What the accept page knows before anybody commits to anything. */
+export interface InviteLookupResponse {
+  email: string;
+  tenant_name: string;
+  expires_at: string;
+  /** Decides whether the page asks for a password or for a sign-in. */
+  has_account: boolean;
+}
+
+export interface AcceptInviteRequest {
+  /** Only for somebody who has never used FlightSquare. */
+  password?: string;
+  name?: string;
+}
+
+export interface AcceptInviteResponse {
+  membership_id: string;
+  tenant_id: string;
+  tenant_name: string;
+  email: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -15,8 +15,10 @@ export type MembershipStatus = 'invited' | 'active' | 'suspended' | 'removed';
 
 export interface TenantsTable {
   id: Generated<string>;
-  slug: string;
+  slug: ColumnType<string, string, never>;
   name: string;
+  /** An IANA zone. How a club wants its timestamps rendered (§6). */
+  timezone: Generated<string>;
   host: string | null;
   status: Generated<TenantStatus>;
   /**
@@ -36,7 +38,11 @@ export interface TenantsTable {
 
 export interface UsersTable {
   id: Generated<string>;
-  email: string;
+  /** Not writable by the application: changing it is a re-verification flow. */
+  email: ColumnType<string, string, never>;
+  name: string | null;
+  phone: string | null;
+  email_verified_at: Timestamp | null;
   password_hash: string | null;
   mfa_enabled: Generated<boolean>;
   mfa_secret: string | null;
@@ -64,6 +70,9 @@ export interface InvitesTable {
   id: Generated<string>;
   tenant_id: string;
   email: string;
+  name: string | null;
+  /** Chosen by whoever sends the invite, not by whoever accepts it. */
+  role_bundle_id: string | null;
   token_hash: string;
   invited_by: string | null;
   expires_at: Timestamp;
@@ -114,6 +123,37 @@ export interface DeviceRegistrationsTable {
   last_seen_at: Timestamp | null;
   created_at: Timestamp;
   updated_at: Timestamp;
+}
+
+/**
+ * Single-use secrets that arrive by email. app_role holds no grant here —
+ * every path in and out is one of the two §2.1 functions, which is what makes
+ * the door countable.
+ */
+export interface AuthTokensTable {
+  id: ColumnType<string, never, never>;
+  user_id: ColumnType<string, never, never>;
+  kind: ColumnType<'email_verification' | 'password_reset', never, never>;
+  token_hash: ColumnType<string, never, never>;
+  expires_at: ColumnType<Date, never, never>;
+  used_at: ColumnType<Date | null, never, never>;
+  created_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * The queue a sender will drain. Append-only, and `never` on every read side
+ * because app_role holds no SELECT: the bodies carry live token links.
+ */
+export interface OutboxTable {
+  id: Generated<string>;
+  to_email: string;
+  subject: string;
+  body: string;
+  kind: string;
+  created_at: Timestamp;
+  sent_at: ColumnType<Date | null, never, never>;
+  attempts: ColumnType<number, never, never>;
+  last_error: ColumnType<string | null, never, never>;
 }
 
 export interface AuditLogTable {
@@ -534,6 +574,8 @@ export interface IdempotencyKeysTable {
 }
 
 export interface Database {
+  auth_tokens: AuthTokensTable;
+  outbox: OutboxTable;
   maintenance_interval_templates: MaintenanceIntervalTemplatesTable;
   maintenance_items: MaintenanceItemsTable;
   maintenance_item_status: MaintenanceItemStatusView;

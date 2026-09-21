@@ -106,27 +106,38 @@ BEGIN
   -- Every policy the application is subject to must carry BOTH clauses. A
   -- policy with USING alone reads correctly and writes wherever it likes.
   -- users is global (§3.1), so its policy is membership-shaped rather than
-  -- tenant_id-shaped; it still resolves through app.tenant_id and it still
-  -- needs a WITH CHECK.
+  -- tenant_id-shaped; it still resolves through app.tenant_id.
+  --
+  -- The exception is a policy that cannot write at all: FOR SELECT takes no
+  -- WITH CHECK, and demanding one would mean never being able to split read
+  -- from write. users does exactly that split — see everyone in your tenant,
+  -- write only yourself — so the rule is "a policy that can write carries a
+  -- WITH CHECK", which is what the original one was reaching for.
   FOR r IN
-    SELECT tablename, policyname, qual, with_check
+    SELECT tablename, policyname, cmd, qual, with_check
       FROM pg_policies
      WHERE schemaname = 'public'
-       AND policyname IN ('tenant_isolation', 'tenant_visibility', 'user_isolation')
+       AND policyname IN ('tenant_isolation', 'tenant_visibility',
+                          'user_isolation', 'user_self_write')
   LOOP
     IF r.qual IS NULL THEN
       RAISE EXCEPTION '%.% has no USING clause', r.tablename, r.policyname;
     END IF;
-    IF r.with_check IS NULL THEN
-      RAISE EXCEPTION '%.% has no WITH CHECK clause', r.tablename, r.policyname;
+    IF r.cmd IN ('ALL', 'INSERT', 'UPDATE') AND r.with_check IS NULL THEN
+      RAISE EXCEPTION '%.% can write and has no WITH CHECK clause',
+        r.tablename, r.policyname;
+    END IF;
+    IF r.cmd = 'SELECT' AND r.with_check IS NOT NULL THEN
+      RAISE EXCEPTION '%.% is SELECT-only but carries a WITH CHECK',
+        r.tablename, r.policyname;
     END IF;
     -- One idiom: every app-facing policy resolves identity through the
     -- accessors, never by reading a GUC by hand. Tenant-scoped tables scope
     -- by tenant; sessions and devices belong to a user and scope by user,
     -- because one human has one login and many memberships (§3.1).
-    IF r.policyname = 'user_isolation' THEN
+    IF r.policyname IN ('user_isolation', 'user_self_write') THEN
       IF r.qual NOT LIKE '%current_user_id%'
-         OR r.with_check NOT LIKE '%current_user_id%' THEN
+         OR coalesce(r.with_check, r.qual) NOT LIKE '%current_user_id%' THEN
         RAISE EXCEPTION '%.% does not resolve the user via app.current_user_id()',
           r.tablename, r.policyname;
       END IF;
@@ -137,10 +148,11 @@ BEGIN
     END IF;
   END LOOP;
 
-  IF (SELECT array_agg(tablename || '.' || policyname ORDER BY tablename)
+  IF (SELECT array_agg(tablename || '.' || policyname ORDER BY tablename, policyname)
         FROM pg_policies
        WHERE schemaname = 'public'
-         AND policyname IN ('tenant_isolation', 'tenant_visibility', 'user_isolation'))
+         AND policyname IN ('tenant_isolation', 'tenant_visibility',
+                            'user_isolation', 'user_self_write'))
      IS DISTINCT FROM ARRAY['aircraft.tenant_isolation',
                             'aircraft_config.tenant_isolation',
                             'audit_log.tenant_isolation',
@@ -164,6 +176,7 @@ BEGIN
                             'tenant_usage.tenant_isolation',
                             'tenants.tenant_isolation',
                             'users.tenant_visibility',
+                            'users.user_self_write',
                             'work_orders.tenant_isolation']::text[] THEN
     RAISE EXCEPTION 'the set of app-facing policies is not what the migrations installed';
   END IF;
@@ -202,26 +215,31 @@ BEGIN
    WHERE n.nspname = 'auth';
 
   IF names IS DISTINCT FROM ARRAY[
+       'consume_auth_token',
        'consume_refresh_token',
        'find_user_by_email',
        'list_memberships_for_user',
        'provision_tenant',
+       'request_email_token',
        'resolve_invite_token',
        'resolve_session_token',
        'resolve_tenant_by_host',
        'resolve_tenant_by_slug',
        'tenant_for_billing_customer']::text[] THEN
-    RAISE EXCEPTION 'auth schema holds % — §2.1 is a closed list of nine', names;
+    RAISE EXCEPTION 'auth schema holds % — §2.1 is a closed list of eleven', names;
   END IF;
-  RAISE NOTICE '   ok: auth schema holds exactly the nine §2.1 functions';
+  RAISE NOTICE '   ok: auth schema holds exactly the eleven §2.1 functions';
 
   -- Two of them write, and the list of which is short enough to read. "Did
   -- anything else in here learn to write?" stays a one-line catalog query.
   SELECT array_agg(p.proname ORDER BY p.proname) INTO names
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'auth' AND p.provolatile <> 's';
-  IF names IS DISTINCT FROM ARRAY['consume_refresh_token', 'provision_tenant']::text[] THEN
-    RAISE EXCEPTION 'the writing functions in auth are % — expected exactly two', names;
+  IF names IS DISTINCT FROM ARRAY['consume_auth_token',
+                                  'consume_refresh_token',
+                                  'provision_tenant',
+                                  'request_email_token']::text[] THEN
+    RAISE EXCEPTION 'the writing functions in auth are % — expected exactly four', names;
   END IF;
 
   -- And the writer cannot reach an existing tenant: it takes no tenant id,
@@ -264,7 +282,7 @@ BEGIN
       RAISE EXCEPTION 'admin_role can execute auth.% (§7.1: its own door)', r.proname;
     END IF;
   END LOOP;
-  RAISE NOTICE '   ok: all nine SECURITY DEFINER, search_path pinned, PUBLIC revoked, app_role granted';
+  RAISE NOTICE '   ok: all eleven SECURITY DEFINER, search_path pinned, PUBLIC revoked, app_role granted';
 END
 $t$;
 

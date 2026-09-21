@@ -93,6 +93,12 @@ DELETE FROM public.tenant_entitlement_overrides
  WHERE tenant_id IN ('01920000-0000-7000-8000-00000000000a',
                      '01920000-0000-7000-8000-00000000000b',
                      '01920000-0000-7000-8000-00000000000c');
+DELETE FROM public.auth_tokens
+ WHERE user_id IN ('01920000-0000-7000-8000-0000000000a1',
+                   '01920000-0000-7000-8000-0000000000b1',
+                   '01920000-0000-7000-8000-0000000000c1');
+DELETE FROM public.outbox WHERE to_email IN ('alice@alpha.test', 'bob@bravo.test',
+                                             'carol@example.test', 'nobody@nowhere.test');
 DELETE FROM public.users
  WHERE id IN ('01920000-0000-7000-8000-0000000000a1',
               '01920000-0000-7000-8000-0000000000b1',

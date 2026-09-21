@@ -104,6 +104,45 @@ export async function resolveInviteToken(tokenHash: string): Promise<ResolvedInv
   return rows[0] ?? null;
 }
 
+/**
+ * Issue a single-use token and enqueue the email carrying it — or do neither,
+ * and tell us nothing either way.
+ *
+ * `void` is the contract, not an oversight. Whether the address belongs to an
+ * account is decided inside the function and never crosses back, so the
+ * endpoint above cannot branch on it and is therefore not an oracle for
+ * "does this person have a FlightSquare account". The caller's reply is the
+ * same sentence in both cases.
+ */
+export async function requestEmailToken(input: {
+  email: string;
+  kind: 'email_verification' | 'password_reset';
+  tokenHash: string;
+  expiresAt: Date;
+  subject: string;
+  body: string;
+}): Promise<void> {
+  await sql`
+    SELECT auth.request_email_token(
+      ${input.email}, ${input.kind}, ${input.tokenHash},
+      ${input.expiresAt}, ${input.subject}, ${input.body})
+  `.execute(db);
+}
+
+/**
+ * Spend one, once. Returns the user it belonged to, or null for a token that
+ * is unknown, already spent, expired, or of the wrong kind.
+ */
+export async function consumeAuthToken(
+  kind: 'email_verification' | 'password_reset',
+  tokenHash: string,
+): Promise<string | null> {
+  const { rows } = await sql<{ user_id: string | null }>`
+    SELECT auth.consume_auth_token(${kind}, ${tokenHash}) AS user_id
+  `.execute(db);
+  return rows[0]?.user_id ?? null;
+}
+
 /** Billing-provider webhooks. Platform billing (§3.7), never member billing. */
 export async function tenantForBillingCustomer(customerId: string): Promise<string | null> {
   const { rows } = await sql<{ tenant_id: string }>`

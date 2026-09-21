@@ -5,7 +5,7 @@ import { closeDatabase } from '../src/db/pool.js';
 import { buildServer } from '../src/http/server.js';
 import type { ResolvedSession } from '../src/http/session.js';
 import { UnauthorizedError } from '../src/http/errors.js';
-import { cleanupTestTenants, provisionTestTenant } from './helpers/fixtures.js';
+import { addTestMember, cleanupTestTenants, provisionTestTenant } from './helpers/fixtures.js';
 import { withTenant } from '../src/db/context.js';
 
 const SESSION_ID = '01920000-0000-7000-8000-0000000000d0';
@@ -36,6 +36,12 @@ describe('maintenance', () => {
     await cleanupTestTenants();
     tenant = await provisionTestTenant('maint-a');
     other = await provisionTestTenant('maint-b');
+
+    // §4.4 is enforced by a trigger now: a club keeps one member who can
+    // manage members. This suite demotes its own membership to Pilot to test
+    // the §1.5 line, so the club needs a second Admin to still be a club
+    // afterwards.
+    await addTestMember(tenant.tenant_id, 'maint-spare-admin', 'admin');
 
     app = buildServer({
       resolveSession: async () => {

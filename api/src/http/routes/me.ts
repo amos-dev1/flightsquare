@@ -22,7 +22,7 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     const user = await request.withUser((trx) =>
       trx
         .selectFrom('users')
-        .select(['id', 'email', 'mfa_enabled'])
+        .select(['id', 'email', 'name', 'phone', 'mfa_enabled', 'email_verified_at'])
         .executeTakeFirst(),
     );
 
@@ -30,7 +30,14 @@ export async function meRoutes(app: FastifyInstance): Promise<void> {
     // session at all rather than reporting on whose account it was.
     if (!user) throw new UnauthorizedError();
 
-    return { id: user.id, email: user.email, mfa_enabled: user.mfa_enabled } satisfies MeResponse;
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      phone: user.phone,
+      mfa_enabled: user.mfa_enabled,
+      email_verified: user.email_verified_at !== null,
+    } satisfies MeResponse;
   });
 
   /**
