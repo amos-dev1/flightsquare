@@ -314,6 +314,57 @@ describe('member billing', () => {
     expect(admin.balance_cents).toBe(0);
   });
 
+  it('puts a flight in the month it was flown, not the month it was typed in', async () => {
+    asAdmin();
+    // Flown in January, logged now — §8.2's ordinary case, a pilot syncing
+    // days later from somewhere with a signal.
+    await logFlight(
+      {
+        flight_date: '2027-01-20',
+        flown_by: pilot.membership_id,
+        hobbs_start: '1205.5',
+        hobbs_end: '1206.5',
+      },
+      'billing-flight-0004',
+    );
+
+    const january = await app.inject({
+      method: 'GET',
+      url: `/statement?member=${pilot.membership_id}&from=2027-01-01&to=2027-01-31`,
+    });
+    const lines = january.json().lines;
+    expect(lines).toHaveLength(1);
+    expect(lines[0].occurred_on).toBe('2027-01-20');
+
+    // And it is not also on February's, which is the half that would have a
+    // treasurer billing the same hour twice.
+    const february = await app.inject({
+      method: 'GET',
+      url: `/statement?member=${pilot.membership_id}&from=2027-02-01&to=2027-02-28`,
+    });
+    expect(
+      february.json().lines.some((l: { id: string }) => l.id === lines[0].id),
+    ).toBe(false);
+
+    // The reversal is the other way round: it belongs to the day the
+    // treasurer noticed, not to the flight, because dating it back would
+    // re-write a statement already sent.
+    const reversal = await app.inject({
+      method: 'POST',
+      url: `/charges/${lines[0].id}/reverse`,
+      payload: { reason: 'Logged against the wrong member' },
+    });
+    expect(reversal.statusCode).toBe(201);
+
+    const januaryAgain = await app.inject({
+      method: 'GET',
+      url: `/statement?member=${pilot.membership_id}&from=2027-01-01&to=2027-01-31`,
+    });
+    expect(januaryAgain.json().lines).toHaveLength(1);
+    expect(januaryAgain.json().lines[0].reversed).toBe(true);
+    expect(januaryAgain.json().balance_cents).toBe(january.json().balance_cents);
+  });
+
   it('exports a statement a treasurer can paste somewhere', async () => {
     asAdmin();
     const csv = await app.inject({

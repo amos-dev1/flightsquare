@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache';
 
 import { ApiError, apiFetch, messageFor } from '@/lib/api';
 import { clearSession, readSession, writeSession } from '@/lib/session';
+import { parseMoney } from '@/lib/money';
 import { zonedToInstant } from '@/lib/time';
 import type {
   AircraftResponse,
@@ -1005,5 +1006,105 @@ export async function withdrawAuthorization(
     return { error: messageFor(error) };
   }
   revalidatePath(`/aircraft/${aircraftId}`);
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// Member billing (§3.7)
+//
+// Two writes and a rate, which is the whole of what an admin can add to a
+// ledger. Charges are generated when a flight is logged; nothing here makes
+// one, and nothing anywhere edits one.
+// ---------------------------------------------------------------------------
+
+export async function setRate(_state: FormState, form: FormData): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    aircraft_id: text('aircraft_id'),
+    membership_id: text('membership_id'),
+    amount: text('amount'),
+    effective_from: text('effective_from'),
+  };
+
+  const amountCents = parseMoney(values.amount);
+  if (amountCents === null || amountCents < 0) {
+    return { error: 'Enter the rate as an amount, for example 165.00.', values };
+  }
+
+  try {
+    await apiFetch('/rates', {
+      method: 'POST',
+      body: JSON.stringify({
+        aircraft_id: values.aircraft_id,
+        amount_cents: amountCents,
+        ...(values.membership_id ? { membership_id: values.membership_id } : {}),
+        ...(values.effective_from ? { effective_from: values.effective_from } : {}),
+      }),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/billing');
+  revalidatePath('/aircraft');
+  return { saved: true };
+}
+
+/**
+ * V1_SCOPE M6: "Recording an offline payment ('Dave paid $400 by check') is a
+ * manual adjustment in v1. That works, and it is the smallest thing that
+ * makes the ledger balance."
+ */
+export async function recordAdjustment(_state: FormState, form: FormData): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    membership_id: text('membership_id'),
+    kind: text('kind'),
+    amount: text('amount'),
+    reason: text('reason'),
+  };
+
+  const magnitude = parseMoney(values.amount);
+  if (magnitude === null || magnitude <= 0) {
+    return { error: 'Enter an amount, for example 400.00.', values };
+  }
+  if (!values.reason) {
+    return { error: 'Say what this is for — a ledger line nobody can explain is an argument later.', values };
+  }
+
+  // The sign is a choice the form makes in words, never a minus somebody has
+  // to remember to type: a payment reduces what they owe, a charge adds to
+  // it, and getting that backwards is a mistake with money in it.
+  const amountCents = values.kind === 'charge' ? magnitude : -magnitude;
+
+  try {
+    await apiFetch('/adjustments', {
+      method: 'POST',
+      body: JSON.stringify({
+        membership_id: values.membership_id,
+        amount_cents: amountCents,
+        reason: values.reason,
+      }),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/billing');
+  return { saved: true };
+}
+
+/** §3.7 rule 2: a correction is a reversing entry, never an edit. */
+export async function reverseCharge(id: string, reason: string): Promise<ActionResult> {
+  if (!reason.trim()) return { error: 'Say why it is being reversed.' };
+  try {
+    await apiFetch(`/charges/${id}/reverse`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/billing');
   return {};
 }

@@ -210,6 +210,17 @@ export default async function AircraftPage({
         >
           Report a defect
         </Link>
+        {/*
+          §3.4's whole pilot-logbook story: an export, not a feature. Your
+          own rows, so you can transcribe them into the logbook you actually
+          keep.
+        */}
+        <a
+          href="/flights-export"
+          className="ml-4 inline-block text-sm font-semibold underline decoration-1 underline-offset-4"
+        >
+          Download your flights
+        </a>
       </section>
 
       {canWrite ? (

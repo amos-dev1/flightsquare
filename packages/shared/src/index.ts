@@ -929,7 +929,18 @@ export interface CreateRateRequest {
 export interface StatementLine {
   id: string;
   kind: StatementLineKind;
+  /** When the ledger row was written. The posting instant, not the event. */
   occurred_at: string;
+  /**
+   * The date the line is *about*, and the one every period filter uses.
+   *
+   * For a charge or a fuel credit that is the flight's date, not the moment
+   * somebody got round to logging it — §8.2 says those differ, routinely by
+   * days, and a treasurer closing September means the flights flown in
+   * September. For an adjustment or a reversal it is the day the treasurer
+   * acted, because that is the event being recorded.
+   */
+  occurred_on: string;
   description: string;
   /** Positive is owed, negative is credited back. Integer minor units. */
   amount_cents: number;

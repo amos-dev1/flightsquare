@@ -67,6 +67,16 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
               server refuses either way. A nav full of destinations that
               answer 403 is worse than a shorter nav.
             */}
+            {/*
+              §8.1: fetched, never compiled in. Billing is Pro and up, so on
+              a free tenant the API answers 404 and there is no reason to
+              offer the destination — and a Pilot with `charges: none` has
+              nothing there either.
+            */}
+            {entitlements.flags.member_billing &&
+            entitlements.permissions.charges !== 'none' ? (
+              <NavLink href="/billing">Billing</NavLink>
+            ) : null}
             {entitlements.permissions.members === 'none' ? null : (
               <NavLink href="/members">Members</NavLink>
             )}

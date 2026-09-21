@@ -155,6 +155,8 @@ db/                             not an npm workspace — SQL and psql only
                                 the exclusion constraint (§3.3)
     0013_member_billing.sql     effective-dated rates, charges that snapshot
                                 them, fuel credits and adjustments (§3.7)
+    0014_route_is_free_text.sql departure and arrival stop being keys into a
+                                twenty-row reference table
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -214,7 +216,7 @@ web/
     components/ui.tsx           copy-in components, owned outright
     app/                        signup, login, invitations, fleet, aircraft
                                 detail, schedule, maintenance, squawks,
-                                members, settings
+                                members, billing, settings
 mobile/
   src/
     lib/queue.ts                expo-sqlite behind the shared QueueStore
@@ -359,21 +361,19 @@ is left:
   queue has not been exercised against a real dropped connection.
 - **Large parts of the web app are not built, rather than broken.** What
   exists is sign-up and sign-in, the roster and invitations, settings and
-  profile, the fleet, an aircraft, the post-flight entry, maintenance and
-  squawks. What does not, in rough order of how much it is missed:
+  profile, the fleet, an aircraft, the post-flight entry, maintenance,
+  squawks, the calendar and member billing. What does not, in rough order of
+  how much it is missed:
 
   | Missing | Where it would go |
   |---|---|
   | Flight list and history | `GET /flights` has no caller at all; flights are write-only from the UI, and `?needs_review=true` has no screen |
-  | Logbook CSV export | `/flights/export.csv` exists; linking it needs a Next route handler, since the token is in an httpOnly cookie |
   | Work orders | list, create and signoff — the API and its guard trigger are done |
   | Add or edit a maintenance item by hand | only seeding the whole library is wired, and only when an aircraft has none |
   | Compliance history | records can be written and never read back |
   | Meter correction | the API takes `supersedes_id`, so the "Corrected" badge can never appear from the web |
   | Subscription and plan changes | no UI and no API — M7 |
   | Switching organisation after sign-in | the picker is only shown at login |
-  | Member billing screens | the API is built; no rates, statement or balances screen yet |
-  | Subscription and plan changes | M7 |
 
   These are honest gaps, not bugs. The web app tells the truth about what it
   can do; it just cannot do much yet.

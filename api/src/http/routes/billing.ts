@@ -94,12 +94,39 @@ async function statementFor(
   // on `memberships` already decided, and §6 keeps the two answers the same.
   if (!member) throw new NotFoundError();
 
-  const window = <T extends { created_at: Date }>(rows: T[]) =>
-    rows.filter(
-      (row) =>
-        (!from || row.created_at >= new Date(from)) &&
-        (!to || row.created_at < new Date(to)),
-    );
+  /**
+   * The date a line belongs to, which is not always the date it was written.
+   *
+   * A charge or a fuel credit is about a flight, so it belongs to the day
+   * that flight happened — §8.2 is explicit that a pilot logs at the tiedown
+   * or three days later from home, and a treasurer closing September means
+   * the flights flown in September, not the ones typed in during it.
+   *
+   * A reversal is the other case. It records the treasurer noticing
+   * something, so it belongs to the day they noticed: dating it back to the
+   * flight would silently re-write a statement that has already been sent,
+   * which is the thing §3.7's append-only rule exists to prevent.
+   */
+  const dateOf = (row: {
+    created_at: Date;
+    flight_date?: string | Date | null;
+    reverses_id?: string | null;
+  }): string => {
+    if (row.flight_date && !row.reverses_id) {
+      return typeof row.flight_date === 'string'
+        ? row.flight_date.slice(0, 10)
+        : row.flight_date.toISOString().slice(0, 10);
+    }
+    return row.created_at.toISOString().slice(0, 10);
+  };
+
+  // Both bounds are inclusive dates, the way somebody writing "1 September to
+  // 30 September" on a statement means them.
+  const window = <T extends Parameters<typeof dateOf>[0]>(rows: T[]) =>
+    rows.filter((row) => {
+      const on = dateOf(row);
+      return (!from || on >= from) && (!to || on <= to);
+    });
 
   const [charges, credits, adjustments] = await Promise.all([
     trx
@@ -137,6 +164,9 @@ async function statementFor(
         'fc.quantity',
         'fc.reverses_id',
         'a.registration',
+        // Selected for `dateOf`, not for display: fuel belongs to the day it
+        // went in the tanks, same as the hour it was burned.
+        'f.flight_date',
       ])
       .where('fc.membership_id', '=', membershipId)
       .orderBy('fc.created_at')
@@ -159,9 +189,10 @@ async function statementFor(
       id: c.id,
       kind: 'charge',
       occurred_at: c.created_at.toISOString(),
-      description: c.reason
-        ? c.reason
-        : `${c.registration ?? 'Flight'}${c.flight_date ? ` on ${c.flight_date}` : ''}`,
+      occurred_on: dateOf(c),
+      // A reversal or a manual charge explains itself; an ordinary one is
+      // named by the aeroplane, with the date in the column beside it.
+      description: c.reason ?? (c.registration ?? 'Flight'),
       amount_cents: c.amount_cents,
       currency: c.currency,
       flight_id: c.flight_id,
@@ -176,6 +207,7 @@ async function statementFor(
       id: c.id,
       kind: 'credit',
       occurred_at: c.created_at.toISOString(),
+      occurred_on: dateOf(c),
       description: `Fuel${c.quantity ? ` — ${c.quantity}` : ''}${
         c.registration ? ` in ${c.registration}` : ''
       }`,
@@ -195,6 +227,7 @@ async function statementFor(
       id: a.id,
       kind: 'adjustment',
       occurred_at: a.created_at.toISOString(),
+      occurred_on: dateOf(a),
       description: a.reason,
       amount_cents: a.amount_cents,
       currency: a.currency,
@@ -206,7 +239,11 @@ async function statementFor(
       reversed: false,
       reverses_id: null,
     })),
-  ].sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
+  ].sort(
+    (a, b) =>
+      a.occurred_on.localeCompare(b.occurred_on) ||
+      a.occurred_at.localeCompare(b.occurred_at),
+  );
 
   const sum = (kind: StatementLineKind) =>
     lines.filter((line) => line.kind === kind).reduce((total, line) => total + line.amount_cents, 0);
@@ -415,7 +452,7 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
       const rows = [
         ['date', 'kind', 'description', 'meter', 'hours', 'rate', 'amount', 'currency'],
         ...statement.lines.map((line) => [
-          line.occurred_at.slice(0, 10),
+          line.occurred_on,
           line.kind,
           line.description,
           line.meter ?? '',
@@ -428,7 +465,18 @@ export async function billingRoutes(app: FastifyInstance): Promise<void> {
           line.currency,
         ]),
         [],
-        ['', '', 'Balance', '', '', '', (statement.balance_cents / 100).toFixed(2), statement.currency],
+        [
+          '',
+          '',
+          // Same distinction the screen draws: with a period on it, this is
+          // the period's net rather than what they owe today.
+          statement.from || statement.to ? 'Total for the period' : 'Balance',
+          '',
+          '',
+          '',
+          (statement.balance_cents / 100).toFixed(2),
+          statement.currency,
+        ],
       ];
 
       return reply

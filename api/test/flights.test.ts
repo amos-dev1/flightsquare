@@ -217,4 +217,21 @@ describe('flight logging', () => {
     const quotas = Object.keys(entitlements.json().quotas);
     expect(quotas.filter((q) => q.startsWith('flight'))).toEqual([]);
   });
+
+  it('accepts a field the reference table has never heard of', async () => {
+    // `aerodromes` holds twenty rows; there are twenty thousand airfields in
+    // the United States. A key against a list that incomplete refuses almost
+    // every true answer, and it refused them on the one screen §3.4 says
+    // must never be awkward — a flight to a real airport fifteen minutes
+    // away was a 500 until 0014 dropped it.
+    const response = await logFlight({
+      hobbs_start: '9000.0',
+      hobbs_end: '9000.6',
+      departed_from: 'Q22',
+      arrived_at: 'PRIVATE STRIP',
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().arrived_at).toBe('PRIVATE STRIP');
+  });
 });
