@@ -129,6 +129,14 @@ export async function createAircraft(_state: FormState, form: FormData): Promise
     year_manufactured: text('year_manufactured'),
     seats: text('seats'),
     maintenance_meter: text('maintenance_meter'),
+    billing_meter: text('billing_meter'),
+    rate_basis: text('rate_basis'),
+    default_rate: text('default_rate'),
+    fuel_capacity: text('fuel_capacity'),
+    fuel_units: text('fuel_units'),
+    hobbs: text('hobbs'),
+    tach: text('tach'),
+    airframe_hours: text('airframe_hours'),
   };
 
   const body: Record<string, unknown> = { registration: values.registration };
@@ -137,6 +145,27 @@ export async function createAircraft(_state: FormState, form: FormData): Promise
   if (values.year_manufactured) body.year_manufactured = Number(values.year_manufactured);
   if (values.seats) body.seats = Number(values.seats);
   if (values.maintenance_meter) body.maintenance_meter = values.maintenance_meter;
+  if (values.billing_meter) body.billing_meter = values.billing_meter;
+  if (values.rate_basis) body.rate_basis = values.rate_basis;
+  if (values.fuel_capacity) body.fuel_capacity = values.fuel_capacity;
+  if (values.fuel_units) body.fuel_units = values.fuel_units;
+
+  // Meters travel as decimal strings the whole way: they are `numeric` in
+  // Postgres, and a float round-trip is how a maintenance countdown drifts.
+  for (const key of ['hobbs', 'tach', 'airframe_hours'] as const) {
+    if (values[key]) body[key] = values[key];
+  }
+
+  if (values.default_rate) {
+    // §3.7 rule 3: money is integer minor units. The form takes the rate the
+    // club quotes, because that is what they know; the conversion happens
+    // once, here, and never as floating-point arithmetic downstream.
+    const perHour = Number(values.default_rate);
+    if (!Number.isFinite(perHour) || perHour < 0) {
+      return { error: 'Enter the hourly rate as an amount, for example 165.00.', values };
+    }
+    body.default_rate_cents = Math.round(perHour * 100);
+  }
 
   let created: AircraftResponse;
   try {
@@ -194,6 +223,53 @@ export async function logReading(
 
   revalidatePath(`/aircraft/${aircraftId}`);
   revalidatePath('/maintenance');
+  return { saved: true };
+}
+
+/** The per-aircraft settings of V1_SCOPE M2, changed after the fact. */
+export async function updateAircraftConfig(
+  aircraftId: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    home_base: text('home_base').toUpperCase(),
+    maintenance_meter: text('maintenance_meter'),
+    billing_meter: text('billing_meter'),
+    rate_basis: text('rate_basis'),
+    default_rate: text('default_rate'),
+    fuel_capacity: text('fuel_capacity'),
+    fuel_units: text('fuel_units'),
+    seats: text('seats'),
+  };
+
+  const body: Record<string, unknown> = {
+    home_base: values.home_base || null,
+    maintenance_meter: values.maintenance_meter,
+    billing_meter: values.billing_meter,
+    rate_basis: values.rate_basis,
+    fuel_units: values.fuel_units,
+    fuel_capacity: values.fuel_capacity || null,
+    seats: values.seats ? Number(values.seats) : null,
+  };
+
+  if (values.default_rate) {
+    const perHour = Number(values.default_rate);
+    if (!Number.isFinite(perHour) || perHour < 0) {
+      return { error: 'Enter the hourly rate as an amount, for example 165.00.', values };
+    }
+    body.default_rate_cents = Math.round(perHour * 100);
+  }
+
+  try {
+    await apiFetch(`/aircraft/${aircraftId}`, { method: 'PATCH', body: JSON.stringify(body) });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath(`/aircraft/${aircraftId}`);
+  revalidatePath('/aircraft');
   return { saved: true };
 }
 

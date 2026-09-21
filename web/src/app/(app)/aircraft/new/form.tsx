@@ -8,15 +8,18 @@ import { Alert, Button, Card, Field, Input, Select } from '@/components/ui';
 import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shared';
 
 /**
- * Two of these fields are foreign keys, and the tables behind them are seeded
- * thinly on purpose — twenty aerodromes and thirty-four types, with the real
- * lists left to an import job (§2.2). Typing anything outside those lists
- * used to be a 500 and "Something went wrong."
+ * Both reference fields are `datalist`-backed, and only one of them is still
+ * a foreign key.
  *
- * So both are `datalist`-backed: still free text, because somebody based at
- * an unlisted field must be able to say so, but what we actually hold is one
- * keystroke away instead of a guess. The API now answers an unknown value
- * with a sentence rather than a crash, which is the other half of the fix.
+ * The tables behind them are seeded thinly on purpose (§2.2): twenty
+ * aerodromes and thirty-four types, with the real lists left to an import
+ * job. Home base stopped being a key in 0011 — twenty of twenty thousand
+ * fields refuses almost every true answer — while the type designator kept
+ * its one, because `engine_type` on the other side of it decides which
+ * maintenance presets the aircraft is seeded with.
+ *
+ * So the list suggests in both cases; it only refuses in the one where being
+ * wrong would silently cost somebody an oil change.
  */
 export function NewAircraftForm({
   types,
@@ -97,16 +100,116 @@ export function NewAircraftForm({
           </Field>
         </div>
 
-        <Field
-          label="Maintenance meter"
-          hint="Which meter engine and inspection intervals count against. Most tenants use tach."
-        >
-          <Select name="maintenance_meter" defaultValue={state.values?.maintenance_meter ?? 'tach'}>
-            <option value="tach">Tach</option>
-            <option value="hobbs">Hobbs</option>
-            <option value="airframe">Airframe hours</option>
-          </Select>
-        </Field>
+        {/*
+          §3.7: which meter maintenance counts on and which one the money
+          counts on are two questions, and frequently two answers — Hobbs for
+          billing and tach for engine intervals is the common pairing. Two
+          controls, so neither can be mistaken for the other.
+        */}
+        <div className="grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
+          <Field
+            label="Maintenance meter"
+            hint="What inspection intervals count against. Usually tach."
+          >
+            <Select
+              name="maintenance_meter"
+              defaultValue={state.values?.maintenance_meter ?? 'tach'}
+            >
+              <option value="tach">Tach</option>
+              <option value="hobbs">Hobbs</option>
+              <option value="airframe">Airframe hours</option>
+            </Select>
+          </Field>
+
+          <Field label="Billing meter" hint="What flights are charged on. Usually Hobbs.">
+            <Select name="billing_meter" defaultValue={state.values?.billing_meter ?? 'hobbs'}>
+              <option value="hobbs">Hobbs</option>
+              <option value="tach">Tach</option>
+            </Select>
+          </Field>
+
+          <Field
+            label="Hourly rate"
+            hint="What a member pays per hour. You can leave this until later."
+          >
+            <Input
+              name="default_rate"
+              inputMode="decimal"
+              placeholder="165.00"
+              className="tabular"
+              defaultValue={state.values?.default_rate}
+            />
+          </Field>
+
+          <Field
+            label="Rate includes fuel"
+            hint="Wet: fuel a pilot buys is credited back to them. Dry: it is their own cost."
+          >
+            <Select name="rate_basis" defaultValue={state.values?.rate_basis ?? 'dry'}>
+              <option value="dry">Dry — fuel not included</option>
+              <option value="wet">Wet — fuel included</option>
+            </Select>
+          </Field>
+
+          <Field label="Fuel capacity" hint="Usable, for the low-level warning.">
+            <Input
+              name="fuel_capacity"
+              inputMode="decimal"
+              placeholder="53.0"
+              className="tabular"
+              defaultValue={state.values?.fuel_capacity}
+            />
+          </Field>
+
+          <Field label="Fuel units">
+            <Select name="fuel_units" defaultValue={state.values?.fuel_units ?? 'gallons'}>
+              <option value="gallons">Gallons</option>
+              <option value="litres">Litres</option>
+            </Select>
+          </Field>
+        </div>
+
+        {/*
+          The only time a meter is set rather than advanced. After this they
+          move through flight logs or an explicit correction — never by
+          editing the aircraft — because everything downstream is derived
+          from an append-only log (§3.4).
+        */}
+        <div className="border-t border-line pt-4">
+          <p className="text-sm font-semibold">Where the meters stand today</p>
+          <p className="mt-1 text-xs text-secondary">
+            Read them off the panel. From here on they advance when flights are logged.
+          </p>
+          <div className="mt-3 grid gap-4 sm:grid-cols-3">
+            <Field label="Hobbs">
+              <Input
+                name="hobbs"
+                inputMode="decimal"
+                placeholder="1202.9"
+                className="tabular"
+                defaultValue={state.values?.hobbs}
+              />
+            </Field>
+            <Field label="Tach">
+              <Input
+                name="tach"
+                inputMode="decimal"
+                placeholder="1100.2"
+                className="tabular"
+                defaultValue={state.values?.tach}
+              />
+            </Field>
+            <Field label="Airframe">
+              <Input
+                name="airframe_hours"
+                inputMode="decimal"
+                placeholder="1202.9"
+                className="tabular"
+                defaultValue={state.values?.airframe_hours}
+              />
+            </Field>
+          </div>
+        </div>
 
         {state.error ? <Alert>{state.error}</Alert> : null}
 

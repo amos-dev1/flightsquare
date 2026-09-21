@@ -225,7 +225,7 @@ export interface RoleBundlePermissionsTable {
   created_at: Timestamp;
 }
 
-export type AircraftStatus = 'active' | 'archived' | 'sold';
+export type AircraftStatus = 'active' | 'grounded' | 'archived' | 'sold';
 export type Ownership = 'owned' | 'leased' | 'leaseback' | 'club_owned';
 export type MaintenanceMeter = 'hobbs' | 'tach' | 'airframe';
 
@@ -281,11 +281,24 @@ export interface AircraftTable {
   deleted_at: ColumnType<Date | null, never, never>;
 }
 
+export type BillingMeter = 'hobbs' | 'tach';
+export type RateBasis = 'wet' | 'dry';
+export type FuelUnits = 'gallons' | 'litres';
+
 export interface AircraftConfigTable {
   aircraft_id: string;
   tenant_id: string;
   seats: number | null;
   maintenance_meter: Generated<MaintenanceMeter>;
+  /** Which meter the money counts on — frequently not the maintenance one. */
+  billing_meter: Generated<BillingMeter>;
+  /** §3.7: wet includes fuel, so a pilot who buys it is credited back. */
+  rate_basis: Generated<RateBasis>;
+  /** §3.7 rule 3: integer minor units, never a float. */
+  default_rate_cents: number | null;
+  currency: Generated<string>;
+  fuel_capacity: string | null;
+  fuel_units: Generated<FuelUnits>;
   mel_reference: string | null;
   equipment: Generated<Record<string, unknown>>;
   performance: Generated<Record<string, unknown>>;

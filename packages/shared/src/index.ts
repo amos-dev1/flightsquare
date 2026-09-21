@@ -311,7 +311,15 @@ export interface EntitlementsResponse {
 // Fleet
 // ---------------------------------------------------------------------------
 
-export type AircraftStatus = 'active' | 'archived' | 'sold';
+/**
+ * `grounded` is an administrator's decision, and is separate from both
+ * archiving (about the plan and the fleet list) and a grounding squawk
+ * (about a defect). All three end in the same availability answer.
+ */
+export type AircraftStatus = 'active' | 'grounded' | 'archived' | 'sold';
+export type BillingMeter = 'hobbs' | 'tach';
+export type RateBasis = 'wet' | 'dry';
+export type FuelUnits = 'gallons' | 'litres';
 export type Ownership = 'owned' | 'leased' | 'leaseback' | 'club_owned';
 export type MaintenanceMeter = 'hobbs' | 'tach' | 'airframe';
 
@@ -339,6 +347,22 @@ export interface AircraftResponse {
   totals_updated_at: string | null;
   maintenance_meter: MaintenanceMeter;
   seats: number | null;
+
+  /** Which meter the money counts on (§3.7). */
+  billing_meter: BillingMeter;
+  /** Wet includes fuel; dry does not, and fuel is then the pilot's own cost. */
+  rate_basis: RateBasis;
+  /** Integer minor units, never a float. Null until somebody sets one. */
+  default_rate_cents: number | null;
+  currency: string;
+  fuel_capacity: string | null;
+  fuel_units: FuelUnits;
+  /**
+   * What the last pilot left in the tanks — aircraft *state*, and never
+   * computed by arithmetic across flights (§3.4). Null until somebody
+   * records one.
+   */
+  fuel_remaining: string | null;
 }
 
 export interface CreateAircraftRequest {
@@ -346,10 +370,29 @@ export interface CreateAircraftRequest {
   type_code?: string;
   serial_number?: string;
   year_manufactured?: number;
+  /** Free text: the aerodrome table suggests, and does not refuse. */
   home_base?: string;
   ownership?: Ownership;
   seats?: number;
   maintenance_meter?: MaintenanceMeter;
+
+  billing_meter?: BillingMeter;
+  rate_basis?: RateBasis;
+  default_rate_cents?: number;
+  fuel_capacity?: string;
+  fuel_units?: FuelUnits;
+
+  /**
+   * Where the meters stand today (M2).
+   *
+   * The only time a meter is set rather than advanced: after this, they move
+   * through flight logs or an explicit correction and never by editing the
+   * aircraft. Recorded as a reading like any other, so the totals stay
+   * derived from an append-only log (§3.4).
+   */
+  hobbs?: string;
+  tach?: string;
+  airframe_hours?: string;
 }
 
 export interface MeterReadingResponse {

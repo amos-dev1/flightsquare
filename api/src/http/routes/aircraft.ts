@@ -19,6 +19,19 @@ import {
 import type { Tx } from '../../db/context.js';
 
 const registrationPattern = '^[A-Z0-9][A-Z0-9-]{1,15}$';
+const decimal = { type: 'string', pattern: '^[0-9]{1,7}(\\.[0-9])?$' } as const;
+
+/** The per-aircraft settings of V1_SCOPE M2, shared by create and update. */
+const configFields = {
+  seats: { type: 'integer', minimum: 1, maximum: 50 },
+  maintenance_meter: { type: 'string', enum: ['hobbs', 'tach', 'airframe'] },
+  billing_meter: { type: 'string', enum: ['hobbs', 'tach'] },
+  rate_basis: { type: 'string', enum: ['wet', 'dry'] },
+  // §3.7 rule 3: integer minor units. Never a float, not even here.
+  default_rate_cents: { type: 'integer', minimum: 0 },
+  fuel_capacity: decimal,
+  fuel_units: { type: 'string', enum: ['gallons', 'litres'] },
+} as const;
 
 const createSchema = {
   body: {
@@ -32,8 +45,14 @@ const createSchema = {
       year_manufactured: { type: 'integer', minimum: 1900, maximum: 2100 },
       home_base: { type: 'string', maxLength: 16 },
       ownership: { type: 'string', enum: ['owned', 'leased', 'leaseback', 'club_owned'] },
-      seats: { type: 'integer', minimum: 1, maximum: 50 },
-      maintenance_meter: { type: 'string', enum: ['hobbs', 'tach', 'airframe'] },
+      ...configFields,
+
+      // Where the meters stand today. The one time they are set rather than
+      // advanced — and even here it is written as a reading, so the totals
+      // stay derived from the log (§3.4).
+      hobbs: decimal,
+      tach: decimal,
+      airframe_hours: decimal,
     },
   },
 } as const;
@@ -50,10 +69,10 @@ const updateSchema = {
       year_manufactured: { type: ['integer', 'null'], minimum: 1900, maximum: 2100 },
       home_base: { type: ['string', 'null'], maxLength: 16 },
       ownership: { type: 'string', enum: ['owned', 'leased', 'leaseback', 'club_owned'] },
-      // §5.5: archive rather than delete. 'sold' is the other end of a life.
-      status: { type: 'string', enum: ['active', 'archived', 'sold'] },
-      seats: { type: ['integer', 'null'], minimum: 1, maximum: 50 },
-      maintenance_meter: { type: 'string', enum: ['hobbs', 'tach', 'airframe'] },
+      // §5.5: archive rather than delete. 'grounded' is an administrator
+      // taking it out of service; 'sold' is the other end of a life.
+      status: { type: 'string', enum: ['active', 'grounded', 'archived', 'sold'] },
+      ...configFields,
     },
   },
 } as const;
@@ -97,6 +116,26 @@ async function selectAircraft(trx: Tx, id?: string) {
       'aircraft.totals_updated_at',
       'aircraft_config.maintenance_meter',
       'aircraft_config.seats',
+      'aircraft_config.billing_meter',
+      'aircraft_config.rate_basis',
+      'aircraft_config.default_rate_cents',
+      'aircraft_config.currency',
+      'aircraft_config.fuel_capacity',
+      'aircraft_config.fuel_units',
+      /**
+       * §3.4: fuel remaining is aircraft *state* — latest reading wins, and
+       * it is never computed by arithmetic across flights, because pilots
+       * estimate, gauges lie, and somebody always tops off without logging
+       * it. So it is read back as the last one recorded, not summed.
+       */
+      sql<string | null>`(
+        SELECT ff.fuel_remaining_after
+          FROM public.flight_fuel ff
+          JOIN public.flights f ON f.id = ff.flight_id
+         WHERE f.aircraft_id = aircraft.id
+           AND ff.fuel_remaining_after IS NOT NULL
+         ORDER BY f.recorded_at DESC, f.id DESC
+         LIMIT 1)`.as('fuel_remaining'),
     ]);
   if (id !== undefined) query = query.where('aircraft.id', '=', id);
   return query.orderBy('aircraft.registration').execute();
@@ -119,6 +158,13 @@ function toResponse(row: Awaited<ReturnType<typeof selectAircraft>>[number]): Ai
     totals_updated_at: row.totals_updated_at?.toISOString() ?? null,
     maintenance_meter: row.maintenance_meter ?? 'tach',
     seats: row.seats,
+    billing_meter: row.billing_meter ?? 'hobbs',
+    rate_basis: row.rate_basis ?? 'dry',
+    default_rate_cents: row.default_rate_cents,
+    currency: row.currency ?? 'USD',
+    fuel_capacity: row.fuel_capacity,
+    fuel_units: row.fuel_units ?? 'gallons',
+    fuel_remaining: row.fuel_remaining,
   };
 }
 
@@ -143,11 +189,9 @@ function rethrowAircraftWriteError(error: unknown): never {
   }
 
   switch (foreignKeyViolation(error)) {
-    case 'aircraft_home_base_fkey':
-      throw new InvalidRequestError(
-        'that home base is not in our airport list yet — leave it blank, or use ' +
-          'one of the identifiers the field suggests',
-      );
+    // `aircraft_home_base_fkey` used to be here. 0011 dropped it: the
+    // aerodrome table holds twenty of some twenty thousand fields, and a key
+    // against a list that incomplete refuses almost every true answer.
     case 'aircraft_type_code_fkey':
       throw new InvalidRequestError(
         'that type designator is not in our list yet — leave it blank, or use ' +
@@ -217,8 +261,41 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
             tenant_id: request.ctx!.tenantId!,
             seats: body.seats ?? null,
             maintenance_meter: body.maintenance_meter ?? 'tach',
+            ...(body.billing_meter !== undefined
+              ? { billing_meter: body.billing_meter }
+              : {}),
+            ...(body.rate_basis !== undefined ? { rate_basis: body.rate_basis } : {}),
+            default_rate_cents: body.default_rate_cents ?? null,
+            fuel_capacity: body.fuel_capacity ?? null,
+            ...(body.fuel_units !== undefined ? { fuel_units: body.fuel_units } : {}),
           })
           .execute();
+
+        /**
+         * Where the meters stand on the day the aeroplane is added.
+         *
+         * Written as a reading rather than onto the aircraft row, because the
+         * totals are derived from an append-only log and app_role holds no
+         * grant to write them directly (§3.4). This is the only moment a
+         * meter is *set*; after it they advance through flight logs or an
+         * explicit correction, and never by editing the aircraft.
+         */
+        if (body.hobbs || body.tach || body.airframe_hours) {
+          await trx
+            .insertInto('meter_readings')
+            .values({
+              tenant_id: request.ctx!.tenantId!,
+              aircraft_id: aircraft.id,
+              hobbs: body.hobbs ?? null,
+              tach: body.tach ?? null,
+              airframe_hours: body.airframe_hours ?? null,
+              recorded_at: new Date(),
+              source: 'manual',
+              recorded_by: request.ctx!.userId,
+              note: 'Opening reading, recorded when the aircraft was added.',
+            })
+            .execute();
+        }
 
         // §3.6: adding an aircraft instantiates the applicable presets, as
         // copies with no link back to the library. They arrive due *now*
@@ -247,8 +324,31 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
       config: { requiresTenant: true, permission: ['aircraft', 'write'] },
     },
     async (request) => {
-      const { seats, maintenance_meter: meter, ...aircraftFields } = request.body;
+      const {
+        seats,
+        maintenance_meter: meter,
+        billing_meter: billingMeter,
+        rate_basis: rateBasis,
+        default_rate_cents: rateCents,
+        fuel_capacity: fuelCapacity,
+        fuel_units: fuelUnits,
+        ...aircraftFields
+      } = request.body;
       const { entitlements } = await request.loadGates();
+
+      const configChanges = {
+        ...(seats !== undefined ? { seats: seats as number | null } : {}),
+        ...(meter !== undefined ? { maintenance_meter: meter as 'hobbs' } : {}),
+        ...(billingMeter !== undefined ? { billing_meter: billingMeter as 'hobbs' } : {}),
+        ...(rateBasis !== undefined ? { rate_basis: rateBasis as 'wet' } : {}),
+        ...(rateCents !== undefined
+          ? { default_rate_cents: rateCents as number | null }
+          : {}),
+        ...(fuelCapacity !== undefined
+          ? { fuel_capacity: fuelCapacity as string | null }
+          : {}),
+        ...(fuelUnits !== undefined ? { fuel_units: fuelUnits as 'gallons' } : {}),
+      };
 
       const rows = await request.withTenant(async (trx) => {
         if (Object.keys(aircraftFields).length > 0) {
@@ -277,13 +377,10 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
           if (result.numUpdatedRows === 0n) throw new NotFoundError();
         }
 
-        if (seats !== undefined || meter !== undefined) {
+        if (Object.keys(configChanges).length > 0) {
           await trx
             .updateTable('aircraft_config')
-            .set({
-              ...(seats !== undefined ? { seats: seats as number | null } : {}),
-              ...(meter !== undefined ? { maintenance_meter: meter as 'hobbs' } : {}),
-            })
+            .set(configChanges)
             .where('aircraft_id', '=', request.params.id)
             .execute();
         }

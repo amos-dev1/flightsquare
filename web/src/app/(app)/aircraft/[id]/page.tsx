@@ -11,9 +11,11 @@ import type {
   EntitlementsResponse,
   MaintenanceItemResponse,
   MeterReadingResponse,
+  SquawkResponse,
 } from '@flightsquare/shared';
 
 import { ArchiveButton, ReadingForm } from './client';
+import { AircraftSettingsForm } from './settings-form';
 
 export default async function AircraftPage({
   params,
@@ -30,13 +32,17 @@ export default async function AircraftPage({
   let availability: AircraftAvailabilityResponse;
   let items: MaintenanceItemResponse[];
   let entitlements: EntitlementsResponse;
+  let squawks: SquawkResponse[];
   try {
-    [aircraft, readings, availability, items, entitlements] = await Promise.all([
+    [aircraft, readings, availability, items, entitlements, squawks] = await Promise.all([
       apiFetch<AircraftResponse>(`/aircraft/${id}`),
       apiFetch<MeterReadingResponse[]>(`/aircraft/${id}/meter-readings`),
       apiFetch<AircraftAvailabilityResponse>(`/aircraft/${id}/availability`),
       apiFetch<MaintenanceItemResponse[]>(`/aircraft/${id}/maintenance-items`),
       apiFetch<EntitlementsResponse>('/entitlements'),
+      // V1_SCOPE M5: open squawks are visible to every member here, because
+      // the next pilot needs to know what the last one found.
+      apiFetch<SquawkResponse[]>(`/squawks?aircraft_id=${id}&open=true`),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
@@ -104,10 +110,16 @@ export default async function AircraftPage({
         <KeyMetric label="Hobbs" value={aircraft.hobbs} unit="hrs" />
         <KeyMetric label="Tach" value={aircraft.tach} unit="hrs" />
         <KeyMetric label="Airframe" value={aircraft.airframe_hours} unit="hrs" />
-        <div className="bg-surface px-5 py-4">
-          <p className="text-xs font-medium text-secondary">Maintenance meter</p>
-          <p className="mt-1 text-base font-semibold">{aircraft.maintenance_meter}</p>
-        </div>
+        {/*
+          §3.4: fuel remaining is aircraft *state* — what the next pilot is
+          walking out to — and never a running total computed across flights.
+          It is the last figure somebody wrote down, shown as that.
+        */}
+        <KeyMetric
+          label="Fuel remaining"
+          value={aircraft.fuel_remaining}
+          unit={aircraft.fuel_units === 'litres' ? 'L' : 'gal'}
+        />
       </Card>
 
       {/*
@@ -154,6 +166,41 @@ export default async function AircraftPage({
         </Card>
       </section>
 
+      <section className="space-y-3">
+        <SectionHeading>Open squawks</SectionHeading>
+        {squawks.length === 0 ? (
+          <Card className="px-5 py-4 text-sm text-secondary">
+            {/* Not "airworthy": §11 forbids reading that out of the absence
+                of a warning, and nothing here has inspected anything. */}
+            Nothing reported.
+          </Card>
+        ) : (
+          <Card className="divide-y divide-line">
+            {squawks.map((squawk) => (
+              <div key={squawk.id} className="flex flex-wrap items-baseline gap-x-3 px-5 py-3">
+                <span className="text-sm font-semibold">{squawk.summary}</span>
+                {squawk.grounding && squawk.status === 'open' ? (
+                  <Status kind="grounded" />
+                ) : null}
+                {squawk.status === 'deferred' ? <Status kind="neutral">Deferred</Status> : null}
+                <span className="text-sm text-secondary">
+                  {squawk.reported_by_email ?? 'a member'} ·{' '}
+                  <time dateTime={squawk.reported_at}>
+                    {new Date(squawk.reported_at).toLocaleDateString()}
+                  </time>
+                </span>
+              </div>
+            ))}
+          </Card>
+        )}
+        <Link
+          href="/squawks"
+          className="inline-block text-sm font-semibold underline decoration-1 underline-offset-4"
+        >
+          Report a defect
+        </Link>
+      </section>
+
       {canWrite ? (
         <section className="space-y-3">
           <SectionHeading>Record a reading</SectionHeading>
@@ -191,6 +238,13 @@ export default async function AircraftPage({
           </Card>
         )}
       </section>
+
+      {canWrite ? (
+        <section className="space-y-3">
+          <SectionHeading>Settings</SectionHeading>
+          <AircraftSettingsForm aircraft={aircraft} />
+        </section>
+      ) : null}
 
       {canWrite ? (
         <section className="space-y-3">

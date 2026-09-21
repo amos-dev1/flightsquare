@@ -19,14 +19,16 @@ describe('fleet', () => {
   let stub: ResolvedSession | null = null;
   let alpha: Awaited<ReturnType<typeof provisionTestTenant>>;
   let bravo: Awaited<ReturnType<typeof provisionTestTenant>>;
-  /** Its own tenant, so the error paths below do not fight over one slot. */
+  /** Their own tenants: one aircraft per plan means one test per slot. */
   let charlie: Awaited<ReturnType<typeof provisionTestTenant>>;
+  let delta: Awaited<ReturnType<typeof provisionTestTenant>>;
 
   beforeAll(async () => {
     await cleanupTestTenants();
     alpha = await provisionTestTenant('fleet-a');
     bravo = await provisionTestTenant('fleet-b');
     charlie = await provisionTestTenant('fleet-c');
+    delta = await provisionTestTenant('fleet-d');
 
     app = buildServer({
       resolveSession: async () => {
@@ -49,6 +51,9 @@ describe('fleet', () => {
   }
   function asCharlie(): void {
     stub = { sessionId: SESSION_ID, userId: charlie.user_id, tenantId: charlie.tenant_id };
+  }
+  function asDelta(): void {
+    stub = { sessionId: SESSION_ID, userId: delta.user_id, tenantId: delta.tenant_id };
   }
 
   async function addAircraft(registration: string, extra: Record<string, unknown> = {}) {
@@ -229,34 +234,38 @@ describe('fleet', () => {
   });
 
   /**
-   * The reference tables are seeded thinly on purpose (§2.2), so typing an
-   * airport we do not hold is the *expected* case rather than an exotic one —
-   * and every one of these used to be an unhandled constraint violation: a
-   * 500, "Something went wrong" on screen, and a stack trace in the log for
-   * what is a routine typo.
+   * The reference tables are seeded thinly on purpose (§2.2), and the two
+   * columns that point at them are treated differently because the lists are
+   * different shapes.
    */
-  describe('input the database refuses', () => {
-    it('names the field for an unknown home base, and does not crash', async () => {
+  describe('the reference tables, and what they may refuse', () => {
+    it('still names the field for an unknown type designator', async () => {
       asCharlie();
-      const response = await addAircraft('N111AA', { home_base: 'KZZZ' });
-
-      expect(response.statusCode).toBe(400);
-      expect(response.json().error).toBe('invalid_request');
-      expect(response.json().detail).toMatch(/home base/i);
-    });
-
-    it('names the field for an unknown type designator', async () => {
-      asCharlie();
-      const response = await addAircraft('N111AA', { type_code: 'ZZZZ' });
+      // This one keeps its key. `engine_type` on the other side decides
+      // which maintenance presets an aircraft is seeded with, so an
+      // unrecognised designator would silently mean no oil change — and
+      // designators are a closed set that can actually be imported.
+      const response = await addAircraft('N222BB', { type_code: 'ZZZZ' });
 
       expect(response.statusCode).toBe(400);
       expect(response.json().detail).toMatch(/type designator/i);
     });
 
+    it('takes a home base that is not in the list', async () => {
+      asCharlie();
+      // Twenty aerodromes against some twenty thousand real fields: a key
+      // there refuses almost every true answer, and did — somebody typing
+      // their own home field got a 500. V1_SCOPE calls it free text and is
+      // right, so 0011 dropped the key and kept the suggestions.
+      const response = await addAircraft('N111AA', { home_base: 'KZZZ' });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json().home_base).toBe('KZZZ');
+    });
+
     it('answers a duplicate registration with a conflict', async () => {
       asCharlie();
-      const created = await addAircraft('N222BB');
-      expect(created.statusCode).toBe(201);
+      const existing = (await app.inject({ method: 'GET', url: '/aircraft' })).json()[0];
 
       // Archived first, because the registration index is partial on
       // deleted_at rather than on status — an archived aeroplane still holds
@@ -266,21 +275,17 @@ describe('fleet', () => {
       // otherwise answer first.
       await app.inject({
         method: 'PATCH',
-        url: `/aircraft/${created.json().id}`,
+        url: `/aircraft/${existing.id}`,
         payload: { status: 'archived' },
       });
 
-      // 409, not 500 — and inside one tenant, saying so is exactly what the
-      // person needs to hear. §6's silence is about *other* tenants.
-      const again = await addAircraft('N222BB');
+      const again = await addAircraft(existing.registration);
       expect(again.statusCode).toBe(409);
-      expect(again.json().error).toBe('conflict');
       expect(again.json().reason).toMatch(/already in your fleet/i);
     });
 
     it('counts a restored aircraft against the quota', async () => {
       asCharlie();
-      // Left archived by the test above, so the slot is free.
       const archived = (await app.inject({ method: 'GET', url: '/aircraft' }))
         .json()
         .find((a: { status: string }) => a.status === 'archived');
@@ -297,6 +302,76 @@ describe('fleet', () => {
       });
       expect(restored.statusCode).toBe(402);
       expect(restored.json().quota).toBe('aircraft.active');
+    });
+  });
+
+  /** V1_SCOPE M2: what it costs, what it holds, and where its meters stand. */
+  describe('per-aircraft configuration', () => {
+    it('takes the settings and the opening meters at creation', async () => {
+      asDelta();
+      const created = await app.inject({
+        method: 'POST',
+        url: '/aircraft',
+        payload: {
+          registration: 'N7432G',
+          type_code: 'C172',
+          home_base: 'KPAO',
+          billing_meter: 'hobbs',
+          maintenance_meter: 'tach',
+          rate_basis: 'wet',
+          default_rate_cents: 16500,
+          fuel_capacity: '53.0',
+          fuel_units: 'gallons',
+          hobbs: '1200.4',
+          tach: '1100.2',
+          airframe_hours: '1200.4',
+        },
+      });
+
+      expect(created.statusCode).toBe(201);
+      const body = created.json();
+      expect(body.billing_meter).toBe('hobbs');
+      expect(body.maintenance_meter).toBe('tach');
+      // §3.7: two columns, not one preference. Billing on Hobbs and engine
+      // intervals on tach is the common pairing.
+      expect(body.rate_basis).toBe('wet');
+      // §3.7 rule 3: integer minor units the whole way, never a float.
+      expect(body.default_rate_cents).toBe(16500);
+
+      // The opening meters landed as a *reading*, so the totals stay derived
+      // from an append-only log rather than typed onto the aircraft.
+      expect(body.hobbs).toBe('1200.4');
+      expect(body.tach).toBe('1100.2');
+
+      const log = await app.inject({
+        method: 'GET',
+        url: `/aircraft/${body.id}/meter-readings`,
+      });
+      expect(log.json()).toHaveLength(1);
+      expect(log.json()[0].note).toMatch(/opening reading/i);
+    });
+
+    it('grounds an aircraft by decision, and says who by', async () => {
+      asDelta();
+      const id = (await app.inject({ method: 'GET', url: '/aircraft' })).json()[0].id;
+
+      const grounded = await app.inject({
+        method: 'PATCH',
+        url: `/aircraft/${id}`,
+        payload: { status: 'grounded' },
+      });
+      expect(grounded.statusCode).toBe(200);
+
+      // The third way into the one availability answer (§3.3) — an admin's
+      // call, alongside a grounding squawk and an overdue inspection.
+      const availability = await app.inject({
+        method: 'GET',
+        url: `/aircraft/${id}/availability`,
+      });
+      expect(availability.json().available).toBe(false);
+      expect(availability.json().grounding_reasons).toContain('Grounded by an administrator');
+
+      await app.inject({ method: 'PATCH', url: `/aircraft/${id}`, payload: { status: 'active' } });
     });
   });
 

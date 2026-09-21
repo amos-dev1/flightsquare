@@ -148,6 +148,9 @@ db/                             not an npm workspace — SQL and psql only
     0007_flights.sql            flights, fuel, and idempotent writes
     0008_maintenance.sql        items, squawks, work orders, compliance, and
                                 the aircraft_availability view (§3.3)
+    0009_identity.sql           invites, profiles, tokens and the outbox
+    0010_permission_scope.sql   §4.4's third dimension: resource, level, scope
+    0011_aircraft_config.sql    billing meter, wet/dry, rate, fuel, grounded
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -162,6 +165,9 @@ db/                             not an npm workspace — SQL and psql only
     090_flights.sql                        the core loop, fuel, the gap flag
     100_maintenance.sql                    calendar months, grounding, and
                                            the append-only records
+    110_identity.sql                       the token doors, and the one
+                                           member a tenant cannot lose
+    120_permission_scope.sql               own rows versus all of them
 api/
   src/
     config.ts                   env, client version floors, rate limits
@@ -388,9 +394,14 @@ is left:
 - **`aircraft_documents` is absent** (§3.2). It is a table of pointers into
   object storage, and there is no object storage; it arrives with
   `attachments`.
-- **The aerodrome and type tables are seeded thinly.** Twenty fields and
-  thirty-four types, enough to fly on. The real lists are an import job
-  (§2.2), not a migration anyone has to read.
+- **The aerodrome and type tables are seeded thinly, and only one of them
+  refuses anything.** Twenty fields and thirty-four types; the real lists are
+  an import job (§2.2), not a migration anyone has to read. `home_base` is
+  free text as of 0011 — a foreign key against twenty of some twenty thousand
+  airfields refuses almost every true answer — while `type_code` keeps its
+  key, because `engine_type` on the other side of it decides which
+  maintenance presets an aircraft is seeded with. Both are suggested from the
+  tables; only one is checked against them.
 - **`member_credentials` and `member_aircraft_authorizations` are not built**
   (§3.5). The authorization table gates booking and arrives with the
   scheduler; the credentials table is open decision 3 and should be settled
