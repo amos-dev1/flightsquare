@@ -9,7 +9,7 @@ import {
   type TextInputProps,
 } from 'react-native';
 
-import { CONTROL_HEIGHT, color, radius, space, type } from '@/theme';
+import { CONTROL_HEIGHT, color, font, radius, space, type } from '@/theme';
 
 /** §11, as React Native styles. Same tokens as the web theme. */
 
@@ -120,6 +120,61 @@ export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?
   );
 }
 
+/**
+ * A status, as §11 specifies it: explicit wording and a border, never colour
+ * alone. There is no icon set on the phone, so weight and the outline carry
+ * what an icon carries on the web.
+ */
+export function Status({ label, emphatic }: { label: string; emphatic?: boolean }) {
+  return (
+    <View style={[styles.status, emphatic && styles.statusEmphatic]}>
+      <Text style={[styles.statusLabel, emphatic && styles.statusLabelEmphatic]}>{label}</Text>
+    </View>
+  );
+}
+
+/**
+ * A segmented choice, because a picker wheel for four options is four taps
+ * and a scroll on a phone held in one hand at a tiedown.
+ *
+ * Selection is shown by fill and weight together — §11 keeps a non-colour
+ * indicator for every selected state, and this palette is monochrome anyway.
+ */
+export function Choice<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <View style={styles.choice}>
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="radio"
+            accessibilityState={{ selected }}
+            onPress={() => onChange(option.value)}
+            style={({ pressed }) => [
+              styles.choiceOption,
+              selected && styles.choiceOptionSelected,
+              pressed && styles.buttonPressed,
+            ]}
+          >
+            <Text style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}>
+              {option.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: color.surface,
@@ -175,4 +230,29 @@ const styles = StyleSheet.create({
   },
   noticeError: { borderColor: color.brandBlack },
   noticeText: { ...type.bodySmall, color: color.brandBlack },
+
+  status: {
+    alignSelf: 'flex-start',
+    borderRadius: radius.control,
+    backgroundColor: color.subtle,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
+  },
+  statusEmphatic: { borderWidth: 1, borderColor: color.brandBlack },
+  statusLabel: { ...type.supporting, color: color.secondary },
+  statusLabelEmphatic: { color: color.brandBlack, fontFamily: font.semibold },
+
+  choice: { gap: space.sm },
+  choiceOption: {
+    minHeight: CONTROL_HEIGHT,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: color.control,
+    borderRadius: radius.control,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+  },
+  choiceOptionSelected: { backgroundColor: color.brandBlack, borderColor: color.brandBlack },
+  choiceLabel: { ...type.body, color: color.brandBlack },
+  choiceLabelSelected: { color: color.surface, fontFamily: font.semibold },
 });

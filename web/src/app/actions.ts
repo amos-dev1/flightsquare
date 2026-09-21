@@ -230,3 +230,165 @@ export async function logFlight(
   revalidatePath('/aircraft');
   redirect(`/aircraft/${aircraftId}?logged=1`);
 }
+
+/**
+ * Maintenance (§3.6).
+ *
+ * Every one of these is a thin pass-through: the API computes what is due,
+ * decides what grounds an aircraft, and enforces who may close a squawk.
+ * §8.2 is explicit that the client never computes anything that matters, and
+ * "is this aeroplane legal to fly" is as close to mattering as it gets.
+ */
+
+/** Seed an existing aircraft from the preset library. Idempotent (§3.6). */
+export async function seedMaintenanceItems(aircraftId: string): Promise<void> {
+  await apiFetch(`/aircraft/${aircraftId}/maintenance-items/from-library`, { method: 'POST' });
+  revalidatePath('/maintenance');
+  revalidatePath(`/aircraft/${aircraftId}`);
+}
+
+/**
+ * Recording compliance — which is also how a seeded item gets its real date.
+ *
+ * The item rolls forward server-side, by calendar months where that is the
+ * basis, because 14 CFR 91.409 counts calendar months and an annual signed
+ * on the 14th is good through the end of the month.
+ */
+export async function recordCompliance(
+  aircraftId: string,
+  itemId: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = Object.fromEntries(
+    ['complied_on', 'complied_at_hours', 'signed_by', 'signed_certificate', 'note'].map((k) => [
+      k,
+      text(k),
+    ]),
+  );
+
+  if (!values.complied_on) {
+    return { error: 'Enter the date the work was signed off.', values };
+  }
+
+  const body: Record<string, unknown> = {
+    aircraft_id: aircraftId,
+    maintenance_item_id: itemId,
+    kind: 'inspection',
+    title: text('title') || 'Maintenance',
+    complied_on: values.complied_on,
+  };
+  // A decimal string the whole way: the meters are `numeric`, and a float
+  // round-trip is how a countdown drifts.
+  if (values.complied_at_hours) body.complied_at_hours = values.complied_at_hours;
+  if (values.signed_by) body.signed_by = values.signed_by;
+  if (values.signed_certificate) body.signed_certificate = values.signed_certificate;
+  if (values.note) body.note = values.note;
+
+  try {
+    await apiFetch('/compliance-records', { method: 'POST', body: JSON.stringify(body) });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/maintenance');
+  revalidatePath('/aircraft');
+  revalidatePath(`/aircraft/${aircraftId}`);
+  return {};
+}
+
+/**
+ * Filing a squawk. `squawks: write`, which every pilot holds — §1.5 keeps
+ * this separate from `maintenance` precisely so that reporting a defect and
+ * signing off the work are different permissions.
+ */
+export async function fileSquawk(_state: FormState, form: FormData): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    summary: text('summary'),
+    details: text('details'),
+    severity: text('severity'),
+  };
+
+  if (!values.summary) return { error: 'Describe the defect in a few words.', values };
+
+  const body: Record<string, unknown> = {
+    aircraft_id: text('aircraft_id'),
+    summary: values.summary,
+    severity: values.severity || 'minor',
+    // Severity 'grounding' always grounds; the checkbox is for the case where
+    // it is worse than the reporter first thought.
+    grounding: values.severity === 'grounding' || form.get('grounding') === 'on',
+  };
+  if (values.details) body.details = values.details;
+
+  try {
+    await apiFetch('/squawks', {
+      method: 'POST',
+      // §8.2: filed at the tiedown, on one bar of signal, and retried. The
+      // form instance carries its own key so a retry cannot file it twice.
+      headers: { 'idempotency-key': text('idempotency_key') },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/squawks');
+  revalidatePath('/maintenance');
+  revalidatePath(`/aircraft/${String(body.aircraft_id)}`);
+  return {};
+}
+
+/**
+ * Closing one, or deciding it may be flown with.
+ *
+ * Both need `maintenance: write`, which a Pilot does not hold. The buttons
+ * are hidden for them, and the API refuses it anyway — hiding a button is
+ * cosmetics (§8.1).
+ */
+export async function resolveSquawk(id: string, note: string): Promise<void> {
+  await apiFetch(`/squawks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'resolved', ...(note ? { resolution_note: note } : {}) }),
+  });
+  revalidatePath('/squawks');
+  revalidatePath('/maintenance');
+}
+
+export async function reopenSquawk(id: string): Promise<void> {
+  await apiFetch(`/squawks/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'open' }),
+  });
+  revalidatePath('/squawks');
+  revalidatePath('/maintenance');
+}
+
+/**
+ * Deferring: the decision that the aircraft may fly with a known defect,
+ * which is what an MEL and 14 CFR 91.213 are for. Append-only — lifting it
+ * later leaves this record exactly where it is.
+ */
+export async function deferSquawk(
+  id: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const body: Record<string, unknown> = { basis: text('basis') || 'far_91_213' };
+  if (text('reference')) body.reference = text('reference');
+  if (text('expires_on')) body.expires_on = text('expires_on');
+  if (text('note')) body.note = text('note');
+
+  try {
+    await apiFetch(`/squawks/${id}/deferrals`, { method: 'POST', body: JSON.stringify(body) });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
+  revalidatePath('/squawks');
+  revalidatePath('/maintenance');
+  return {};
+}

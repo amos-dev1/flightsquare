@@ -1,4 +1,4 @@
-import type { CreateFlightRequest } from './index.js';
+import type { CreateFlightRequest, CreateSquawkRequest } from './index.js';
 import { ApiError } from './client.js';
 
 /**
@@ -16,13 +16,12 @@ import { ApiError } from './client.js';
 
 export type QueuedState = 'pending' | 'failed';
 
-export interface QueuedFlight {
+interface QueuedWriteBase {
   /** Client-generated UUIDv7 — the row names itself before the server hears of it. */
   id: string;
   /** Stable across every retry, which is what makes a retry safe. */
   idempotencyKey: string;
-  payload: CreateFlightRequest;
-  /** When the flight ended. The server orders by this, not by arrival. */
+  /** When it happened. The server orders by this, not by arrival. */
   recordedAt: string;
   /** When it went into the queue, which may be days before it is sent. */
   queuedAt: string;
@@ -31,9 +30,28 @@ export interface QueuedFlight {
   lastError?: string;
 }
 
+export interface QueuedFlight extends QueuedWriteBase {
+  kind: 'flight';
+  payload: CreateFlightRequest;
+}
+
+/**
+ * A squawk queues for the same reason a flight does, and usually in the same
+ * minute: the defect is noticed on the walk back from the aeroplane, on the
+ * same field with the same one bar of signal. A defect that did not get
+ * reported because the form needed a network is the worst outcome available
+ * here — the next pilot walks out to an aircraft nobody warned them about.
+ */
+export interface QueuedSquawk extends QueuedWriteBase {
+  kind: 'squawk';
+  payload: CreateSquawkRequest;
+}
+
+export type QueuedWrite = QueuedFlight | QueuedSquawk;
+
 export interface QueueStore {
-  all(): Promise<QueuedFlight[]>;
-  put(entry: QueuedFlight): Promise<void>;
+  all(): Promise<QueuedWrite[]>;
+  put(entry: QueuedWrite): Promise<void>;
   remove(id: string): Promise<void>;
 }
 
@@ -45,11 +63,14 @@ export interface FlushResult {
   deferred: number;
 }
 
-/** A submitter, so tests do not need an HTTP layer. */
-export type SubmitFlight = (
-  payload: CreateFlightRequest,
-  idempotencyKey: string,
-) => Promise<unknown>;
+/**
+ * A submitter, so tests do not need an HTTP layer.
+ *
+ * It takes the whole entry rather than a payload and a key, because which
+ * endpoint a write belongs to is part of the entry and the queue is not the
+ * place that decides it.
+ */
+export type SubmitWrite = (entry: QueuedWrite) => Promise<unknown>;
 
 /**
  * A 4xx will not become a 2xx by being sent again: the payload is wrong, the
@@ -65,19 +86,20 @@ function isPermanent(error: unknown): boolean {
 }
 
 /**
- * Send what is waiting, oldest flight first.
+ * Send what is waiting, oldest first.
  *
- * Ordered by when the flight *happened* rather than when it was queued: §8.2
+ * Ordered by when the write *happened* rather than when it was queued: §8.2
  * says readings can arrive out of order and the server sorts by recorded-at,
  * but sending them in order keeps a meter gap meaningful instead of an
- * artefact of sync sequence.
+ * artefact of sync sequence. It also lands a flight before the squawk found
+ * on it, which is what lets the squawk name the flight.
  *
  * Stops at the first transient failure. If the network is down for one write
  * it is down for the next, and hammering it just burns battery.
  */
 export async function flushQueue(
   store: QueueStore,
-  submit: SubmitFlight,
+  submit: SubmitWrite,
   now: () => string = () => new Date().toISOString(),
 ): Promise<FlushResult> {
   const entries = (await store.all())
@@ -91,7 +113,7 @@ export async function flushQueue(
       // The same key every time. A replay returns the original response
       // rather than logging the flight twice, which would put every
       // maintenance countdown downstream out by one.
-      await submit(entry.payload, entry.idempotencyKey);
+      await submit(entry);
       await store.remove(entry.id);
       result.sent += 1;
     } catch (error) {
@@ -130,7 +152,7 @@ function describe(error: unknown): string {
 }
 
 /** An in-memory store, used by the tests and as the reference implementation. */
-export function createMemoryQueueStore(initial: QueuedFlight[] = []): QueueStore {
+export function createMemoryQueueStore(initial: QueuedWrite[] = []): QueueStore {
   const entries = new Map(initial.map((entry) => [entry.id, entry]));
   return {
     all: async () => [...entries.values()],

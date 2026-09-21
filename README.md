@@ -87,6 +87,8 @@ db/                             not an npm workspace — SQL and psql only
                                 plans, quotas, usage counting, role bundles
     0006_fleet.sql              aircraft, meters, and the reference tables
     0007_flights.sql            flights, fuel, and idempotent writes
+    0008_maintenance.sql        items, squawks, work orders, compliance, and
+                                the aircraft_availability view (§3.3)
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -99,6 +101,8 @@ db/                             not an npm workspace — SQL and psql only
     070_entitlements_and_roles.sql         quotas, bundles, the §2.3 helpers
     080_fleet.sql                          aircraft, leaseback, meter totals
     090_flights.sql                        the core loop, fuel, the gap flag
+    100_maintenance.sql                    calendar months, grounding, and
+                                           the append-only records
 api/
   src/
     config.ts                   env, client version floors, rate limits
@@ -110,7 +114,7 @@ api/
       resolver.ts               §1.4's chain: override -> plan -> default
       values.ts                 Unlimited | Limit(n), never a sentinel
     db/
-      schema.ts                 Kysely types for the four tables
+      schema.ts                 Kysely types for every table and both views
       pool.ts                   pg pool, Kysely, and the boot-time role check
       context.ts                withSession / withTenant / withUser
       auth.ts                   the nine §2.1 functions, typed
@@ -124,7 +128,8 @@ api/
       errors.ts                 the §1.6 gates: 404 / 403 / 402, and 429
       server.ts                 Fastify, error handler, version handshake
       routes/                   health, signup, auth, me, tenant,
-                                entitlements, aircraft, flights, reference
+                                entitlements, aircraft, flights, maintenance,
+                                squawks, reference
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -133,12 +138,13 @@ web/
     middleware.ts               rotates the access token before a render needs it
     lib/                        httpOnly session cookie, server-side API client
     components/ui.tsx           copy-in components, owned outright
-    app/                        login, tenant picker, fleet, aircraft detail
+    app/                        login, tenant picker, fleet, aircraft detail,
+                                maintenance, squawks
 mobile/
   src/
     lib/queue.ts                expo-sqlite behind the shared QueueStore
     lib/sync.ts                 save-locally-first, flush when there is signal
-    app/                        sign in, fleet, post-flight entry
+    app/                        sign in, fleet, post-flight entry, squawk
 scripts/
 ```
 
@@ -271,6 +277,25 @@ is left:
 - **The Expo app has never run on a device.** It bundles, typechecks, and its
   queue logic is tested in Node — but nothing here has been through a
   simulator, so treat the screens as unverified until someone opens them.
+- **A seeded maintenance item is due *now*, and says it has no record.**
+  Adding an aircraft tells the system nothing about when its last annual was,
+  so dating one twelve months out would assert the aircraft is in annual —
+  which §11 forbids in as many words. The consequence is a deliberate one
+  day of grace: a seeded item reads as due today and goes overdue tomorrow,
+  and a grounding one takes the aircraft out of service until somebody
+  records the real date. `ever_complied` is what lets every screen say "not
+  recorded" rather than "overdue".
+- **Work orders have no UI.** The table, the signoff and the trigger that
+  closes a signed record to edits are all there and tested; nothing in
+  `web/` or `mobile/` writes one yet. It arrives with the screen that needs
+  it, which is probably a shop-visit flow rather than a form of its own.
+- **Nothing consumes `aircraft_availability` but the two clients.** It exists
+  before the scheduler does on purpose (§3.3): retrofitting the signal means
+  finding every booking path later. §6.2's checklist already says booking
+  paths consult the view rather than querying squawks.
+- **The preset library is thin, like the other reference tables.** Ten
+  entries, enough for a piston single. Anything type-specific — a Cirrus
+  parachute repack, a Mooney gear inspection — is a row someone adds.
 - **`web/` still has its own API client.** §9 says both clients share the one
   in `packages/shared`; mobile uses it, web predates it and duplicates a
   little of it. Worth collapsing next time web's data layer is touched.
@@ -283,6 +308,10 @@ is left:
 - **The aerodrome and type tables are seeded thinly.** Twenty fields and
   thirty-four types, enough to fly on. The real lists are an import job
   (§2.2), not a migration anyone has to read.
+- **`member_credentials` and `member_aircraft_authorizations` are not built**
+  (§3.5). The authorization table gates booking and arrives with the
+  scheduler; the credentials table is open decision 3 and should be settled
+  rather than assumed.
 - **Row scoping is still open** (CLAUDE.md §10, decision 3). A Pilot's
   `charges: read` currently means every charge in the tenant, which is wrong
   in a club. It has to be settled before the ledger is built — not before, and

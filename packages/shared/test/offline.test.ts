@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../src/client.js';
-import { createMemoryQueueStore, flushQueue, type QueuedFlight } from '../src/offline.js';
+import {
+  createMemoryQueueStore,
+  flushQueue,
+  type QueuedFlight,
+  type QueuedSquawk,
+} from '../src/offline.js';
 
 function entry(overrides: Partial<QueuedFlight> = {}): QueuedFlight {
   return {
+    kind: 'flight',
     id: overrides.id ?? 'flight-1',
     idempotencyKey: overrides.idempotencyKey ?? 'key-1',
     payload: { aircraft_id: 'a1', flight_date: '2026-09-20', hobbs_end: '1202.3' },
@@ -45,8 +51,8 @@ describe('flushQueue', () => {
     await flushQueue(store, submit);
 
     expect(submit).toHaveBeenCalledTimes(2);
-    expect(submit.mock.calls[0]![1]).toBe('stable-key');
-    expect(submit.mock.calls[1]![1]).toBe('stable-key');
+    expect(submit.mock.calls[0]![0].idempotencyKey).toBe('stable-key');
+    expect(submit.mock.calls[1]![0].idempotencyKey).toBe('stable-key');
     expect(await store.all()).toEqual([]);
   });
 
@@ -62,7 +68,32 @@ describe('flushQueue', () => {
 
     await flushQueue(store, submit);
 
-    expect(submit.mock.calls.map((call) => call[1])).toEqual(['k1', 'k2']);
+    expect(submit.mock.calls.map((call) => call[0].idempotencyKey)).toEqual(['k1', 'k2']);
+  });
+
+  it('carries a squawk filed on the same walk back, and sends it after the flight', async () => {
+    // §8.2 is about the post-flight entry, and the defect noticed while
+    // making it is filed in the same minute on the same field. Ordering by
+    // when each happened is what lets the squawk name the flight it was
+    // found on.
+    const squawk: QueuedSquawk = {
+      kind: 'squawk',
+      id: 'squawk-1',
+      idempotencyKey: 'sq-1',
+      payload: { aircraft_id: 'a1', summary: 'Left brake soft', severity: 'grounding' },
+      recordedAt: '2026-09-20T18:10:00.000Z',
+      queuedAt: '2026-09-20T18:10:05.000Z',
+      attempts: 0,
+      state: 'pending',
+    };
+    const store = createMemoryQueueStore([squawk, entry()]);
+    const submit = vi.fn().mockResolvedValue({});
+
+    const result = await flushQueue(store, submit);
+
+    expect(result).toEqual({ sent: 2, failed: 0, deferred: 0 });
+    expect(submit.mock.calls.map((call) => call[0].kind)).toEqual(['flight', 'squawk']);
+    expect(await store.all()).toEqual([]);
   });
 
   it('leaves a transient failure pending, and stops trying the rest', async () => {

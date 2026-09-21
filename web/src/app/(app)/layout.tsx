@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import type { ReactNode } from 'react';
 
 import { logout } from '@/app/actions';
+import { NavLink } from '@/components/nav';
 import { Logo } from '@/components/ui';
 import { apiFetch, ApiError } from '@/lib/api';
 import { readSession } from '@/lib/session';
@@ -41,20 +42,17 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             <Logo />
           </Link>
 
-          <nav className="flex-1">
-            {/* Active item: black, heavier, and a small teal marker — the
-                weight carries it when colour is unavailable. */}
-            <Link
-              href="/aircraft"
-              aria-current="page"
-              className="relative inline-flex h-16 items-center text-sm font-semibold text-brand-black"
-            >
-              Fleet
-              <span
-                aria-hidden
-                className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-accent"
-              />
-            </Link>
+          {/*
+            Three destinations, which is the shape of the product: the fleet,
+            what it owes, and what is wrong with it. Squawks sit apart from
+            maintenance for the same reason §1.5 keeps them separate
+            resources — filing a defect and signing off the work are
+            different acts done by different people.
+          */}
+          <nav className="flex flex-1 items-center gap-6">
+            <NavLink href="/aircraft">Fleet</NavLink>
+            <NavLink href="/maintenance">Maintenance</NavLink>
+            <NavLink href="/squawks">Squawks</NavLink>
           </nav>
 
           <span className="hidden text-sm text-secondary sm:inline">{tenant.name}</span>

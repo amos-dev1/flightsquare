@@ -1,18 +1,23 @@
 import type {
   AerodromeResponse,
+  AircraftAvailabilityResponse,
   AircraftResponse,
   AircraftTypeResponse,
   CreateAircraftRequest,
+  CreateComplianceRecordRequest,
   CreateFlightRequest,
   CreateMeterReadingRequest,
+  CreateSquawkRequest,
   EntitlementsResponse,
   FlightResponse,
   LoginResponse,
+  MaintenanceItemResponse,
   MeResponse,
   MembershipSummaryResponse,
   MeterReadingResponse,
   RefreshResponse,
   SelectTenantResponse,
+  SquawkResponse,
   TenantResponse,
 } from './index.js';
 
@@ -136,6 +141,45 @@ export function createClient(options: ClientOptions) {
     /** §8.2: the idempotency key is required, not optional, on this one. */
     createFlight: (input: CreateFlightRequest, idempotencyKey: string) =>
       request<FlightResponse>('POST', '/flights', input, { idempotencyKey }),
+
+    // ---- maintenance (§3.6) ---------------------------------------------
+    /**
+     * §3.3: the one place that decides whether an aircraft may be booked.
+     * Both clients ask this rather than working it out from squawks, so the
+     * rule exists once and cannot drift between them.
+     */
+    availability: () => request<AircraftAvailabilityResponse[]>('GET', '/availability'),
+    aircraftAvailability: (aircraftId: string) =>
+      request<AircraftAvailabilityResponse>('GET', `/aircraft/${aircraftId}/availability`),
+
+    listMaintenanceItems: (query: { aircraftId?: string } = {}) =>
+      request<MaintenanceItemResponse[]>(
+        'GET',
+        query.aircraftId ? `/maintenance?aircraft_id=${query.aircraftId}` : '/maintenance',
+      ),
+    /** Append-only. There is no update and no delete, here or in the API. */
+    recordCompliance: (input: CreateComplianceRecordRequest) =>
+      request<{ id: string; maintenance_item: MaintenanceItemResponse | null }>(
+        'POST',
+        '/compliance-records',
+        input,
+      ),
+
+    // ---- squawks --------------------------------------------------------
+    listSquawks: (query: { aircraftId?: string; open?: boolean } = {}) => {
+      const params = new URLSearchParams();
+      if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
+      if (query.open) params.set('open', 'true');
+      const search = params.toString();
+      return request<SquawkResponse[]>('GET', search ? `/squawks?${search}` : '/squawks');
+    },
+    /**
+     * §8.2: the idempotency key is required, not optional. A squawk is filed
+     * in the same conditions as a post-flight entry, and filing the same
+     * defect twice is how a squawk log stops being readable.
+     */
+    createSquawk: (input: CreateSquawkRequest, idempotencyKey: string) =>
+      request<SquawkResponse>('POST', '/squawks', input, { idempotencyKey }),
 
     // ---- reference ------------------------------------------------------
     aircraftTypes: (q?: string) =>

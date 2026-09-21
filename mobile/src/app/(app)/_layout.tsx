@@ -16,6 +16,7 @@ export default function AppLayout() {
     >
       <Stack.Screen name="index" options={{ title: 'Fleet' }} />
       <Stack.Screen name="log-flight" options={{ title: 'Log flight' }} />
+      <Stack.Screen name="report-squawk" options={{ title: 'Report a defect' }} />
     </Stack>
   );
 }

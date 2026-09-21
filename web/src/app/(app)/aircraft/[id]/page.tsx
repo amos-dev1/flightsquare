@@ -4,7 +4,13 @@ import { PlaneTakeoff } from 'lucide-react';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Alert, Button, Card, KeyMetric, Meter, PageTitle, SectionHeading, Status } from '@/components/ui';
-import type { AircraftResponse, MeterReadingResponse } from '@flightsquare/shared';
+import { AvailabilityLine, DueStatus, remainingLabel } from '@/app/(app)/maintenance/shared';
+import type {
+  AircraftAvailabilityResponse,
+  AircraftResponse,
+  MaintenanceItemResponse,
+  MeterReadingResponse,
+} from '@flightsquare/shared';
 
 import { ArchiveButton, ReadingForm } from './client';
 
@@ -20,15 +26,26 @@ export default async function AircraftPage({
 
   let aircraft: AircraftResponse;
   let readings: MeterReadingResponse[];
+  let availability: AircraftAvailabilityResponse;
+  let items: MaintenanceItemResponse[];
   try {
-    [aircraft, readings] = await Promise.all([
+    [aircraft, readings, availability, items] = await Promise.all([
       apiFetch<AircraftResponse>(`/aircraft/${id}`),
       apiFetch<MeterReadingResponse[]>(`/aircraft/${id}/meter-readings`),
+      apiFetch<AircraftAvailabilityResponse>(`/aircraft/${id}/availability`),
+      apiFetch<MaintenanceItemResponse[]>(`/aircraft/${id}/maintenance-items`),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
+
+  // Overdue first, then due soon. An item nobody has recorded compliance for
+  // is on the list too: "we have no record" is not "it is fine".
+  const attention = items
+    .filter((item) => item.status === 'active')
+    .filter((item) => item.state === 'overdue' || item.state === 'due_soon' || !item.ever_complied)
+    .sort((a, b) => (a.state === 'overdue' ? 0 : 1) - (b.state === 'overdue' ? 0 : 1));
 
   return (
     <div className="space-y-6">
@@ -90,6 +107,50 @@ export default async function AircraftPage({
           <p className="mt-1 text-base font-semibold">{aircraft.maintenance_meter}</p>
         </div>
       </Card>
+
+      {/*
+        Dispatch state before anything else on the page, because it is the
+        question the person opening this screen is actually asking. It is the
+        same view the scheduler will consult (§3.3), so the answer here and
+        the answer a booking gets cannot disagree.
+
+        §11: never infer "Airworthy" from the absence of a warning. This says
+        "available", which is a claim about this product's records, and it
+        lists what it is relying on.
+      */}
+      <section className="space-y-3">
+        <SectionHeading>Airworthiness</SectionHeading>
+        <Card className="space-y-4 p-5">
+          <AvailabilityLine row={availability} />
+
+          {attention.length === 0 ? (
+            <p className="text-sm text-secondary">
+              {items.length === 0
+                ? 'No maintenance intervals are being tracked.'
+                : 'Nothing due in the near term.'}
+            </p>
+          ) : (
+            <ul className="divide-y divide-line border-t border-line">
+              {attention.map((item) => (
+                <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3">
+                  <span className="text-sm font-semibold">{item.name}</span>
+                  <span className="flex items-center gap-3 text-sm text-secondary">
+                    <span className="tabular">{remainingLabel(item)}</span>
+                    <DueStatus item={item} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <Link
+            href="/maintenance"
+            className="inline-block text-sm font-semibold underline decoration-1 underline-offset-4"
+          >
+            Record compliance
+          </Link>
+        </Card>
+      </section>
 
       <section className="space-y-3">
         <SectionHeading>Record a reading</SectionHeading>

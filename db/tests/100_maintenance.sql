@@ -131,6 +131,35 @@ END
 $t$;
 
 -- ---------------------------------------------------------------------------
+-- "We have no record" and "it is overdue" are different claims, and only one
+-- of them is about the aeroplane. The view says which.
+-- ---------------------------------------------------------------------------
+DO $t$
+DECLARE a record;
+BEGIN
+  UPDATE public.maintenance_items SET due_on = current_date - 1
+   WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+     AND template_code = 'annual';
+
+  SELECT * INTO a FROM public.aircraft_availability
+   WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1';
+
+  IF a.available THEN
+    RAISE EXCEPTION 'an aircraft with no annual on record is bookable';
+  END IF;
+  IF NOT (a.grounding_reasons::text LIKE '%Not recorded:%Annual%') THEN
+    RAISE EXCEPTION 'an item nobody has recorded is reported as overdue: %',
+      a.grounding_reasons;
+  END IF;
+  RAISE NOTICE '   ok: no record grounds it, and says so in those words';
+
+  UPDATE public.maintenance_items SET due_on = current_date
+   WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+     AND template_code = 'annual';
+END
+$t$;
+
+-- ---------------------------------------------------------------------------
 -- 14 CFR 91.409 counts **calendar** months.
 --
 -- An annual signed on 14 March 2026 is good through 31 March 2027, not the

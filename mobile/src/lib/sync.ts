@@ -1,10 +1,17 @@
-import { flushQueue, uuidv7, type CreateFlightRequest, type FlushResult } from '@flightsquare/shared';
+import {
+  flushQueue,
+  uuidv7,
+  type CreateFlightRequest,
+  type CreateSquawkRequest,
+  type FlushResult,
+  type QueuedWrite,
+} from '@flightsquare/shared';
 
 import { api, withAuth } from './api';
 import { sqliteQueueStore } from './queue';
 
 /**
- * Saving a flight always succeeds.
+ * Saving always succeeds.
  *
  * §8.2: the most important screen in the product is used standing at a
  * tiedown on a rural field with one bar or none. If post-flight entry
@@ -20,6 +27,7 @@ export async function saveFlight(payload: CreateFlightRequest): Promise<string> 
   const now = new Date().toISOString();
 
   await sqliteQueueStore.put({
+    kind: 'flight',
     id,
     // One key for this flight, for the life of the queue entry. Every retry
     // presents the same one, which is what stops a dropped connection from
@@ -37,10 +45,45 @@ export async function saveFlight(payload: CreateFlightRequest): Promise<string> 
   return id;
 }
 
-export async function sync(): Promise<FlushResult> {
-  return flushQueue(sqliteQueueStore, (payload, idempotencyKey) =>
-    withAuth(() => api.createFlight(payload, idempotencyKey)),
+/**
+ * A defect, queued for exactly the same reason.
+ *
+ * It is noticed on the walk back from the aeroplane, on the same field with
+ * the same missing signal — and of the two writes, this is the one that must
+ * not be lost. A flight that syncs late leaves the meters stale for an hour.
+ * A squawk that was never filed because the form wanted a network leaves the
+ * next pilot walking out to an aircraft nobody warned them about.
+ */
+export async function saveSquawk(payload: CreateSquawkRequest): Promise<string> {
+  const id = uuidv7();
+  const now = new Date().toISOString();
+
+  await sqliteQueueStore.put({
+    kind: 'squawk',
+    id,
+    idempotencyKey: id,
+    payload: { ...payload, reported_at: payload.reported_at ?? now },
+    recordedAt: payload.reported_at ?? now,
+    queuedAt: now,
+    attempts: 0,
+    state: 'pending',
+  });
+
+  void sync();
+  return id;
+}
+
+/** Which endpoint a queued write belongs to. The queue does not decide it. */
+function submit(entry: QueuedWrite): Promise<unknown> {
+  return withAuth<unknown>(() =>
+    entry.kind === 'squawk'
+      ? api.createSquawk(entry.payload, entry.idempotencyKey)
+      : api.createFlight(entry.payload, entry.idempotencyKey),
   );
+}
+
+export async function sync(): Promise<FlushResult> {
+  return flushQueue(sqliteQueueStore, submit);
 }
 
 export async function pendingCount(): Promise<{ pending: number; failed: number }> {
