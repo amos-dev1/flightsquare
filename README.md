@@ -4,11 +4,20 @@ Multi-tenant SaaS for aircraft and flight management (FAA Part 91). See
 [CLAUDE.md](CLAUDE.md) for the architecture and domain model — it is the
 constitution, and this file only covers how to run what exists.
 
-**Status: foundation, and authentication.**
-Three roles, three migrations, and a Fastify + Kysely service where signup
-works end to end and every tenant-scoped route fails closed until there is a
-session model. No domain tables yet. `web/`, `mobile/` and `infra/` are
-deliberately empty workspaces — each has a README saying what it will hold.
+**Status: the core loop closes.**
+Eight migrations, three database roles, and a Fastify + Kysely service
+carrying the domain model through flight logging, maintenance and squawks — a
+flight advances the meters, the meters tick the intervals down, and an overdue
+inspection or a grounding squawk reaches `aircraft_availability`, which is
+what the scheduler will ask before it exists. Both clients are built: a
+Next.js app on 3001 and an Expo app for iOS. `infra/` is still an empty
+workspace with a README saying what it will hold, and §9 defers hosting until
+there is something worth deploying.
+
+Two honest gaps: **neither client has a signup screen** (§9 says the web app
+will own it), so the first account comes from `./scripts/seed-demo.sh` below;
+and **the Expo app has never run on a device** — it bundles and typechecks,
+but treat its screens as unverified until someone opens the Simulator.
 
 ## Requirements
 
@@ -29,18 +38,37 @@ npm run db:up             # start Postgres (creates the three roles on first run
 npm run migrate           # apply pending migrations, as the owner role
 npm test                  # database suite, then the API suite
 npm run dev               # the API on http://127.0.0.1:3000
+npm run seed              # create an account to sign in with
 npm run dev:web           # the web app on http://127.0.0.1:3001
+npm run dev:mobile        # the iOS app, in the Simulator
 npm run db:reset          # destroy the database and start clean
 ```
 
-The web app calls the API server-side, so run both. Sign up through the API
-once, then log in at http://127.0.0.1:3001:
+Both clients call the API, so `npm run dev` stays running in its own terminal.
+
+`npm run seed` exists because there is no signup screen yet: it is one call to
+the API, and re-running it is not an error.
+
+```sh
+npm run seed                                 # demo@flightsquare.local
+./scripts/seed-demo.sh me@example.test my-club
+```
+
+It does only what the UI cannot. Add the aircraft through the web app — its
+standard maintenance intervals arrive with it — and the rest of the screens
+have something to show from there. What it calls, if you would rather do it
+by hand:
 
 ```sh
 curl -s -X POST localhost:3000/auth/signup -H 'content-type: application/json' \
   -d '{"slug":"my-club","name":"My Club","email":"me@example.test",
        "password":"correct horse battery staple","archetype":"solo"}'
 ```
+
+`archetype` matters more than it looks: it gives the user exactly one
+membership, and the mobile sign-in screen has no tenant picker — it refuses
+anyone who belongs to more than one organisation and says to choose on the
+web.
 
 `npm test` needs the database up and migrated.
 
@@ -55,6 +83,37 @@ arguments:
 Local credentials default to the values in `.env.example`; copy it to `.env`
 to change them. They are development-only and the container is bound to
 loopback.
+
+## Running the iOS app
+
+`npm run dev:mobile` starts Metro and opens the Simulator. Once, before the
+first run, point the toolchain at Xcode itself — a machine with only the
+Command Line Tools installed has no `simctl`, so Expo has nothing to open:
+
+```sh
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -license accept
+xcodebuild -runFirstLaunch
+xcrun simctl list devices available | grep iPhone   # must print something
+```
+
+If that last line prints nothing the toolchain is fine and the runtime is
+missing: `xcodebuild -downloadPlatform iOS`.
+
+**On the Simulator, no configuration is needed.** It shares the Mac's
+loopback, so the app's default of `http://127.0.0.1:3000` reaches the API.
+
+**On a physical device, two things change**, because `127.0.0.1` there is the
+phone itself and the API binds loopback:
+
+```sh
+FS_API_HOST=0.0.0.0 npm run dev                          # reachable on the LAN
+EXPO_PUBLIC_API_URL=http://192.168.1.x:3000 npm run dev:mobile
+```
+
+Anything installed into `mobile/` goes through `npx expo install`, never plain
+`npm install` — see `mobile/README.md` for what breaks otherwise, and for why
+the offline queue is the part of that workspace worth reading.
 
 ## Roles
 
@@ -146,6 +205,11 @@ mobile/
     lib/sync.ts                 save-locally-first, flush when there is signal
     app/                        sign in, fleet, post-flight entry, squawk
 scripts/
+  lib.sh                        sourced by the rest; loads .env, finds docker
+  migrate.sh                    forward-only, checksummed
+  test.sh                       fixtures as superuser, assertions as app_role
+  psql.sh                       interactive psql as any role
+  seed-demo.sh                  an account to sign in with, until signup exists
 ```
 
 Migrations are forward-only. Each one runs once inside a single transaction

@@ -27,7 +27,9 @@
     "test": "npm run test:db && vitest run",
     "test:db": "./scripts/test.sh",
     "test:api": "vitest run --project api",
-    "dev:web": "npm run dev -w web"
+    "dev:web": "npm run dev -w web",
+    "dev:mobile": "npm run ios -w mobile",
+    "seed": "./scripts/seed-demo.sh"
   },
   "devDependencies": {
     "vitest": "^5.0.1"

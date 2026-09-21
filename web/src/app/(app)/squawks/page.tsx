@@ -53,9 +53,17 @@ export default async function SquawksPage() {
       <section className="space-y-3">
         <SectionHeading>Outstanding</SectionHeading>
         {open.length === 0 ? (
-          <Empty title="Nothing outstanding">
-            Anything reported on a flight shows up here.
-          </Empty>
+          // With no aircraft there is nothing to report against, and saying
+          // "nothing outstanding" twice on one screen tells nobody that.
+          active.length === 0 ? (
+            <Empty title="No aircraft yet">
+              Add one on the fleet page before there is anything to report.
+            </Empty>
+          ) : (
+            <Empty title="No open squawks">
+              Anything you or another member reports shows up here.
+            </Empty>
+          )
         ) : (
           <div className="space-y-3">
             {open.map((squawk) => (
