@@ -75,6 +75,7 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
     expiresAt: result.expires_at,
   });
 
+  const next = String(form.get('next') ?? '');
   const only = result.memberships.length === 1 ? result.memberships[0] : undefined;
   if (only) {
     try {
@@ -89,7 +90,11 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
     }
   }
 
-  redirect(only ? '/aircraft' : '/choose-tenant');
+  // Only a path on this site, never something the form supplied whole: a
+  // `next` that could name another origin is an open redirect with a session
+  // freshly in hand.
+  const destination = /^\/[^/\\]/.test(next) ? next : '/aircraft';
+  redirect(only ? destination : '/choose-tenant');
 }
 
 export async function selectTenant(tenantId: string): Promise<void> {
@@ -462,4 +467,302 @@ export async function deferSquawk(
   revalidatePath('/squawks');
   revalidatePath('/maintenance');
   return {};
+}
+
+/**
+ * Identity (M1).
+ *
+ * The three public flows — sign up, reset, accept an invitation — all end by
+ * writing a session, because the alternative is telling somebody who just
+ * proved who they are to go and prove it again.
+ */
+
+/** Sign up: a tenant and its first Admin, in one flow. Free tier (§4.3). */
+export async function signup(_state: FormState, form: FormData): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    name: text('name'),
+    slug: text('slug'),
+    email: text('email'),
+    archetype: text('archetype'),
+  };
+
+  const password = String(form.get('password') ?? '');
+  if (password.length < 12) {
+    return { error: 'Use a password of at least 12 characters.', values };
+  }
+
+  // The slug is in URLs and in invite links, and it is not editable
+  // afterwards — so it is derived from the club's name rather than being a
+  // field somebody has to think about.
+  const slug =
+    values.slug ||
+    values.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 63);
+
+  if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) {
+    return { error: 'Use a club name with a few letters or numbers in it.', values };
+  }
+
+  try {
+    await apiFetch('/auth/signup', {
+      method: 'POST',
+      token: '',
+      body: JSON.stringify({
+        slug,
+        name: values.name,
+        email: values.email,
+        password,
+        archetype: values.archetype || 'solo',
+      }),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) {
+      // The API answers a taken slug and a registered address identically on
+      // purpose, so this cannot say which either.
+      return {
+        error: 'That club name or email is already taken. Try another, or sign in.',
+        values,
+      };
+    }
+    return { error: messageFor(error), values };
+  }
+
+  // Straight in. They just chose the password; asking for it again would be
+  // theatre.
+  return login({}, formDataFor({ email: values.email, password }));
+}
+
+/** Build the form `login` expects, so signing in after signup reuses it. */
+function formDataFor(fields: Record<string, string>): FormData {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(fields)) form.set(key, value);
+  return form;
+}
+
+export async function requestPasswordReset(
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const email = String(form.get('email') ?? '').trim();
+  try {
+    await apiFetch('/auth/password-reset/request', {
+      method: 'POST',
+      token: '',
+      body: JSON.stringify({ email }),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 429) {
+      return { error: 'Too many attempts. Wait a few minutes and try again.' };
+    }
+    return { error: messageFor(error) };
+  }
+  // Said the same way whatever the address: the API does not tell us whether
+  // an account exists, and this screen must not appear to know either.
+  return { saved: true };
+}
+
+export async function resetPassword(
+  token: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const password = String(form.get('password') ?? '');
+  if (password.length < 12) {
+    return { error: 'Use a password of at least 12 characters.' };
+  }
+
+  try {
+    await apiFetch('/auth/password-reset', {
+      method: 'POST',
+      token: '',
+      body: JSON.stringify({ token, password }),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return {
+        error: 'That link has already been used, or it has expired. Ask for a new one.',
+      };
+    }
+    return { error: messageFor(error) };
+  }
+
+  redirect('/login?reset=1');
+}
+
+export async function verifyEmail(token: string): Promise<FormState> {
+  try {
+    await apiFetch('/auth/verify-email', {
+      method: 'POST',
+      token: '',
+      body: JSON.stringify({ token }),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return { error: 'That link has already been used, or it has expired.' };
+    }
+    return { error: messageFor(error) };
+  }
+  return { saved: true };
+}
+
+export async function resendVerification(): Promise<ActionResult> {
+  const session = await readSession();
+  if (!session) return { error: 'Sign in first.' };
+  try {
+    const me = await apiFetch<{ email: string }>('/me');
+    await apiFetch('/auth/verify-email/request', {
+      method: 'POST',
+      token: '',
+      body: JSON.stringify({ email: me.email }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  return {};
+}
+
+/**
+ * Accepting an invitation.
+ *
+ * Two shapes, and the API decides which: somebody with an account has to be
+ * signed in as themselves, and somebody new sends a password. When they send
+ * one they are signed in afterwards with it.
+ */
+export async function acceptInvite(
+  token: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const password = String(form.get('password') ?? '');
+  const values = { name: text('name') };
+
+  if (password && password.length < 12) {
+    return { error: 'Use a password of at least 12 characters.', values };
+  }
+
+  let accepted: { email: string; tenant_id: string };
+  try {
+    accepted = await apiFetch(`/invites/token/${encodeURIComponent(token)}/accept`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(password ? { password } : {}),
+        ...(values.name ? { name: values.name } : {}),
+      }),
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return { error: 'That invitation has been used already, or it has expired.', values };
+    }
+    return { error: messageFor(error), values };
+  }
+
+  if (password) {
+    return login({}, formDataFor({ email: accepted.email, password }));
+  }
+
+  // Already signed in: switch the session to the club they just joined, so
+  // the next page is the one they were invited to rather than whichever they
+  // happened to be in.
+  await selectTenant(accepted.tenant_id);
+  redirect('/aircraft');
+}
+
+// ---------------------------------------------------------------------------
+// The roster
+// ---------------------------------------------------------------------------
+
+export async function inviteMember(_state: FormState, form: FormData): Promise<FormState> {
+  const values = {
+    email: String(form.get('email') ?? '').trim(),
+    name: String(form.get('name') ?? '').trim(),
+    role: String(form.get('role') ?? 'pilot'),
+  };
+
+  try {
+    await apiFetch('/invites', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: values.email,
+        ...(values.name ? { name: values.name } : {}),
+        role: values.role,
+      }),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/members');
+  return { saved: true };
+}
+
+export async function revokeInvite(id: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/invites/${id}/revoke`, { method: 'POST' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/members');
+  return {};
+}
+
+export async function updateMember(
+  id: string,
+  changes: { role?: string; status?: string },
+): Promise<ActionResult> {
+  try {
+    await apiFetch(`/members/${id}`, { method: 'PATCH', body: JSON.stringify(changes) });
+  } catch (error) {
+    // §4.4's refusal arrives as a conflict with a sentence in it.
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/members');
+  return {};
+}
+
+// ---------------------------------------------------------------------------
+// Settings and profile
+// ---------------------------------------------------------------------------
+
+export async function updateTenant(_state: FormState, form: FormData): Promise<FormState> {
+  const values = {
+    name: String(form.get('name') ?? '').trim(),
+    timezone: String(form.get('timezone') ?? '').trim(),
+  };
+
+  try {
+    await apiFetch('/tenant', {
+      method: 'PATCH',
+      body: JSON.stringify({ name: values.name, timezone: values.timezone }),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/settings');
+  revalidatePath('/', 'layout');
+  return { saved: true };
+}
+
+export async function updateProfile(_state: FormState, form: FormData): Promise<FormState> {
+  const values = {
+    name: String(form.get('name') ?? '').trim(),
+    phone: String(form.get('phone') ?? '').trim(),
+  };
+
+  try {
+    await apiFetch('/auth/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ name: values.name || null, phone: values.phone || null }),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/settings');
+  return { saved: true };
 }

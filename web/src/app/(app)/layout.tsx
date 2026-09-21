@@ -38,6 +38,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   }
 
   const aircraftQuota = entitlements.quotas['aircraft.active'];
+  const memberQuota = entitlements.quotas['members.active'];
 
   return (
     <div className="min-h-screen">
@@ -60,6 +61,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             <NavLink href="/aircraft">Fleet</NavLink>
             <NavLink href="/maintenance">Maintenance</NavLink>
             <NavLink href="/squawks">Squawks</NavLink>
+            {/*
+              §8.1: hidden for a Pilot because they cannot use them, and the
+              server refuses either way. A nav full of destinations that
+              answer 403 is worse than a shorter nav.
+            */}
+            {entitlements.permissions.members === 'none' ? null : (
+              <NavLink href="/members">Members</NavLink>
+            )}
+            <NavLink href="/settings">Settings</NavLink>
           </nav>
 
           <span className="hidden text-sm text-secondary sm:inline">{tenant.name}</span>
@@ -83,7 +93,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       */}
       <footer className="mx-auto max-w-4xl px-6 pb-8 text-xs text-secondary">
         {entitlements.plan_code} plan · aircraft{' '}
-        {aircraftQuota?.limit === 'unlimited' ? 'unlimited' : aircraftQuota?.limit}
+        {aircraftQuota?.limit === 'unlimited' ? 'unlimited' : aircraftQuota?.limit} · members{' '}
+        {memberQuota?.limit === 'unlimited' ? 'unlimited' : memberQuota?.limit}
       </footer>
     </div>
   );

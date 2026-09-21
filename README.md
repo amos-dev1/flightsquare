@@ -342,7 +342,8 @@ is left:
   renders and signs in there; no physical device has seen it, and the offline
   queue has not been exercised against a real dropped connection.
 - **Large parts of the web app are not built, rather than broken.** What
-  exists is the fleet, an aircraft, the post-flight entry, maintenance and
+  exists is sign-up and sign-in, the roster and invitations, settings and
+  profile, the fleet, an aircraft, the post-flight entry, maintenance and
   squawks. What does not, in rough order of how much it is missed:
 
   | Missing | Where it would go |
@@ -353,8 +354,9 @@ is left:
   | Add or edit a maintenance item by hand | only seeding the whole library is wired, and only when an aircraft has none |
   | Compliance history | records can be written and never read back |
   | Meter correction | the API takes `supersedes_id`, so the "Corrected" badge can never appear from the web |
-  | Members, invites, settings, subscription | no UI **and no API** — the permission resources exist and nothing consumes them |
-  | Sign-up, password reset, switching organisation | signup is `./scripts/seed-demo.sh` for now |
+  | Subscription and plan changes | no UI and no API — M7 |
+  | Switching organisation after sign-in | the picker is only shown at login |
+  | Scheduling, member billing | M5 and M6; nothing exists yet |
 
   These are honest gaps, not bugs. The web app tells the truth about what it
   can do; it just cannot do much yet.
