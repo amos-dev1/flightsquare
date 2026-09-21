@@ -482,7 +482,8 @@ Two bundles, also data (§1.5). Free tenants only ever have an Admin.
 
 The account creator is Admin. A tenant must always have at least one member holding `members: write` — enforced on removal, on role change, and on downgrade auto-archive (§5.4).
 
-**Row scoping is now a real requirement, not a deferred one.** `charges: read` cannot mean "every pilot sees everyone's ledger" — in a club that is plainly wrong, and even a four-way partnership may not want it. Resource + level has no way to say "own rows only," so the permission model needs a third dimension (`scope: own | all`) or `charges` needs a bespoke rule. This is the first place the model genuinely does not stretch, and it should be designed deliberately before the ledger is built rather than patched in afterward. See open decision 3.
+Row scoping is a third dimension, not a bespoke rule (2026-09-21). A permission is now a triple: resource, level, and scope: own | all. Enforcement is in RLS as §10 already settled, through 
+ app.owns_row(resource, member_id). Everything except a Pilot's charges is all: a club's flights, squawks and maintenance are shared by design. The resolved scope is also sent to clients, for wording and for hiding — never for enforcement.
 
 The same question applies more mildly to `flights: write`, which today means any flight, not just one's own.
 
@@ -756,17 +757,16 @@ These need your call; they are not blocking the first tables.
 
 1. **Does FlightSquare move money, or only produce statements?** (§3.7). The largest scope question in the product. Producing a statement the treasurer settles by check, Venmo, or Zelle is a small feature. Processing pilot payments means a payment processor, platform-account structures, refunds, chargebacks, tax reporting, and a materially different regulatory posture. **Recommend statements only for v1**, with the ledger designed so payments could be recorded later without reshaping it.
 2. **The Pro → Enterprise gap.** Pro is one aircraft; Enterprise is unlimited. A club with three aircraft and twelve members has nowhere to land. That is a pricing question, not an architecture one — a middle tier is rows in `plans` whenever you want it (§4.3). Noted so it is a deliberate choice rather than an oversight.
-3. **Row scoping in the permission model** (§4.4). `charges: read` for a Pilot must mean their own ledger. Add a `scope` dimension to the model, or special-case `charges`? Decide before the ledger is built.
 3. **Keep or drop `member_credentials`** (§3.5). Two dates — flight review and medical expiry — as a booking gate. Defensible as aircraft-safety gating, but adjacent to the pilot-record line drawn in §3.4. Dropping it in v1 is a reasonable call. If kept, decide whether one pilot can see another's.
 4. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
 5. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
 6. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
 7. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
-2. **Free-tier quota values.** §4.2 has placeholders. Real numbers follow from decision 1.
-3. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
-4. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
-5. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
-6. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
+8. **Free-tier quota values.** §4.2 has placeholders. Real numbers follow from decision 1.
+9. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
+10. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
+11. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
+12. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
 
 ## 11 DESIGN GUIDELINES
 

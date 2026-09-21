@@ -146,6 +146,22 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM invites WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
+    // Scheduling leads: its lines point at reservations and blackouts, and
+    // those point at memberships and aircraft.
+    await adminPool.query(
+      `DELETE FROM reservation_resources WHERE tenant_id IN (${tenants})`,
+      [`${TEST_PREFIX}%`],
+    );
+    await adminPool.query(`DELETE FROM reservations WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM blackouts WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(
+      `DELETE FROM member_aircraft_authorizations WHERE tenant_id IN (${tenants})`,
+      [`${TEST_PREFIX}%`],
+    );
     // Maintenance leads, because squawks point at flights and at work
     // orders, and compliance records point at items and orders. app_role
     // could not do any of this — compliance_records holds SELECT and INSERT

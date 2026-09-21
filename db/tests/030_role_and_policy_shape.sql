@@ -156,6 +156,7 @@ BEGIN
      IS DISTINCT FROM ARRAY['aircraft.tenant_isolation',
                             'aircraft_config.tenant_isolation',
                             'audit_log.tenant_isolation',
+                            'blackouts.tenant_isolation',
                             'compliance_records.tenant_isolation',
                             'device_registrations.user_isolation',
                             'flight_fuel.tenant_isolation',
@@ -164,9 +165,12 @@ BEGIN
                             'idempotency_keys.tenant_isolation',
                             'invites.tenant_isolation',
                             'maintenance_items.tenant_isolation',
+                            'member_aircraft_authorizations.tenant_isolation',
                             'memberships.tenant_isolation',
                             'meter_readings.tenant_isolation',
                             'refresh_tokens.user_isolation',
+                            'reservation_resources.tenant_isolation',
+                            'reservations.tenant_isolation',
                             'role_bundle_permissions.tenant_isolation',
                             'role_bundles.tenant_isolation',
                             'sessions.user_isolation',
@@ -305,7 +309,9 @@ BEGIN
   IF names IS DISTINCT FROM ARRAY['assert_quota',
                                   'refresh_aircraft_active_usage',
                                   'refresh_aircraft_meter_totals',
-                                  'refresh_members_active_usage']::text[] THEN
+                                  'refresh_members_active_usage',
+                                  'sync_blackout_resource_window',
+                                  'sync_reservation_resource_window']::text[] THEN
     RAISE EXCEPTION 'public holds SECURITY DEFINER functions % — §2.3 is a closed list', names;
   END IF;
 
