@@ -3,7 +3,7 @@ import { sql } from 'kysely';
 import { Entitlements, type EntitlementLayers } from '../entitlements/resolver.js';
 import { isDeclared, type QuotaKey } from '../entitlements/registry.js';
 import { limitForDatabase, type QuotaValue } from '../entitlements/values.js';
-import { Permissions, type Level } from '../permissions.js';
+import { Permissions, type Level, type Scope } from '../permissions.js';
 import { QuotaExceededError } from '../http/errors.js';
 import { db } from './pool.js';
 import type { Tx } from './context.js';
@@ -61,17 +61,26 @@ export async function loadPermissions(trx: Tx, userId: string): Promise<Permissi
       'role_bundle_permissions.role_bundle_id',
       'memberships.role_bundle_id',
     )
-    .select(['role_bundle_permissions.resource', 'role_bundle_permissions.level'])
+    .select([
+      'role_bundle_permissions.resource',
+      'role_bundle_permissions.level',
+      'role_bundle_permissions.scope',
+    ])
     .where('memberships.user_id', '=', userId)
     .where('memberships.status', '=', 'active')
     .execute();
 
-  const held = new Map(
-    rows
-      .filter((r): r is { resource: string; level: string } => r.resource !== null)
-      .map((r) => [r.resource, r.level as Level]),
-  );
-  return new Permissions(held, rows.length > 0);
+  // The left join makes every permission column nullable — that is how a
+  // membership with no grants at all still produces a row. Where `resource`
+  // is present the other two are too, because they came from the same row.
+  const granted = rows.filter((r): r is typeof r & { resource: string } => r.resource !== null);
+  const held = new Map(granted.map((r) => [r.resource, r.level as Level]));
+  const scopes = new Map(granted.map((r) => [r.resource, r.scope as Scope]));
+
+  // The scopes are for the client's benefit only. What actually keeps a
+  // pilot out of somebody else's ledger is the policy on the ledger (§10),
+  // and it asks the database the same question rather than trusting this.
+  return new Permissions(held, rows.length > 0, scopes);
 }
 
 const PG_QUOTA_EXCEEDED = 'FS402';

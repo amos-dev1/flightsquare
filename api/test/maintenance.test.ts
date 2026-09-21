@@ -312,7 +312,20 @@ describe('maintenance', () => {
     expect((await app.inject({ method: 'GET', url: '/squawks' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/availability' })).statusCode).toBe(200);
 
+    // §4.4's third dimension reaches the client, so a screen can say "My
+    // charges" rather than "Charges" — and hide what it would be refused.
+    // The refusing is the ledger's policy's job (§10), not this field's.
+    const pilotGates = await app.inject({ method: 'GET', url: '/entitlements' });
+    expect(pilotGates.json().permissions.charges).toBe('read');
+    expect(pilotGates.json().permission_scopes.charges).toBe('own');
+    // The rest of the club stays shared: the next pilot needs to know what
+    // the last one found.
+    expect(pilotGates.json().permission_scopes.squawks).toBe('all');
+
     await setBundle('admin');
+
+    const adminGates = await app.inject({ method: 'GET', url: '/entitlements' });
+    expect(adminGates.json().permission_scopes.charges).toBe('all');
   });
 
   it('grounds the aircraft, by name, and hands the scheduler one answer', async () => {

@@ -54,6 +54,11 @@ export async function entitlementsRoutes(app: FastifyInstance): Promise<void> {
         quotas,
         config,
         permissions: permissions.toJSON(),
+        // §8.1 is additive-only: a new field, never a changed one. An old
+        // build that has never heard of scopes keeps working and simply
+        // shows a little more than it needs to, which the server refuses
+        // anyway.
+        permission_scopes: permissions.scopesToJSON(),
       } satisfies EntitlementsResponse;
     },
   );

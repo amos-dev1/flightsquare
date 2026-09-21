@@ -220,6 +220,8 @@ export interface RoleBundlePermissionsTable {
   role_bundle_id: string;
   resource: string;
   level: string;
+  /** §4.4's third dimension: which rows the level applies to. */
+  scope: Generated<'own' | 'all'>;
   created_at: Timestamp;
 }
 

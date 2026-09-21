@@ -285,6 +285,17 @@ export interface ResolvedQuota {
   source: EntitlementSource;
 }
 
+/**
+ * §4.4's third dimension. Which rows a level applies to — `charges: read`
+ * for a Pilot means their own ledger, which a resource and a level together
+ * could not say.
+ *
+ * For wording and for hiding, never for enforcement: the policy on the table
+ * is what keeps a pilot out of somebody else's rows (§10), and this only
+ * lets a screen say "My charges" instead of "Charges".
+ */
+export type PermissionScope = 'own' | 'all';
+
 export interface EntitlementsResponse {
   plan_code: string;
   flags: Record<string, boolean>;
@@ -292,6 +303,8 @@ export interface EntitlementsResponse {
   config: Record<string, string>;
   /** What this member holds, so the client can hide what they cannot do. */
   permissions: Record<string, 'none' | 'read' | 'write'>;
+  /** How far each of those reaches. Absent means `all`. */
+  permission_scopes?: Record<string, PermissionScope>;
 }
 
 // ---------------------------------------------------------------------------

@@ -33,6 +33,20 @@ export const RESOURCES = [
 
 export type Resource = (typeof RESOURCES)[number];
 export type Level = 'none' | 'read' | 'write';
+
+/**
+ * §4.4's third dimension, and §10 decision 3.
+ *
+ * Which rows a level applies to. `charges: read` had to be able to mean
+ * "their own ledger" — in a club, everyone reading everyone's is plainly
+ * wrong — and a pair of resource and level has no way to say it.
+ *
+ * The enforcement is not here. §10 settled that row scoping lives in RLS,
+ * consistent with §1.1: the database is the thing standing between people
+ * and data. What this is for is the client — so a screen can say "My
+ * charges" instead of "Charges", and hide what it would only be refused.
+ */
+export type Scope = 'own' | 'all';
 /** What an endpoint can require; requiring `none` is meaningless. */
 export type RequiredLevel = Exclude<Level, 'none'>;
 
@@ -52,6 +66,7 @@ export function isResource(value: string): value is Resource {
  */
 export class Permissions {
   readonly #held: ReadonlyMap<string, Level>;
+  readonly #scopes: ReadonlyMap<string, Scope>;
 
   /**
    * Whether this user is a member of this tenant at all.
@@ -64,9 +79,23 @@ export class Permissions {
    */
   readonly isMember: boolean;
 
-  constructor(held: ReadonlyMap<string, Level>, isMember: boolean) {
+  constructor(
+    held: ReadonlyMap<string, Level>,
+    isMember: boolean,
+    scopes: ReadonlyMap<string, Scope> = new Map(),
+  ) {
     this.#held = held;
     this.isMember = isMember;
+    this.#scopes = scopes;
+  }
+
+  /**
+   * How far a level reaches. Absent means `all`, which is what every
+   * resource meant before the column existed — a default that narrowed
+   * would turn a missing row into a silently smaller grant.
+   */
+  scopeFor(resource: Resource): Scope {
+    return this.#scopes.get(resource) ?? 'all';
   }
 
   levelFor(resource: Resource): Level {
@@ -85,5 +114,9 @@ export class Permissions {
 
   toJSON(): Record<string, Level> {
     return Object.fromEntries(this.#held);
+  }
+
+  scopesToJSON(): Record<string, Scope> {
+    return Object.fromEntries(this.#scopes);
   }
 }
