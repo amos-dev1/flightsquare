@@ -1,70 +1,27 @@
-'use client';
+import { apiFetch } from '@/lib/api';
+import { PageTitle } from '@/components/ui';
+import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shared';
 
-import Link from 'next/link';
-import { useActionState } from 'react';
+import { NewAircraftForm } from './form';
 
-import { createAircraft, type FormState } from '@/app/actions';
-import { Alert, Button, Card, Field, Input, PageTitle, Select } from '@/components/ui';
-
-export default function NewAircraftPage() {
-  const [state, action, pending] = useActionState<FormState, FormData>(createAircraft, {});
+/**
+ * A server component so the reference lists can be fetched with the session,
+ * exactly as the log-flight screen does. The browser cannot call the API
+ * itself — the token lives in an httpOnly cookie only this server reads — so
+ * anything the form needs to offer has to arrive with the page.
+ */
+export default async function NewAircraftPage() {
+  // Global reference data (§2.2): the same for every tenant, and small
+  // enough at present to send whole rather than search as you type.
+  const [types, aerodromes] = await Promise.all([
+    apiFetch<AircraftTypeResponse[]>('/reference/aircraft-types'),
+    apiFetch<AerodromeResponse[]>('/reference/aerodromes'),
+  ]);
 
   return (
     <div className="space-y-6">
       <PageTitle>Add aircraft</PageTitle>
-
-      <Card className="p-6">
-        <form action={action} className="space-y-4">
-          <Field label="Registration" required hint="The tail number, as painted.">
-            <Input
-              name="registration"
-              required
-              autoFocus
-              placeholder="N7642G"
-              className="uppercase"
-            />
-          </Field>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Type" hint="ICAO designator, e.g. C172.">
-              <Input name="type_code" placeholder="C172" className="uppercase" />
-            </Field>
-            <Field label="Home base" hint="Identifier, e.g. KPAO.">
-              <Input name="home_base" placeholder="KPAO" className="uppercase" />
-            </Field>
-            <Field label="Year">
-              <Input name="year_manufactured" type="number" min={1900} max={2100} />
-            </Field>
-            <Field label="Seats">
-              <Input name="seats" type="number" min={1} max={50} />
-            </Field>
-          </div>
-
-          <Field
-            label="Maintenance meter"
-            hint="Which meter engine and inspection intervals count against. Most tenants use tach."
-          >
-            <Select name="maintenance_meter" defaultValue="tach">
-              <option value="tach">Tach</option>
-              <option value="hobbs">Hobbs</option>
-              <option value="airframe">Airframe hours</option>
-            </Select>
-          </Field>
-
-          {state.error ? <Alert>{state.error}</Alert> : null}
-
-          <div className="flex gap-3">
-            <Button type="submit" disabled={pending}>
-              {pending ? 'Adding…' : 'Add aircraft'}
-            </Button>
-            <Link href="/aircraft">
-              <Button type="button" variant="secondary">
-                Cancel
-              </Button>
-            </Link>
-          </div>
-        </form>
-      </Card>
+      <NewAircraftForm types={types} aerodromes={aerodromes} />
     </div>
   );
 }

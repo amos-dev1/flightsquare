@@ -9,7 +9,13 @@ import { sql } from 'kysely';
 
 import { assertQuota } from '../../db/entitlements.js';
 import { selectAvailability, toAvailability } from './maintenance.js';
-import { NotFoundError } from '../errors.js';
+import {
+  ConflictError,
+  foreignKeyViolation,
+  InvalidRequestError,
+  isUniqueViolation,
+  NotFoundError,
+} from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
 const registrationPattern = '^[A-Z0-9][A-Z0-9-]{1,15}$';
@@ -116,6 +122,42 @@ function toResponse(row: Awaited<ReturnType<typeof selectAircraft>>[number]): Ai
   };
 }
 
+/**
+ * The three ways a write to `aircraft` fails because of what the caller
+ * typed, turned into answers they can act on.
+ *
+ * Without this every one of them is an unhandled error: a 500, a
+ * "Something went wrong" on screen, and a stack trace in the log for what is
+ * a routine typo. §6 also wants the registration case to be a conflict rather
+ * than a leak about what exists — within one tenant, which is where this
+ * constraint lives, saying so is exactly what the person needs to hear.
+ *
+ * The reference tables are seeded thinly on purpose (§2.2 — the real lists
+ * are an import job), so an unknown airport is the *expected* case for
+ * anybody outside the twenty fields we hold. It has to read as a limitation
+ * of our data, not as a mistake they made.
+ */
+function rethrowAircraftWriteError(error: unknown): never {
+  if (isUniqueViolation(error)) {
+    throw new ConflictError('that registration is already in your fleet');
+  }
+
+  switch (foreignKeyViolation(error)) {
+    case 'aircraft_home_base_fkey':
+      throw new InvalidRequestError(
+        'that home base is not in our airport list yet — leave it blank, or use ' +
+          'one of the identifiers the field suggests',
+      );
+    case 'aircraft_type_code_fkey':
+      throw new InvalidRequestError(
+        'that type designator is not in our list yet — leave it blank, or use ' +
+          'one of the types the field suggests',
+      );
+    default:
+      throw error;
+  }
+}
+
 export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/aircraft',
@@ -192,7 +234,7 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
         }
 
         return selectAircraft(trx, aircraft.id);
-      });
+      }).catch(rethrowAircraftWriteError);
 
       return reply.status(201).send(toResponse(created[0]!));
     },
@@ -206,9 +248,27 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const { seats, maintenance_meter: meter, ...aircraftFields } = request.body;
+      const { entitlements } = await request.loadGates();
 
       const rows = await request.withTenant(async (trx) => {
         if (Object.keys(aircraftFields).length > 0) {
+          // §4.5: un-archiving is a create as far as the count is concerned.
+          // Without this, archive one, add another, restore the first, and a
+          // free tenant is sitting on two active aircraft with a limit of
+          // one — and nothing ever said no. The lock belongs in the same
+          // transaction as the write it guards, which is why it is here
+          // rather than in the preHandler.
+          if (aircraftFields.status === 'active') {
+            const current = await trx
+              .selectFrom('aircraft')
+              .select('status')
+              .where('id', '=', request.params.id)
+              .executeTakeFirst();
+            if (current && current.status !== 'active') {
+              await assertQuota(trx, 'aircraft.active', entitlements.quota('aircraft.active'));
+            }
+          }
+
           const result = await trx
             .updateTable('aircraft')
             .set(aircraftFields)
@@ -229,7 +289,7 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
         }
 
         return selectAircraft(trx, request.params.id);
-      });
+      }).catch(rethrowAircraftWriteError);
 
       const row = rows[0];
       if (!row) throw new NotFoundError();

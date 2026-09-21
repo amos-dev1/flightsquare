@@ -95,17 +95,20 @@ describe('request context', () => {
 
       // A session claiming Bravo's tenant while being Alpha's user. Before
       // permissions existed this read Bravo's row — tenancy was the tenant id
-      // and nothing checked that the user belonged there. Now the permission
-      // load finds no membership, so the bundle is empty and every level is
-      // 'none'. Two independent things have to agree before anything is read.
+      // and nothing checked that the user belonged there. The gate now asks
+      // for the membership itself, so two independent things have to agree
+      // before anything is read.
+      //
+      // The policy on `tenants` keys on app.current_tenant_id() alone, which
+      // is why this check cannot be skipped: /tenant asks for no particular
+      // level — every member may know which club they are in — and if
+      // "no level required" meant "no gate", this request would succeed.
       stub = { sessionId: SESSION_ID, userId: alpha.user_id, tenantId: bravo.tenant_id };
       const crossed = await stubbed.inject({ method: 'GET', url: '/tenant' });
       expect(crossed.statusCode).toBe(403);
-      expect(crossed.json()).toEqual({
-        error: 'forbidden',
-        resource: 'settings',
-        level: 'read',
-      });
+      // A statement about the session, not about a level they are missing —
+      // and, per §6, it says nothing about whether that tenant exists.
+      expect(crossed.json()).toEqual({ error: 'tenant_required' });
     });
   });
 

@@ -23,9 +23,16 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     ]);
   } catch (error) {
     // The session outlived the membership, the tenant was suspended, or the
-    // token is gone. All of them mean: sign in again.
-    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-      redirect('/login');
+    // token is gone. Those mean: sign in again.
+    //
+    // A plain `forbidden` does not, and treating it as one was how a Pilot
+    // got locked out of the whole app: the shell read a 403 about a
+    // permission they simply do not hold, sent them to the login screen,
+    // and the login screen sent them straight back. §1.6 keeps 401 and 403
+    // separate questions, and so does this.
+    if (error instanceof ApiError) {
+      const body = error.body as { error?: string } | null;
+      if (error.status === 401 || body?.error === 'tenant_required') redirect('/login');
     }
     throw error;
   }

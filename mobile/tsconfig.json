@@ -5,7 +5,28 @@
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "skipLibCheck": true,
-    "paths": { "@/*": ["./src/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+
+      // The same trap metro.config.js already disarms, one resolver along.
+      //
+      // npm nests Expo's pinned React and React Native under mobile/, while
+      // the root keeps the newer ones the rest of the repo is on. Our source
+      // resolved the root copy and expo-router's navigator types resolved the
+      // nested one, so a plain `{ fontFamily: string }` was checked against a
+      // `StyleProp` from a different React Native and came back assignable to
+      // nothing but `undefined`.
+      //
+      // It only surfaced once `expo-env.d.ts` existed — the generated file
+      // this tsconfig has always included, which `expo start` writes on first
+      // run. So it was latent from the day this workspace was created and
+      // appeared the first time anybody ran the app.
+      //
+      // Only react-native is pinned. React resolves its declarations through
+      // @types/react, and redirecting the runtime package sends TypeScript
+      // looking for types inside it that were never there.
+      "react-native": ["./node_modules/react-native"]
+    }
   },
   "include": ["src", "*.js", ".expo/types/**/*.ts", "expo-env.d.ts"]
 }

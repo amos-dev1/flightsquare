@@ -19,11 +19,14 @@ describe('fleet', () => {
   let stub: ResolvedSession | null = null;
   let alpha: Awaited<ReturnType<typeof provisionTestTenant>>;
   let bravo: Awaited<ReturnType<typeof provisionTestTenant>>;
+  /** Its own tenant, so the error paths below do not fight over one slot. */
+  let charlie: Awaited<ReturnType<typeof provisionTestTenant>>;
 
   beforeAll(async () => {
     await cleanupTestTenants();
     alpha = await provisionTestTenant('fleet-a');
     bravo = await provisionTestTenant('fleet-b');
+    charlie = await provisionTestTenant('fleet-c');
 
     app = buildServer({
       resolveSession: async () => {
@@ -43,6 +46,9 @@ describe('fleet', () => {
   }
   function asBravo(): void {
     stub = { sessionId: SESSION_ID, userId: bravo.user_id, tenantId: bravo.tenant_id };
+  }
+  function asCharlie(): void {
+    stub = { sessionId: SESSION_ID, userId: charlie.user_id, tenantId: charlie.tenant_id };
   }
 
   async function addAircraft(registration: string, extra: Record<string, unknown> = {}) {
@@ -220,6 +226,78 @@ describe('fleet', () => {
 
     const fields = await app.inject({ method: 'GET', url: '/reference/aerodromes?q=KPA' });
     expect(fields.json()[0].ident).toBe('KPAO');
+  });
+
+  /**
+   * The reference tables are seeded thinly on purpose (§2.2), so typing an
+   * airport we do not hold is the *expected* case rather than an exotic one —
+   * and every one of these used to be an unhandled constraint violation: a
+   * 500, "Something went wrong" on screen, and a stack trace in the log for
+   * what is a routine typo.
+   */
+  describe('input the database refuses', () => {
+    it('names the field for an unknown home base, and does not crash', async () => {
+      asCharlie();
+      const response = await addAircraft('N111AA', { home_base: 'KZZZ' });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error).toBe('invalid_request');
+      expect(response.json().detail).toMatch(/home base/i);
+    });
+
+    it('names the field for an unknown type designator', async () => {
+      asCharlie();
+      const response = await addAircraft('N111AA', { type_code: 'ZZZZ' });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().detail).toMatch(/type designator/i);
+    });
+
+    it('answers a duplicate registration with a conflict', async () => {
+      asCharlie();
+      const created = await addAircraft('N222BB');
+      expect(created.statusCode).toBe(201);
+
+      // Archived first, because the registration index is partial on
+      // deleted_at rather than on status — an archived aeroplane still holds
+      // its tail number. This is the real path to a duplicate: somebody
+      // archives one and re-adds it rather than restoring it. On a one-
+      // aircraft plan it is the only path, since the quota gate would
+      // otherwise answer first.
+      await app.inject({
+        method: 'PATCH',
+        url: `/aircraft/${created.json().id}`,
+        payload: { status: 'archived' },
+      });
+
+      // 409, not 500 — and inside one tenant, saying so is exactly what the
+      // person needs to hear. §6's silence is about *other* tenants.
+      const again = await addAircraft('N222BB');
+      expect(again.statusCode).toBe(409);
+      expect(again.json().error).toBe('conflict');
+      expect(again.json().reason).toMatch(/already in your fleet/i);
+    });
+
+    it('counts a restored aircraft against the quota', async () => {
+      asCharlie();
+      // Left archived by the test above, so the slot is free.
+      const archived = (await app.inject({ method: 'GET', url: '/aircraft' }))
+        .json()
+        .find((a: { status: string }) => a.status === 'archived');
+
+      expect((await addAircraft('N333CC')).statusCode).toBe(201);
+
+      // §4.5: un-archiving is a create as far as the count is concerned.
+      // Without the gate this succeeded, leaving a free tenant with two
+      // active aircraft on a limit of one and nothing ever saying no.
+      const restored = await app.inject({
+        method: 'PATCH',
+        url: `/aircraft/${archived.id}`,
+        payload: { status: 'active' },
+      });
+      expect(restored.statusCode).toBe(402);
+      expect(restored.json().quota).toBe('aircraft.active');
+    });
   });
 
   it('refuses the fleet to a session with no tenant selected', async () => {

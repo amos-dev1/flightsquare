@@ -12,9 +12,13 @@ import { resolveSession as defaultResolver, type ResolvedSession, type SessionRe
 /**
  * What a tenant-scoped route requires of the caller.
  *
- * `'any_member'` is the explicit opt-out for routes every member may reach —
- * reading your own entitlements, say. It exists so that "no permission" is a
- * decision someone wrote down rather than a line they forgot.
+ * `'any_member'` is for routes every member of the tenant may reach —
+ * reading your own entitlements, or the name of the club you are standing
+ * in. It exists so that "no particular level" is a decision someone wrote
+ * down rather than a line they forgot.
+ *
+ * It is not an opt-out of the gate: membership is still checked, because a
+ * session naming a tenant its user never joined must not read that tenant.
  */
 export type PermissionRequirement = readonly [Resource, RequiredLevel] | 'any_member';
 
@@ -176,9 +180,24 @@ async function requestContextPlugin(
     const ctx = requireSession(request);
     if (!ctx.tenantId) throw new TenantRequiredError();
 
-    if (config.feature === undefined && config.permission === 'any_member') return;
-
     const gates = await request.loadGates();
+
+    /**
+     * Membership first, whatever else the route asks for.
+     *
+     * `'any_member'` used to skip the gate entirely, which made it mean "no
+     * check" rather than "any member" — and the `tenants` policy keys on
+     * `app.current_tenant_id()` alone, so a session naming a tenant its user
+     * never joined would have read that tenant's row. The permission load
+     * was the only thing standing in the way, and opting out of it opted out
+     * of that too.
+     *
+     * `tenant_required` rather than `forbidden`: the session's tenant is not
+     * one this user can act in, which is a statement about the session, not
+     * about a level they are missing. §6 — it also says nothing about
+     * whether that tenant exists.
+     */
+    if (!gates.permissions.isMember) throw new TenantRequiredError();
 
     /**
      * §1.6's order, and the order is the point.

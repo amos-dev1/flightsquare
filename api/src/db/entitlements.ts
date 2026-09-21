@@ -51,9 +51,12 @@ export async function loadEntitlements(trx: Tx): Promise<Entitlements> {
  * the answer has to depend on which tenant the session is in.
  */
 export async function loadPermissions(trx: Tx, userId: string): Promise<Permissions> {
+  // A left join, so the membership shows up even when its bundle grants
+  // nothing. An inner join cannot tell "not a member" from "a member who
+  // holds no levels", and only one of those should be refused outright.
   const rows = await trx
     .selectFrom('memberships')
-    .innerJoin(
+    .leftJoin(
       'role_bundle_permissions',
       'role_bundle_permissions.role_bundle_id',
       'memberships.role_bundle_id',
@@ -63,7 +66,12 @@ export async function loadPermissions(trx: Tx, userId: string): Promise<Permissi
     .where('memberships.status', '=', 'active')
     .execute();
 
-  return new Permissions(new Map(rows.map((r) => [r.resource, r.level as Level])));
+  const held = new Map(
+    rows
+      .filter((r): r is { resource: string; level: string } => r.resource !== null)
+      .map((r) => [r.resource, r.level as Level]),
+  );
+  return new Permissions(held, rows.length > 0);
 }
 
 const PG_QUOTA_EXCEEDED = 'FS402';

@@ -2,6 +2,7 @@ import type {
   ClientTooOldBody,
   ConflictBody,
   ForbiddenBody,
+  InvalidRequestBody,
   NotFoundBody,
   QuotaExceededBody,
   RateLimitedBody,
@@ -47,7 +48,8 @@ type ApiErrorBodies =
   | ClientTooOldBody
   | UnauthorizedBody
   | TenantRequiredBody
-  | ConflictBody;
+  | ConflictBody
+  | InvalidRequestBody;
 
 /**
  * A gated feature, and also a resource in another tenant. §6: errors do not
@@ -99,6 +101,25 @@ export class QuotaExceededError extends ApiError {
       current: this.current,
       remediation: this.remediation,
     };
+  }
+}
+
+/**
+ * The caller sent something the database would not take.
+ *
+ * Schema validation already rejects most of it before a handler runs, but a
+ * foreign key can only be judged against the data — an airport identifier is
+ * the right shape and still not one we hold. Those must arrive as a sentence
+ * about the field rather than as a 500, which is what an unhandled constraint
+ * violation becomes.
+ */
+export class InvalidRequestError extends ApiError {
+  readonly statusCode = 400;
+  constructor(readonly detail: string) {
+    super(detail);
+  }
+  toBody(): InvalidRequestBody {
+    return { error: 'invalid_request', detail: this.detail };
   }
 }
 
@@ -176,11 +197,31 @@ export class TenantRequiredError extends ApiError {
 }
 
 const PG_UNIQUE_VIOLATION = '23505';
+const PG_FOREIGN_KEY_VIOLATION = '23503';
 const PG_INSUFFICIENT_PRIVILEGE = '42501';
 
+function pgCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
+}
+
 export function isUniqueViolation(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error
-    && (error as { code?: unknown }).code === PG_UNIQUE_VIOLATION;
+  return pgCode(error) === PG_UNIQUE_VIOLATION;
+}
+
+/**
+ * A foreign key the caller's input could not satisfy, with the constraint
+ * name so the handler can say *which* field.
+ *
+ * Returns the name rather than a boolean because "not found" is only useful
+ * if you can name the thing that was not found — `aircraft_home_base_fkey`
+ * and `aircraft_type_code_fkey` are two different sentences to a pilot.
+ */
+export function foreignKeyViolation(error: unknown): string | null {
+  if (pgCode(error) !== PG_FOREIGN_KEY_VIOLATION) return null;
+  const constraint = (error as { constraint?: unknown }).constraint;
+  return typeof constraint === 'string' ? constraint : '';
 }
 
 /**

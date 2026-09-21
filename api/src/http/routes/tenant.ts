@@ -10,10 +10,19 @@ export async function tenantRoutes(app: FastifyInstance): Promise<void> {
    * not in a parameter, not passed to withTenant. That is the point of the
    * middleware: the only tenant this code can reach is the one the session
    * resolved to, and row-level security is what actually enforces it.
+   *
+   * `any_member`, not `settings: read`. This returns the name, slug,
+   * archetype and branding of the club you are standing in — everything a
+   * client needs to render a header, and nothing settings-shaped. Requiring
+   * `settings: read` locked every Pilot out of the entire web app: the app
+   * shell reads this on every page, the Pilot bundle grants `settings: none`,
+   * and a 403 there is indistinguishable from an expired session, so they
+   * were bounced to the login screen in a loop. §1.5 wants the check to be
+   * explicit, not to be the strictest one available.
    */
   app.get(
     '/tenant',
-    { config: { requiresTenant: true, permission: ['settings', 'read'] } },
+    { config: { requiresTenant: true, permission: 'any_member' } },
     async (request) => {
     const tenant = await request.withTenant((trx) =>
       trx

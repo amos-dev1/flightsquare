@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useId, useTransition } from 'react';
+import { useActionState, useEffect, useState, useTransition } from 'react';
 import { Check, PauseCircle, Undo2 } from 'lucide-react';
 
 import {
@@ -21,18 +21,36 @@ import type { AircraftResponse, SquawkResponse } from '@flightsquare/shared';
  */
 export function SquawkForm({ fleet }: { fleet: AircraftResponse[] }) {
   const [state, action, pending] = useActionState<FormState, FormData>(fileSquawk, {});
-  // §8.2: one key per form instance, so a retry after a dropped connection
-  // files the squawk once rather than twice.
-  const key = useId();
+
+  /**
+   * §8.2: one key per *submission attempt*, so a retry after a dropped
+   * connection files the squawk once rather than twice — and so a second,
+   * different squawk is not mistaken for a retry of the first.
+   *
+   * A key fixed for the life of the component gets both wrong: the form is
+   * never remounted (filing does not navigate), so squawk two reuses squawk
+   * one's key. A different body is refused as a conflict, and an identical
+   * one is silently replayed and never written at all.
+   */
+  const [key, setKey] = useState(() => crypto.randomUUID());
+
+  useEffect(() => {
+    // A submission that came back clean is spent; the next one is new work.
+    if (!pending && state.saved) setKey(crypto.randomUUID());
+  }, [pending, state.saved]);
 
   return (
     <Card className="p-5">
       <form action={action} className="space-y-4">
-        <input type="hidden" name="idempotency_key" value={`squawk-${key}`} />
+        <input type="hidden" name="idempotency_key" value={key} />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Aircraft" required>
-            <Select name="aircraft_id" required defaultValue={fleet[0]?.id}>
+            <Select
+              name="aircraft_id"
+              required
+              defaultValue={state.values?.aircraft_id ?? fleet[0]?.id}
+            >
               {fleet.map((aircraft) => (
                 <option key={aircraft.id} value={aircraft.id}>
                   {aircraft.registration}
@@ -83,6 +101,11 @@ export function SquawkForm({ fleet }: { fleet: AircraftResponse[] }) {
         </p>
 
         {state.error ? <Alert>{state.error}</Alert> : null}
+        {state.saved ? (
+          <Alert tone="info">
+            Filed. It is on the outstanding list below, and on the aircraft.
+          </Alert>
+        ) : null}
 
         <Button type="submit" disabled={pending}>
           {pending ? 'Filing…' : 'File squawk'}
@@ -100,30 +123,41 @@ export function SquawkForm({ fleet }: { fleet: AircraftResponse[] }) {
  */
 export function SquawkActions({ squawk }: { squawk: SquawkResponse }) {
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const [state, action, deferring] = useActionState<FormState, FormData>(
     deferSquawk.bind(null, squawk.id),
     {},
   );
 
+  /** Run one of the button actions and show whatever it says went wrong. */
+  const run = (work: () => Promise<{ error?: string }>) => () =>
+    startTransition(async () => {
+      setError(null);
+      const result = await work();
+      if (result.error) setError(result.error);
+    });
+
   if (squawk.status === 'resolved') {
     return (
-      <Button
-        variant="tertiary"
-        disabled={pending}
-        onClick={() => startTransition(async () => { await reopenSquawk(squawk.id); })}
-      >
-        <Undo2 aria-hidden size={16} strokeWidth={2} />
-        Reopen
-      </Button>
+      <div className="space-y-2">
+        <Button variant="tertiary" disabled={pending} onClick={run(() => reopenSquawk(squawk.id))}>
+          <Undo2 aria-hidden size={16} strokeWidth={2} />
+          Reopen
+        </Button>
+        {error ? <Alert>{error}</Alert> : null}
+      </div>
     );
   }
 
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
-      <Button
-        disabled={pending}
-        onClick={() => startTransition(async () => { await resolveSquawk(squawk.id, ''); })}
-      >
+      {error ? (
+        <div className="w-full">
+          <Alert>{error}</Alert>
+        </div>
+      ) : null}
+
+      <Button disabled={pending} onClick={run(() => resolveSquawk(squawk.id, ''))}>
         <Check aria-hidden size={16} strokeWidth={2} />
         {pending ? 'Saving…' : 'Mark resolved'}
       </Button>
@@ -174,11 +208,7 @@ export function SquawkActions({ squawk }: { squawk: SquawkResponse }) {
           </form>
         </details>
       ) : (
-        <Button
-          variant="secondary"
-          disabled={pending}
-          onClick={() => startTransition(async () => { await reopenSquawk(squawk.id); })}
-        >
+        <Button variant="secondary" disabled={pending} onClick={run(() => reopenSquawk(squawk.id))}>
           <Undo2 aria-hidden size={16} strokeWidth={2} />
           Lift deferral
         </Button>

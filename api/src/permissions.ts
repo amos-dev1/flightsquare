@@ -53,8 +53,20 @@ export function isResource(value: string): value is Resource {
 export class Permissions {
   readonly #held: ReadonlyMap<string, Level>;
 
-  constructor(held: ReadonlyMap<string, Level>) {
+  /**
+   * Whether this user is a member of this tenant at all.
+   *
+   * Separate from holding any particular level, because it answers a
+   * different question: a bundle granting nothing but `none` is still a
+   * membership, and a session naming a tenant its user never joined is not.
+   * Routes that require no specific level still require this — "any member"
+   * has to mean a member, or it means nobody is checked.
+   */
+  readonly isMember: boolean;
+
+  constructor(held: ReadonlyMap<string, Level>, isMember: boolean) {
     this.#held = held;
+    this.isMember = isMember;
   }
 
   levelFor(resource: Resource): Level {

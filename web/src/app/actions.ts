@@ -11,8 +11,27 @@ import type {
   SelectTenantResponse,
 } from '@flightsquare/shared';
 
+/**
+ * What a button-driven action gives back.
+ *
+ * The form-driven actions use `FormState` through `useActionState`; the ones
+ * invoked from an `onClick` inside a transition have nowhere to put an error
+ * unless they return one. Throwing instead means the nearest error boundary
+ * replaces the whole screen for what is usually a sentence — "you do not
+ * have permission to change the fleet" — so none of them throw.
+ */
+export interface ActionResult {
+  error?: string;
+}
+
 export interface FormState {
   error?: string;
+  /**
+   * §11 asks for a success state near the action. Without it these forms
+   * come back with the text still sitting in the boxes and nothing saying
+   * whether it went anywhere — which reads exactly like a failure.
+   */
+  saved?: boolean;
   /**
    * §11: preserve entered information after errors. A pilot who mistyped one
    * field should not have to read all four meters off the panel again.
@@ -58,7 +77,16 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
 
   const only = result.memberships.length === 1 ? result.memberships[0] : undefined;
   if (only) {
-    await selectTenant(only.tenant_id);
+    try {
+      await selectTenant(only.tenant_id);
+    } catch (error) {
+      // The cookie is already written at this point, so a failure here
+      // leaves the user signed in with no tenant selected. Sending them to
+      // the picker is recoverable; letting this throw is a crash on a screen
+      // that has a perfectly good error line.
+      if (error instanceof ApiError) redirect('/choose-tenant');
+      throw error;
+    }
   }
 
   redirect(only ? '/aircraft' : '/choose-tenant');
@@ -85,19 +113,25 @@ export async function logout(): Promise<void> {
 }
 
 export async function createAircraft(_state: FormState, form: FormData): Promise<FormState> {
-  const body: Record<string, unknown> = {
-    registration: String(form.get('registration') ?? '').toUpperCase().trim(),
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  // Everything the form offered, kept so an error does not empty it (§11).
+  // The registration and airport are upper-cased here rather than in the
+  // input, so what comes back is what will actually be sent next time.
+  const values = {
+    registration: text('registration').toUpperCase(),
+    type_code: text('type_code').toUpperCase(),
+    home_base: text('home_base').toUpperCase(),
+    year_manufactured: text('year_manufactured'),
+    seats: text('seats'),
+    maintenance_meter: text('maintenance_meter'),
   };
-  for (const key of ['type_code', 'home_base', 'serial_number'] as const) {
-    const value = String(form.get(key) ?? '').trim();
-    if (value) body[key] = key === 'home_base' ? value.toUpperCase() : value;
-  }
-  const year = String(form.get('year_manufactured') ?? '').trim();
-  if (year) body.year_manufactured = Number(year);
-  const seats = String(form.get('seats') ?? '').trim();
-  if (seats) body.seats = Number(seats);
-  const meter = String(form.get('maintenance_meter') ?? '').trim();
-  if (meter) body.maintenance_meter = meter;
+
+  const body: Record<string, unknown> = { registration: values.registration };
+  if (values.type_code) body.type_code = values.type_code;
+  if (values.home_base) body.home_base = values.home_base;
+  if (values.year_manufactured) body.year_manufactured = Number(values.year_manufactured);
+  if (values.seats) body.seats = Number(values.seats);
+  if (values.maintenance_meter) body.maintenance_meter = values.maintenance_meter;
 
   let created: AircraftResponse;
   try {
@@ -106,7 +140,7 @@ export async function createAircraft(_state: FormState, form: FormData): Promise
       body: JSON.stringify(body),
     });
   } catch (error) {
-    return { error: messageFor(error) };
+    return { error: messageFor(error), values };
   }
 
   revalidatePath('/aircraft');
@@ -124,16 +158,22 @@ export async function logReading(
   _state: FormState,
   form: FormData,
 ): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = {
+    hobbs: text('hobbs'),
+    tach: text('tach'),
+    airframe_hours: text('airframe_hours'),
+    note: text('note'),
+  };
+
   const body: Record<string, unknown> = {};
   for (const key of ['hobbs', 'tach', 'airframe_hours'] as const) {
-    const value = String(form.get(key) ?? '').trim();
-    if (value) body[key] = value;
+    if (values[key]) body[key] = values[key];
   }
-  const note = String(form.get('note') ?? '').trim();
-  if (note) body.note = note;
+  if (values.note) body.note = values.note;
 
-  if (Object.keys(body).length === 0 || (!body.hobbs && !body.tach && !body.airframe_hours)) {
-    return { error: 'Enter at least one meter reading.' };
+  if (!body.hobbs && !body.tach && !body.airframe_hours) {
+    return { error: 'Enter at least one meter reading.', values };
   }
 
   try {
@@ -142,22 +182,36 @@ export async function logReading(
       body: JSON.stringify(body),
     });
   } catch (error) {
-    return { error: messageFor(error) };
+    // A misread meter is worth retyping once; it is not worth retyping
+    // because the screen threw it away.
+    return { error: messageFor(error), values };
   }
 
   revalidatePath(`/aircraft/${aircraftId}`);
-  return {};
+  revalidatePath('/maintenance');
+  return { saved: true };
 }
 
-export async function setAircraftStatus(aircraftId: string, status: string): Promise<void> {
+export async function setAircraftStatus(
+  aircraftId: string,
+  status: string,
+): Promise<ActionResult> {
   // §5.5: archiving is reversible and non-destructive. The history stays, and
-  // the quota slot comes back.
-  await apiFetch(`/aircraft/${aircraftId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status }),
-  });
+  // the quota slot comes back — which also means restoring one has to pass
+  // the quota check again, and can legitimately come back 402.
+  try {
+    await apiFetch(`/aircraft/${aircraftId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
   revalidatePath('/aircraft');
   revalidatePath(`/aircraft/${aircraftId}`);
+  revalidatePath('/maintenance');
+  return {};
 }
 
 /**
@@ -241,10 +295,16 @@ export async function logFlight(
  */
 
 /** Seed an existing aircraft from the preset library. Idempotent (§3.6). */
-export async function seedMaintenanceItems(aircraftId: string): Promise<void> {
-  await apiFetch(`/aircraft/${aircraftId}/maintenance-items/from-library`, { method: 'POST' });
+export async function seedMaintenanceItems(aircraftId: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/aircraft/${aircraftId}/maintenance-items/from-library`, { method: 'POST' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
   revalidatePath('/maintenance');
   revalidatePath(`/aircraft/${aircraftId}`);
+  return {};
 }
 
 /**
@@ -295,7 +355,7 @@ export async function recordCompliance(
   revalidatePath('/maintenance');
   revalidatePath('/aircraft');
   revalidatePath(`/aircraft/${aircraftId}`);
-  return {};
+  return { saved: true };
 }
 
 /**
@@ -306,6 +366,7 @@ export async function recordCompliance(
 export async function fileSquawk(_state: FormState, form: FormData): Promise<FormState> {
   const text = (key: string) => String(form.get(key) ?? '').trim();
   const values = {
+    aircraft_id: text('aircraft_id'),
     summary: text('summary'),
     details: text('details'),
     severity: text('severity'),
@@ -314,7 +375,7 @@ export async function fileSquawk(_state: FormState, form: FormData): Promise<For
   if (!values.summary) return { error: 'Describe the defect in a few words.', values };
 
   const body: Record<string, unknown> = {
-    aircraft_id: text('aircraft_id'),
+    aircraft_id: values.aircraft_id,
     summary: values.summary,
     severity: values.severity || 'minor',
     // Severity 'grounding' always grounds; the checkbox is for the case where
@@ -337,8 +398,9 @@ export async function fileSquawk(_state: FormState, form: FormData): Promise<For
 
   revalidatePath('/squawks');
   revalidatePath('/maintenance');
+  revalidatePath('/aircraft');
   revalidatePath(`/aircraft/${String(body.aircraft_id)}`);
-  return {};
+  return { saved: true };
 }
 
 /**
@@ -348,22 +410,31 @@ export async function fileSquawk(_state: FormState, form: FormData): Promise<For
  * are hidden for them, and the API refuses it anyway — hiding a button is
  * cosmetics (§8.1).
  */
-export async function resolveSquawk(id: string, note: string): Promise<void> {
-  await apiFetch(`/squawks/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: 'resolved', ...(note ? { resolution_note: note } : {}) }),
+export async function resolveSquawk(id: string, note: string): Promise<ActionResult> {
+  return patchSquawk(id, {
+    status: 'resolved',
+    ...(note ? { resolution_note: note } : {}),
   });
-  revalidatePath('/squawks');
-  revalidatePath('/maintenance');
 }
 
-export async function reopenSquawk(id: string): Promise<void> {
-  await apiFetch(`/squawks/${id}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: 'open' }),
-  });
+export async function reopenSquawk(id: string): Promise<ActionResult> {
+  return patchSquawk(id, { status: 'open' });
+}
+
+async function patchSquawk(id: string, body: Record<string, unknown>): Promise<ActionResult> {
+  try {
+    await apiFetch(`/squawks/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  } catch (error) {
+    // A Pilot reaches these only through the API — the buttons are hidden —
+    // but §8.1 says hiding a button is cosmetics, so the refusal has to read
+    // as a sentence either way.
+    return { error: messageFor(error) };
+  }
+
   revalidatePath('/squawks');
   revalidatePath('/maintenance');
+  revalidatePath('/aircraft');
+  return {};
 }
 
 /**

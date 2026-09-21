@@ -8,6 +8,7 @@ import { AvailabilityLine, DueStatus, remainingLabel } from '@/app/(app)/mainten
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
+  EntitlementsResponse,
   MaintenanceItemResponse,
   MeterReadingResponse,
 } from '@flightsquare/shared';
@@ -28,17 +29,25 @@ export default async function AircraftPage({
   let readings: MeterReadingResponse[];
   let availability: AircraftAvailabilityResponse;
   let items: MaintenanceItemResponse[];
+  let entitlements: EntitlementsResponse;
   try {
-    [aircraft, readings, availability, items] = await Promise.all([
+    [aircraft, readings, availability, items, entitlements] = await Promise.all([
       apiFetch<AircraftResponse>(`/aircraft/${id}`),
       apiFetch<MeterReadingResponse[]>(`/aircraft/${id}/meter-readings`),
       apiFetch<AircraftAvailabilityResponse>(`/aircraft/${id}/availability`),
       apiFetch<MaintenanceItemResponse[]>(`/aircraft/${id}/maintenance-items`),
+      apiFetch<EntitlementsResponse>('/entitlements'),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
+
+  // §8.1: the client hides what this member cannot do, and the server
+  // enforces it regardless. A Pilot holds `aircraft: read` — they see the
+  // aeroplane and every number on it, and change none of them. Showing them
+  // an Archive button that can only ever fail is worse than showing nothing.
+  const canWrite = entitlements.permissions.aircraft === 'write';
 
   // Overdue first, then due soon. An item nobody has recorded compliance for
   // is on the list too: "we have no record" is not "it is fine".
@@ -77,21 +86,14 @@ export default async function AircraftPage({
           post-flight entry that does not get made is how every number in the
           product goes quietly wrong.
         */}
-        <div className="flex items-center gap-3">
-          {aircraft.status === 'active' ? (
-            <Link href={`/aircraft/${aircraft.id}/log-flight`}>
-              <Button>
-                <PlaneTakeoff aria-hidden size={16} strokeWidth={2} />
-                Log flight
-              </Button>
-            </Link>
-          ) : null}
-          <ArchiveButton
-            id={aircraft.id}
-            registration={aircraft.registration}
-            status={aircraft.status}
-          />
-        </div>
+        {aircraft.status === 'active' ? (
+          <Link href={`/aircraft/${aircraft.id}/log-flight`}>
+            <Button>
+              <PlaneTakeoff aria-hidden size={16} strokeWidth={2} />
+              Log flight
+            </Button>
+          </Link>
+        ) : null}
       </div>
 
       {/*
@@ -152,10 +154,12 @@ export default async function AircraftPage({
         </Card>
       </section>
 
-      <section className="space-y-3">
-        <SectionHeading>Record a reading</SectionHeading>
-        <ReadingForm aircraftId={aircraft.id} />
-      </section>
+      {canWrite ? (
+        <section className="space-y-3">
+          <SectionHeading>Record a reading</SectionHeading>
+          <ReadingForm aircraftId={aircraft.id} />
+        </section>
+      ) : null}
 
       <section className="space-y-3">
         <SectionHeading>Meter log</SectionHeading>
@@ -187,6 +191,16 @@ export default async function AircraftPage({
           </Card>
         )}
       </section>
+
+      {canWrite ? (
+        <section className="space-y-3">
+          <ArchiveButton
+            id={aircraft.id}
+            registration={aircraft.registration}
+            status={aircraft.status}
+          />
+        </section>
+      ) : null}
     </div>
   );
 }

@@ -247,11 +247,23 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
   /**
    * Updating one — and this is where §1.5's line is actually drawn.
    *
-   * Filing takes `squawks: write`, which a Pilot holds. **Closing** one, or
-   * deciding it may be deferred and flown with, takes `maintenance: write`,
-   * which they do not. The route declares the first and the handler requires
-   * the second, because the difference depends on what is being changed
-   * rather than on which endpoint was called.
+   * Filing takes `squawks: write`, which a Pilot holds. Moving a squawk
+   * through its lifecycle takes `maintenance: write`, which they do not. The
+   * route declares the first and the handler requires the second, because
+   * the difference depends on what is being changed rather than on which
+   * endpoint was called.
+   *
+   * **Every** status change is on the maintenance side, reopening included:
+   * un-resolving a defect a mechanic signed off is the same kind of judgement
+   * as closing it, and lifting a deferral puts a grounding back on an
+   * aircraft. Only checking the way *into* those states would let any pilot
+   * undo a signoff through the API, and §8.1 is explicit that hiding the
+   * button is cosmetics.
+   *
+   * Grounding is deliberately asymmetric. Raising it needs nothing beyond
+   * `squawks: write` — a pilot who decides mid-form that the brake is worse
+   * than they first said must never be blocked from saying so. Clearing it
+   * is a maintenance call.
    */
   app.patch<{ Params: { id: string }; Body: UpdateSquawkRequest }>(
     '/squawks/:id',
@@ -261,8 +273,8 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const body = request.body;
-      const closing = body.status === 'resolved' || body.status === 'deferred';
-      if (closing) {
+      const unGrounding = body.grounding === false;
+      if (body.status !== undefined || unGrounding) {
         const { permissions } = await request.loadGates();
         permissions.require('maintenance', 'write');
       }

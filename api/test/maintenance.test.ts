@@ -258,6 +258,55 @@ describe('maintenance', () => {
       payload: { basis: 'far_91_213' },
     });
     expect(defer.statusCode).toBe(403);
+
+    // Reopening is on the maintenance side too. Only checking the way *into*
+    // resolved would let any pilot undo a signoff, or lift a deferral and
+    // put a grounding back, straight through the API — and §8.1 is explicit
+    // that hiding the button is cosmetics.
+    const reopen = await app.inject({
+      method: 'PATCH',
+      url: `/squawks/${squawkId}`,
+      payload: { status: 'open' },
+    });
+    expect(reopen.statusCode).toBe(403);
+
+    // But raising the alarm is never blocked. A pilot who decides the brake
+    // is worse than they first said must be able to say so.
+    const escalate = await app.inject({
+      method: 'PATCH',
+      url: `/squawks/${squawkId}`,
+      payload: { grounding: true, details: 'Worse on the second taxi.' },
+    });
+    expect(escalate.statusCode).toBe(200);
+    expect(escalate.json().grounding).toBe(true);
+
+    // Clearing it is the other direction, and that is a maintenance call.
+    const clear = await app.inject({
+      method: 'PATCH',
+      url: `/squawks/${squawkId}`,
+      payload: { grounding: false },
+    });
+    expect(clear.statusCode).toBe(403);
+  });
+
+  it('lets a pilot into the app at all', async () => {
+    // The app shell reads /tenant on every page. It used to require
+    // `settings: read`, which the Pilot bundle grants as `none`, so every
+    // pilot-facing feature in the product was behind a 403 that the web app
+    // read as an expired session — login, bounce, login, bounce.
+    await setBundle('pilot');
+    asAdmin();
+
+    const tenant = await app.inject({ method: 'GET', url: '/tenant' });
+    expect(tenant.statusCode).toBe(200);
+    expect(tenant.json().name).toBe(`Test maint-a`);
+
+    // And the things a pilot is there for still answer.
+    expect((await app.inject({ method: 'GET', url: '/aircraft' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/squawks' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/availability' })).statusCode).toBe(200);
+
+    await setBundle('admin');
   });
 
   it('grounds the aircraft, by name, and hands the scheduler one answer', async () => {

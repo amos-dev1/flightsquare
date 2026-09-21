@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useTransition } from 'react';
+import { useActionState, useState, useTransition } from 'react';
 import { ClipboardCheck, Sparkles } from 'lucide-react';
 
 import { recordCompliance, seedMaintenanceItems, type FormState } from '@/app/actions';
@@ -97,6 +97,9 @@ export function ComplianceForm({
         </p>
 
         {state.error ? <Alert>{state.error}</Alert> : null}
+        {state.saved ? (
+          <Alert tone="info">Recorded. The due date above has moved on.</Alert>
+        ) : null}
 
         <Button type="submit" disabled={pending}>
           {pending ? 'Saving…' : 'Save record'}
@@ -109,15 +112,25 @@ export function ComplianceForm({
 /** Seeding an aircraft added before the library existed. Idempotent. */
 export function SeedButton({ aircraftId }: { aircraftId: string }) {
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
 
   return (
-    <Button
-      variant="secondary"
-      disabled={pending}
-      onClick={() => startTransition(async () => { await seedMaintenanceItems(aircraftId); })}
-    >
-      <Sparkles aria-hidden size={16} strokeWidth={2} />
-      {pending ? 'Adding…' : 'Add standard intervals'}
-    </Button>
+    <div className="space-y-2">
+      <Button
+        variant="secondary"
+        disabled={pending}
+        onClick={() =>
+          startTransition(async () => {
+            setError(null);
+            const result = await seedMaintenanceItems(aircraftId);
+            if (result.error) setError(result.error);
+          })
+        }
+      >
+        <Sparkles aria-hidden size={16} strokeWidth={2} />
+        {pending ? 'Adding…' : 'Add standard intervals'}
+      </Button>
+      {error ? <Alert>{error}</Alert> : null}
+    </div>
   );
 }

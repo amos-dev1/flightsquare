@@ -338,9 +338,26 @@ session, impersonation deferred with the session seam kept open, and
 `deleted_at` as a control-plane marker — and the stack and layout in §9. What
 is left:
 
-- **The Expo app has never run on a device.** It bundles, typechecks, and its
-  queue logic is tested in Node — but nothing here has been through a
-  simulator, so treat the screens as unverified until someone opens them.
+- **The Expo app has run in the Simulator, and on nothing else.** It boots,
+  renders and signs in there; no physical device has seen it, and the offline
+  queue has not been exercised against a real dropped connection.
+- **Large parts of the web app are not built, rather than broken.** What
+  exists is the fleet, an aircraft, the post-flight entry, maintenance and
+  squawks. What does not, in rough order of how much it is missed:
+
+  | Missing | Where it would go |
+  |---|---|
+  | Flight list and history | `GET /flights` has no caller at all; flights are write-only from the UI, and `?needs_review=true` has no screen |
+  | Logbook CSV export | `/flights/export.csv` exists; linking it needs a Next route handler, since the token is in an httpOnly cookie |
+  | Work orders | list, create and signoff — the API and its guard trigger are done |
+  | Add or edit a maintenance item by hand | only seeding the whole library is wired, and only when an aircraft has none |
+  | Compliance history | records can be written and never read back |
+  | Meter correction | the API takes `supersedes_id`, so the "Corrected" badge can never appear from the web |
+  | Members, invites, settings, subscription | no UI **and no API** — the permission resources exist and nothing consumes them |
+  | Sign-up, password reset, switching organisation | signup is `./scripts/seed-demo.sh` for now |
+
+  These are honest gaps, not bugs. The web app tells the truth about what it
+  can do; it just cannot do much yet.
 - **A seeded maintenance item is due *now*, and says it has no record.**
   Adding an aircraft tells the system nothing about when its last annual was,
   so dating one twelve months out would assert the aircraft is in annual —
