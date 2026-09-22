@@ -10,7 +10,8 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
-    "mail": "tsx watch src/mail/index.ts"
+    "mail": "tsx watch src/mail/index.ts",
+    "sweep": "tsx src/scheduler/index.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

@@ -444,7 +444,13 @@ export interface MaintenanceItemsTable {
   template_code: string | null;
   template_version: number | null;
   created_at: Timestamp;
-  updated_at: Timestamp;
+  updated_at: Timestamp;  /**
+   * The due state this item was last reported in (M8's digest), or null if
+   * nothing is outstanding. Compared against the computed state so the sweep
+   * reports changes rather than repeating itself every morning.
+   */
+  notified_state: ColumnType<'due_soon' | 'overdue' | null, never, 'due_soon' | 'overdue' | null>;
+
 }
 
 export interface SquawksTable {

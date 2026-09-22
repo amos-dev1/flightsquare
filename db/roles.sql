@@ -1,7 +1,7 @@
 -- Database roles. Run at initdb as the container superuser, and re-runnable
 -- against an existing database with scripts/roles.sh.
 --
--- Production provisions the same four roles with real secrets; nothing about
+-- Production provisions the same five roles with real secrets; nothing about
 -- the shape below is dev-only. The attributes matter more than the passwords:
 -- NOSUPERUSER and NOBYPASSRLS are the whole point (CLAUDE.md §1.2).
 --
@@ -97,15 +97,44 @@ ALTER ROLE mail_role
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
 
 -- ---------------------------------------------------------------------------
+-- scheduler_role — the only role that may ask which tenants exist.
+--
+-- A background job has no request to inherit context from, so §1.1 has it set
+-- context explicitly per tenant and loop. That needs a list, and producing
+-- one is cross-tenant by definition — the single thing the rest of this
+-- design is built to prevent.
+--
+-- Rather than borrow a credential that can already do it (the owner, which
+-- holds DDL on everything; admin_role, which §7.7 keeps on a separate
+-- surface), the capability is named here and made as small as it goes: a
+-- policy on `tenants` limited to accounts that are actually running, and a
+-- column grant on `id` alone. It cannot read a tenant's name, its plan or a
+-- single row belonging to it. Everything past the list is done as app_role
+-- under ordinary tenant context.
+-- ---------------------------------------------------------------------------
+DO $role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'scheduler_role') THEN
+    CREATE ROLE scheduler_role NOLOGIN;
+  END IF;
+END
+$role$;
+
+ALTER ROLE scheduler_role
+  LOGIN PASSWORD :'scheduler_password'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
+
+-- ---------------------------------------------------------------------------
 -- Database and schema ownership.
 -- ---------------------------------------------------------------------------
 ALTER DATABASE :"db" OWNER TO flightsquare_owner;
 REVOKE ALL ON DATABASE :"db" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"db" TO flightsquare_owner, app_role, admin_role, mail_role;
+GRANT CONNECT ON DATABASE :"db"
+  TO flightsquare_owner, app_role, admin_role, mail_role, scheduler_role;
 
 ALTER SCHEMA public OWNER TO flightsquare_owner;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO app_role, admin_role, mail_role;
+GRANT USAGE ON SCHEMA public TO app_role, admin_role, mail_role, scheduler_role;
 
 -- ---------------------------------------------------------------------------
 -- The bootstrap flag (see 0002_auth_functions.sql).

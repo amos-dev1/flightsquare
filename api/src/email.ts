@@ -192,3 +192,69 @@ export function overQuotaEmail(input: {
     ].join('\n'),
   };
 }
+
+export function maintenanceDueEmail(input: {
+  items: {
+    registration: string;
+    name: string;
+    state: 'due_soon' | 'overdue' | 'unrecorded';
+    detail: string;
+  }[];
+}): RenderedEmail {
+  const overdue = input.items.filter((item) => item.state === 'overdue');
+  const unrecorded = input.items.filter((item) => item.state === 'unrecorded');
+
+  const subject =
+    overdue.length > 0
+      ? `Maintenance overdue on ${[...new Set(overdue.map((i) => i.registration))].join(', ')}`
+      : `Maintenance coming due — ${input.items.length} item${input.items.length === 1 ? '' : 's'}`;
+
+  // Grouped by aeroplane, because that is how the person reading it thinks:
+  // they are deciding whether N123AB flies on Saturday, not auditing a list.
+  const byAircraft = new Map<string, typeof input.items>();
+  for (const item of input.items) {
+    byAircraft.set(item.registration, [...(byAircraft.get(item.registration) ?? []), item]);
+  }
+
+  const lines: string[] = [];
+  for (const [registration, items] of byAircraft) {
+    lines.push(registration);
+    for (const item of items) {
+      const label =
+        item.state === 'overdue'
+          ? 'OVERDUE'
+          : item.state === 'unrecorded'
+            ? 'NO RECORD'
+            : 'due';
+      lines.push(`  ${label}  ${item.name} — ${item.detail}`);
+    }
+    lines.push('');
+  }
+
+  return {
+    subject,
+    body: [
+      'What has changed since you were last told:',
+      '',
+      ...lines,
+      ...(unrecorded.length > 0
+        ? [
+            // §11 forbids an unsupported claim about an aircraft, and
+            // "overdue" is a claim. An item seeded from the preset library
+            // that nobody has confirmed is not overdue — there is no record,
+            // which is a different sentence.
+            'NO RECORD means exactly that: the item was created with the',
+            'aircraft and nobody has entered when it was last done. Record it',
+            'and the countdown starts from the real date.',
+            '',
+          ]
+        : []),
+      // Never the other half. The absence of a warning is not airworthiness,
+      // and this email is not a release to service.
+      'This lists what the system knows is due. It is not an airworthiness',
+      'determination, and it does not release anything to service.',
+      '',
+      link('/maintenance'),
+    ].join('\n'),
+  };
+}

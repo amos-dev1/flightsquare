@@ -17,6 +17,7 @@ fi
 : "${FS_APP_PASSWORD:=app_dev_password}"
 : "${FS_ADMIN_PASSWORD:=admin_dev_password}"
 : "${FS_MAIL_PASSWORD:=mail_dev_password}"
+: "${FS_SCHEDULER_PASSWORD:=scheduler_dev_password}"
 : "${FS_DB_NAME:=flightsquare}"
 
 OWNER_ROLE=flightsquare_owner
@@ -30,6 +31,7 @@ password_for() {
     app_role)            printf '%s' "$FS_APP_PASSWORD" ;;
     admin_role)          printf '%s' "$FS_ADMIN_PASSWORD" ;;
     mail_role)           printf '%s' "$FS_MAIL_PASSWORD" ;;
+    scheduler_role)      printf '%s' "$FS_SCHEDULER_PASSWORD" ;;
     *) echo "unknown role: $1" >&2; return 1 ;;
   esac
 }

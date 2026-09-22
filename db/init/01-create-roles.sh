@@ -14,4 +14,5 @@ psql -v ON_ERROR_STOP=1 \
      -v app_password="$FS_APP_PASSWORD" \
      -v admin_password="$FS_ADMIN_PASSWORD" \
      -v mail_password="$FS_MAIL_PASSWORD" \
+     -v scheduler_password="$FS_SCHEDULER_PASSWORD" \
      -f /opt/flightsquare/db/roles.sql

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { withSession } from '../src/db/context.js';
 import { closeDatabase } from '../src/db/pool.js';
 import { buildServer } from '../src/http/server.js';
 import { UnauthorizedError } from '../src/http/errors.js';
@@ -15,6 +16,7 @@ import {
   type MailTransport,
   type OutgoingMessage,
 } from '../src/mail/transport.js';
+import { sweepTenant } from '../src/scheduler/maintenance.js';
 import {
   addTestMember,
   cleanupTestTenants,
@@ -229,6 +231,68 @@ describe('the mail queue', () => {
     expect(after.some((message) => message.kind === 'booking_cancelled')).toBe(true);
   });
 
+  // -------------------------------------------------------------------------
+  // The one notice with no event behind it
+  // -------------------------------------------------------------------------
+
+  it('reports what has come due, once, and not again', async () => {
+    // Adding an aircraft seeds its intervals from the preset library and
+    // nobody has recorded when any of them were last done, so they are all
+    // outstanding from the moment it exists.
+    const first = await sweepTenant(club.tenant_id);
+    expect(first.items).toBeGreaterThan(0);
+    expect(first.notified).toBe(1);
+
+    const digest = (await readOutbox(club.email)).find(
+      (message) => message.kind === 'maintenance_due',
+    );
+    expect(digest).toBeDefined();
+    expect(digest?.body).toContain('N8800M');
+    // §11: the absence of a warning is not airworthiness, and this is not a
+    // release to service. The email says so rather than implying otherwise.
+    expect(digest?.body).toMatch(/not an airworthiness/i);
+    // And an item nobody has ever recorded is not "overdue" — that is a
+    // claim about the aircraft, and we have no record instead.
+    expect(digest?.body).toContain('NO RECORD');
+
+    // The second pass is the one that matters. A digest that repeats itself
+    // every morning gets filtered within a week, and the filter takes the
+    // one that mattered with it.
+    const second = await sweepTenant(club.tenant_id);
+    expect(second.items).toBe(0);
+    expect(second.notified).toBe(0);
+  });
+
+  it('starts telling again once the item has been dealt with', async () => {
+    asAdmin();
+    const items = await app.inject({
+      method: 'GET',
+      url: `/aircraft/${aircraftId}/maintenance-items`,
+    });
+    const item = items.json()[0];
+    expect(item).toBeDefined();
+
+    const recorded = await app.inject({
+      method: 'POST',
+      url: '/compliance-records',
+      payload: {
+        aircraft_id: aircraftId,
+        maintenance_item_id: item.maintenance_item_id ?? item.id,
+        kind: 'inspection',
+        title: item.name,
+        complied_on: '2027-01-04',
+      },
+    });
+    expect(recorded.statusCode).toBe(201);
+
+    // Recording compliance moves the due point, and a moved due point has
+    // nothing outstanding to have been told about. Without the trigger that
+    // clears it, the item's second trip through overdue would be silent —
+    // which is the failure the column exists to prevent.
+    const cleared = await notifiedState(club.tenant_id, item.maintenance_item_id ?? item.id);
+    expect(cleared).toBeNull();
+  });
+
   it('answers a malformed id with the same 404 as somebody else’s', async () => {
     asAdmin();
     // §6: a malformed id and an id belonging to another tenant have to read
@@ -240,6 +304,18 @@ describe('the mail queue', () => {
     expect(response.statusCode).toBe(404);
   });
 });
+
+/** What the digest last said about an item, read out of band. */
+async function notifiedState(tenantId: string, itemId: string): Promise<string | null> {
+  return withSession({ tenantId }, async (trx) => {
+    const row = await trx
+      .selectFrom('maintenance_items')
+      .select('notified_state')
+      .where('id', '=', itemId)
+      .executeTakeFirst();
+    return row?.notified_state ?? null;
+  });
+}
 
 /** Something real in the queue, through the path that queues it. */
 async function queueInvite(app: FastifyInstance, email: string): Promise<void> {

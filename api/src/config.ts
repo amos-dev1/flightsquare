@@ -106,6 +106,22 @@ export const config = {
     maxAttempts: int('FS_MAIL_MAX_ATTEMPTS', 8),
   },
   /**
+   * The sweep (M8): `npm run sweep -w api`.
+   *
+   * Its own role, because enumerating tenants is the one thing nothing else
+   * in the design may do, and its own process for the same reason the mail
+   * worker is one.
+   */
+  scheduler: {
+    user: process.env.FS_DB_SCHEDULER_USER ?? 'scheduler_role',
+    password: process.env.FS_SCHEDULER_PASSWORD ?? 'scheduler_dev_password',
+    /**
+     * Once a day. Maintenance moves on a scale of days and meters, and a
+     * digest that arrives more often than the thing it reports is noise.
+     */
+    everyHours: int('FS_SWEEP_EVERY_HOURS', 24),
+  },
+  /**
    * Platform billing (§8.3) — tenant to FlightSquare, web only.
    *
    * With no secret key the API runs the stub provider, which signs and

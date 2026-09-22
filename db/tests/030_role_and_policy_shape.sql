@@ -214,6 +214,49 @@ END
 $t$;
 
 -- ---------------------------------------------------------------------------
+-- M8's two roles, and how little each holds.
+--
+-- Both exist because a capability had to be named rather than borrowed:
+-- reading a live reset link, and asking which tenants exist. Naming them is
+-- only worth anything if they hold nothing else, which is what this asserts.
+-- ---------------------------------------------------------------------------
+DO $t$
+DECLARE t text;
+BEGIN
+  -- The sweep: one column of one table. §1.1 has a background job set context
+  -- per tenant and loop, and this is the list, and nothing more.
+  IF NOT has_column_privilege('scheduler_role', 'public.tenants', 'id', 'SELECT') THEN
+    RAISE EXCEPTION 'scheduler_role cannot read the tenant list it exists for';
+  END IF;
+  FOREACH t IN ARRAY ARRAY['name', 'slug', 'plan_code', 'status', 'billing_customer_id'] LOOP
+    IF has_column_privilege('scheduler_role', 'public.tenants', t, 'SELECT') THEN
+      RAISE EXCEPTION 'scheduler_role can read tenants.% — it needs ids', t;
+    END IF;
+  END LOOP;
+  IF has_table_privilege('scheduler_role', 'public.tenants', 'UPDATE')
+     OR has_table_privilege('scheduler_role', 'public.tenants', 'INSERT') THEN
+    RAISE EXCEPTION 'scheduler_role can write tenants';
+  END IF;
+
+  FOREACH t IN ARRAY ARRAY['aircraft', 'flights', 'squawks', 'maintenance_items',
+                           'memberships', 'users', 'outbox', 'flight_charges'] LOOP
+    IF has_table_privilege('scheduler_role', 'public.' || t, 'SELECT') THEN
+      RAISE EXCEPTION 'scheduler_role can read % — it enumerates tenants', t;
+    END IF;
+  END LOOP;
+
+  -- The sender: the same argument about a different table.
+  FOREACH t IN ARRAY ARRAY['tenants', 'aircraft', 'flights', 'memberships'] LOOP
+    IF has_table_privilege('mail_role', 'public.' || t, 'SELECT') THEN
+      RAISE EXCEPTION 'mail_role can read % — it sends email', t;
+    END IF;
+  END LOOP;
+
+  RAISE NOTICE '   ok: the sweep reads tenant ids, the sender reads the queue, neither more';
+END
+$t$;
+
+-- ---------------------------------------------------------------------------
 -- §2: the permitted list is closed, and every entry on it is pinned down.
 -- ---------------------------------------------------------------------------
 DO $t$

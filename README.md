@@ -82,17 +82,26 @@ arguments:
 ./scripts/roles.sh                     # after pulling a change that adds a role
 ```
 
-**Email.** `npm run mail -w api` starts the sender. With no API key it logs
+**Email.** `npm run mail -w api` starts the sender, and `npm run sweep -w api
+-- --once` runs the maintenance digest a single time (without `--once` it
+runs daily). With no API key it logs
 each message and marks it delivered — a real pass through the worker rather
 than a skipped one — and `./scripts/outbox.sh` is where a verification or
 reset link is actually read. It runs as `mail_role`, which can read and drain
 one table and reach nothing else in the database; `app_role` still cannot read
 the queue at all, because the bodies carry live single-use links.
 
+The sweep is the only thing in the product that asks which tenants exist.
+That is cross-tenant by definition, so it is a role of its own rather than a
+borrowed credential: `scheduler_role` can read `tenants.id`, filtered by
+policy to accounts that are actually running, and can read nothing else at
+all. Everything after the list is done as `app_role` under ordinary tenant
+context, which is what §1.1 asks a background job to do.
+
 `scripts/roles.sh` exists because roles are created at initdb and initdb only
-runs on an empty data directory — so a database from before M8 has no
-`mail_role` until it is run once. The migration says so rather than failing on
-a name that does not exist.
+runs on an empty data directory — so a database from before M8 has neither
+`mail_role` nor `scheduler_role` until it is run once. The migrations say so
+by name rather than failing on a role that does not exist.
 
 Local credentials default to the values in `.env.example`; copy it to `.env`
 to change them. They are development-only and the container is bound to
@@ -175,6 +184,8 @@ db/                             not an npm workspace — SQL and psql only
                                 two helpers that hold the plan change
     0016_outbox_drain.sql       the queue gets a sender, and the owner steps
                                 back from it
+    0017_scheduled_sweep.sql    the one role that may ask which tenants exist,
+                                and the column that stops a digest repeating
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -206,6 +217,8 @@ api/
                                 a key is set, a signing stub when not
     mail/                       the sender: its own role, its own process, and
                                 who gets told about what
+    scheduler/                  the sweep: §1.1's per-tenant loop, for the one
+                                notice with no event behind it
     email.ts                    every message, rendered as plain text
     entitlements/
       registry.ts               every key, with a global default
