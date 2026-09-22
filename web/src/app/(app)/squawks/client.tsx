@@ -12,6 +12,10 @@ import {
 } from '@/app/actions';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
 import type { AircraftResponse, SquawkResponse } from '@flightsquare/shared';
+// A value import, and from the subpath — see the note in log-flight/form.tsx.
+// `crypto.randomUUID` is secure-context-only and absent when this app is
+// served over plain HTTP from a LAN address, which is how a phone reaches it.
+import { uuidv7 } from '@flightsquare/shared/uuidv7';
 
 /**
  * Filing one. `squawks: write`, which every pilot holds — §1.5 keeps this a
@@ -32,11 +36,11 @@ export function SquawkForm({ fleet }: { fleet: AircraftResponse[] }) {
    * one's key. A different body is refused as a conflict, and an identical
    * one is silently replayed and never written at all.
    */
-  const [key, setKey] = useState(() => crypto.randomUUID());
+  const [key, setKey] = useState(() => uuidv7());
 
   useEffect(() => {
     // A submission that came back clean is spent; the next one is new work.
-    if (!pending && state.saved) setKey(crypto.randomUUID());
+    if (!pending && state.saved) setKey(uuidv7());
   }, [pending, state.saved]);
 
   return (

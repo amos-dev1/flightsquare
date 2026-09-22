@@ -6,6 +6,11 @@ import { useActionState, useState } from 'react';
 import { logFlight, type FormState } from '@/app/actions';
 import { Alert, Button, Card, Field, Input, Textarea } from '@/components/ui';
 import type { AircraftResponse } from '@flightsquare/shared';
+// The subpath, not the root. `@flightsquare/shared` has no build step and its
+// index re-exports with `./client.js` specifiers — correct for Node ESM,
+// unresolvable for the bundler, which gets an empty module and fails at
+// build. `uuidv7.ts` imports nothing, so it resolves everywhere.
+import { uuidv7 } from '@flightsquare/shared/uuidv7';
 
 /**
  * Display-only arithmetic.
@@ -30,9 +35,21 @@ export function LogFlightForm({ aircraft }: { aircraft: AircraftResponse }) {
     {},
   );
 
-  // One key per form instance, so a retry after a dropped connection replays
-  // rather than logging the flight a second time (§8.2).
-  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  /**
+   * One key per form instance, so a retry after a dropped connection replays
+   * rather than logging the flight a second time (§8.2).
+   *
+   * `uuidv7()` rather than `crypto.randomUUID()`, for two reasons and the
+   * second is the one that bit. §6 chose v7 for its ordering and §8.2 says
+   * the client generates ids — so the web minting v4 while the phone minted
+   * v7 was already an inconsistency. And `randomUUID` exists **only in a
+   * secure context**: it is there on localhost and over HTTPS, and simply
+   * absent on `http://192.168.4.156`, which is exactly where this app is
+   * served when it is being tested from a phone on the same Wi-Fi. The page
+   * threw before it rendered. `getRandomValues`, which uuidv7 uses, has no
+   * such restriction.
+   */
+  const [idempotencyKey] = useState(() => uuidv7());
 
   const [meters, setMeters] = useState({
     // Prefilled from what the aircraft is showing: the pilot confirms these

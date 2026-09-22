@@ -537,12 +537,29 @@ is left:
   and the club decides what to move, for as long as it takes. A downgrade to
   Free is the provider's "cancel at period end", so §5.1 needs no timer of
   ours and no subscription schedules.
-- **`packages/shared` has no build step.** It is consumed only with
-  `import type`, which erases, so nothing resolves it at runtime. A *value*
-  import from it would compile and then fail at runtime. The moment it needs
-  runtime values it gains a `tsc` build, and the root `build` script gains
-  explicit ordering — `npm run build --workspaces` builds alphabetically,
-  which puts `api` before `packages/shared`.
+- **`packages/shared` has no build step, and its root is types-only in
+  practice.** `index.ts` re-exports with `./client.js` specifiers — correct
+  for Node ESM, which is what the API and the test runner resolve against,
+  and unresolvable for a bundler, which gets an empty module and fails at
+  build with "the module has no exports at all". This is no longer
+  hypothetical: the web app needed `uuidv7` at runtime and hit it.
+
+  The answer for a self-contained module is a **subpath export**.
+  `uuidv7.ts` imports nothing, so `@flightsquare/shared/uuidv7` resolves
+  everywhere — one implementation of §6's id format rather than a copy in
+  each client. Anything that needs a value out of a module which *does* have
+  internal imports is the point where this package earns a `tsc` build, and
+  the root `build` script earns explicit ordering: `npm run build
+  --workspaces` builds alphabetically, which puts `api` before
+  `packages/shared`.
+- **`crypto.randomUUID` is secure-context-only, and this app is not always
+  in one.** It exists on localhost and over HTTPS and is simply absent on
+  `http://192.168.4.156` — which is exactly where the web app is served when
+  it is reached from a phone on the same Wi-Fi, and the page threw before it
+  rendered. Everything now uses `uuidv7()`, which needs only
+  `getRandomValues` and has no such restriction. Worth remembering for
+  anything else added later: `crypto.subtle`, `navigator.clipboard` and the
+  media and geolocation APIs are all secure-context too.
 - **`web/`, `mobile/` and `infra/` are empty.** Their READMEs record what each
   already owes the design; `mobile/` in particular notes that Expo under npm
   workspaces needs Metro configured before it will resolve anything.

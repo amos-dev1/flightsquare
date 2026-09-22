@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts"
+    },
+    "./uuidv7": {
+      "types": "./src/uuidv7.ts",
+      "import": "./src/uuidv7.ts"
     }
   },
   "types": "./src/index.ts",
