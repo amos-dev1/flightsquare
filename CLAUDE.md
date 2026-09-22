@@ -166,7 +166,7 @@ GRANT EXECUTE ON FUNCTION auth.resolve_tenant_by_host(text) TO app_role;
 
 ### 2.1 The permitted list
 
-Each entry provably cannot have tenant context yet. Six are lookups; the seventh is the sole write.
+Each entry provably cannot have tenant context yet. Six are lookups, and five more arrived with sessions and email tokens; `db/tests/030` asserts the list is exactly these eleven.
 
 | Function | Runs when | Returns |
 |---|---|---|
@@ -177,8 +177,12 @@ Each entry provably cannot have tenant context yet. Six are lookups; the seventh
 | `auth.resolve_invite_token` | Invite acceptance, pre-membership | invite row, single-use |
 | `auth.tenant_for_billing_customer` | Billing-provider webhooks | tenant id |
 | `auth.provision_tenant` | Signup — the tenant does not exist yet | new tenant, user and membership ids |
+| `auth.resolve_session_token` | Every request, before context exists | session, user, selected tenant |
+| `auth.consume_refresh_token` | Token rotation | the rotated session |
+| `auth.request_email_token` | Verification and password reset | the queued message |
+| `auth.consume_auth_token` | Accepting either | the token's subject, single-use |
 
-If a task seems to need an eighth, the first question is whether the caller could have set tenant context and simply didn't.
+If a task seems to need a twelfth, the first question is whether the caller could have set tenant context and simply didn't. Platform billing is the worked example of the answer being yes: a provider's webhook looks like it needs a door, and does not — it resolves its tenant through `tenant_for_billing_customer` and then runs in ordinary tenant context like everything else.
 
 **Extra rules for a definer function that writes.** The rules above were written for lookups, and rule 3 in particular — scalar arguments matched on equality — is about not turning a lookup into an enumeration oracle. A write function's arguments are values to store rather than predicates, so it carries four of its own instead:
 
@@ -216,12 +220,15 @@ Rules, which are stricter than §2.1's in the way that matters:
 | `public.assert_quota` | lock and read a `tenant_usage` row the app may only read | `app.current_tenant_id()` |
 | `public.refresh_*_usage` | write `tenant_usage` (triggers; not callable) | the row being changed |
 | `public.refresh_aircraft_meter_totals` | write the derived totals on `aircraft` (trigger; not callable) | the row being changed |
+| `public.set_billing_customer` | write `tenants.billing_customer_id`, once, from NULL | `app.current_tenant_id()` |
+| `public.apply_subscription` | write `tenants.plan_code` and the `subscriptions` row | `app.current_tenant_id()` |
 
 `refresh_*_usage` is a **family**, one per counted table, and a new member is an instance of a decision already taken rather than a new one: each recomputes exactly one quota key from exactly one table and is reachable only as a trigger. A helper of a genuinely new *shape* still needs review.
 
 Before adding one, answer this in the code: could the application role simply be granted what it needs without also being able to abuse it? Two worked answers, because they differ:
 
 - **Usage counters — no.** A role that can write its own counters can set one to zero and walk past every quota.
+- **The plan — no, and this is the sharpest case.** `plan_code` is the left-hand layer of §1.4's chain, so a role that can write it resolves itself onto every flag and every quota in the registry, while `assert_quota` goes on faithfully enforcing a limit the caller has just rewritten. The same argument covers `billing_customer_id`, which is the only thing that tells a webhook whose event it is: a role that can write it can point at another tenant's customer and inherit what they pay for.
 - **Derived meter totals — no, for a different reason.** The totals come from an append-only log precisely so the maintenance numbers downstream have an audit trail (§3.4). If the application could write them directly, the derivation would be a suggestion and the trail optional. Granting `UPDATE` there is not a convenience; it deletes the guarantee.
 
 ---
@@ -749,24 +756,20 @@ Mobile dev:     npx expo start          (from mobile/)
 
 **Impersonation: deferred, with the seam kept open** (2026-09-20). Not built in v1 — §7.2's time-boxed, logged, tenant-consented content grant covers the actual support need. But §7.5's warning about retrofitting a second session type binds: **the sessions table carries a `session_type` discriminator and the audit log carries an acting-admin column from the migration that creates them**, even though only one value of each is ever written today.
 
+**FlightSquare produces statements; it does not move members' money** (2026-09-21). §3.7's ledger records what a pilot owes their club and what they have paid, and a treasurer settles it by cheque, transfer or cash at the hangar — a payment recorded as an adjustment. Processing pilot payments would mean platform accounts, refunds, chargebacks and tax reporting, which is a different product. The ledger is shaped so recorded payments could become real ones without restructuring. Platform billing (§8.3) is the only money the product moves, it is the tenant's subscription, and it is Stripe on the web.
+
 **`deleted_at` is a control-plane marker, not an application verb** (2026-09-20). §6 asks for a `deleted_at IS NULL` predicate in the RLS policy *and* for soft deletion; Postgres will not give both, because on UPDATE it re-checks the new row against the policies that apply to SELECT — so a row that sets `deleted_at` stops satisfying the policy that made it visible, and the write is refused. Resolved in favour of the invariant: `deleted_at` means account closure and purge (§7.3), written by the admin plane. **An application-facing "delete" is a status column** — a removed member is `status = 'removed'`, an archived aircraft will be an aircraft status. §5.5 requires archived records to keep their history and return on re-upgrade, so hiding them at the database level would have been wrong anyway.
 
 ### Open
 
 These need your call; they are not blocking the first tables.
 
-1. **Does FlightSquare move money, or only produce statements?** (§3.7). The largest scope question in the product. Producing a statement the treasurer settles by check, Venmo, or Zelle is a small feature. Processing pilot payments means a payment processor, platform-account structures, refunds, chargebacks, tax reporting, and a materially different regulatory posture. **Recommend statements only for v1**, with the ledger designed so payments could be recorded later without reshaping it.
-2. **The Pro → Enterprise gap.** Pro is one aircraft; Enterprise is unlimited. A club with three aircraft and twelve members has nowhere to land. That is a pricing question, not an architecture one — a middle tier is rows in `plans` whenever you want it (§4.3). Noted so it is a deliberate choice rather than an oversight.
-3. **Keep or drop `member_credentials`** (§3.5). Two dates — flight review and medical expiry — as a booking gate. Defensible as aircraft-safety gating, but adjacent to the pilot-record line drawn in §3.4. Dropping it in v1 is a reasonable call. If kept, decide whether one pilot can see another's.
-4. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
-5. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
-6. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
-7. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
-8. **Free-tier quota values.** §4.2 has placeholders. Real numbers follow from decision 1.
-9. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
-10. **Impersonation: yes or no** (§7.5). Affects the session model, so it wants an answer before auth is built even if the feature ships later.
-11. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
-12. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
+1. **The Pro → Enterprise gap.** Pro is one aircraft; Enterprise is unlimited. A club with three aircraft and twelve members has nowhere to land. That is a pricing question, not an architecture one — a middle tier is rows in `plans` whenever you want it (§4.3). Noted so it is a deliberate choice rather than an oversight.
+2. **Keep or drop `member_credentials`** (§3.5). Two dates — flight review and medical expiry — as a booking gate. Defensible as aircraft-safety gating, but adjacent to the pilot-record line drawn in §3.4. Dropping it in v1 is a reasonable call. If kept, decide whether one pilot can see another's.
+3. **402 vs 409 for quota exhaustion.** 402 chosen because the remediation is a plan change and it stays orthogonal to 429. If you'd rather reserve payment semantics for actual billing failures, 409 with the same body works.
+4. **Tenant deletion vs. append-only compliance records.** §3.6 makes maintenance and AD compliance append-only; a hard-delete request collides with that. `legal_hold` handles the litigation case, but the ordinary "close my account and erase me" path still needs a documented retention answer before there is data to delete.
+5. **Leaseback record linking** (§3.2). Two tenants tracking one tail number is supported; whether they can ever share squawks or meter readings is a product question. Not now, but don't foreclose it.
+6. **Free-tier quota values.** §4.3's aircraft and member counts are real and shipped. `storage.bytes`, `exports.per_month` and `api.calls_per_day` are declared, unenforced placeholders — nothing counts them, so their numbers mean nothing yet.
 
 ## 11 DESIGN GUIDELINES
 

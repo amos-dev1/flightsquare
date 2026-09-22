@@ -9,9 +9,13 @@ import type { MembershipStatus, TenantArchetype, TenantStatus } from './schema.j
  * because each one provably cannot have it yet. Everything else in the API
  * goes through withTenant().
  *
- * Adding an eighth is an architectural decision requiring review. The first
+ * There are eleven, which `db/tests/030` asserts as a closed list. Adding a
+ * twelfth is an architectural decision requiring review, and the first
  * question is always whether the caller could have set tenant context and
- * simply didn't.
+ * simply didn't. M7 is the worked example of the answer being yes: a billing
+ * webhook looks like it needs a door of its own, and does not — it resolves
+ * its tenant through `tenant_for_billing_customer` below and then runs in
+ * ordinary tenant context like everything else.
  */
 
 export interface TenantRouting {
