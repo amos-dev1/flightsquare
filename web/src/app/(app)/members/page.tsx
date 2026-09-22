@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 import { apiFetch } from '@/lib/api';
 import { Card, Empty, PageTitle, SectionHeading } from '@/components/ui';
 import type {
@@ -69,7 +71,18 @@ export default async function MembersPage() {
            */
           <Card className="px-5 py-4 text-sm text-secondary">
             Your plan covers {seats === 1 ? 'one member' : `${seats} members`}, and they are
-            all accounted for. Remove somebody, or move to a larger plan, to invite more.
+            all accounted for. Remove somebody, or{' '}
+            {entitlements.permissions.subscription === 'none' ? (
+              'move to a larger plan'
+            ) : (
+              <Link
+                href="/settings/subscription"
+                className="font-semibold underline decoration-1 underline-offset-2"
+              >
+                move to a larger plan
+              </Link>
+            )}
+            , to invite more.
           </Card>
         )
       ) : null}

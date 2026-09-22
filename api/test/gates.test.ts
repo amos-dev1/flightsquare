@@ -174,6 +174,23 @@ describe('the §1.6 gates', () => {
     }
   });
 
+  it('reports the plan\u2019s limit even when it locks against less', async () => {
+    // The invite path subtracts outstanding invitations from the limit,
+    // because five pending invites on a limit of five would all pass. That
+    // is the right thing to enforce and the wrong thing to report: "your
+    // plan allows 0 members" is not true of any plan, and §1.6 puts these
+    // numbers in the body so a screen can say something a person can act on.
+    const ctx = { tenantId: tenant.tenant_id, userId: tenant.user_id };
+    try {
+      await withTenant(ctx, (trx) =>
+        assertQuota(trx, 'members.active', limitOf(0), 1),
+      );
+      throw new Error('the quota did not refuse');
+    } catch (error) {
+      expect((error as { toBody: () => { limit: number } }).toBody().limit).toBe(1);
+    }
+  });
+
   it('does not refuse when the quota is unlimited', async () => {
     const ctx = { tenantId: tenant.tenant_id, userId: tenant.user_id };
     await expect(
@@ -192,6 +209,14 @@ describe('the §1.6 gates', () => {
     expect(body.plan_code).toBe('free');
     expect(body.flags.member_billing).toBe(false);
     expect(body.quotas['aircraft.active']).toEqual({ limit: 1, source: 'plan' });
+    // §4.5 counts in the database; this is the count coming back out, so a
+    // screen can say "2 of 1" rather than waiting for somebody to walk into
+    // a 402. Over the limit is a state the tenant can see, not only hit.
+    expect(body.quotas['members.active']).toEqual({
+      limit: 1,
+      source: 'plan',
+      current: 2,
+    });
     // §4.3 gives maintenance to every tier, so no plan row says so.
     expect(body.flags.maintenance_module).toBe(true);
     expect(body.quotas['history.retention_days']).toEqual({

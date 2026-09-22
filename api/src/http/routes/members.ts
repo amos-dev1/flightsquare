@@ -229,7 +229,14 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
         const limit = limitForDatabase(entitlements.quota('members.active'));
         if (limit !== null) {
           const room = limit - Number(pending.count);
-          await assertQuota(trx, 'members.active', { kind: 'limit', value: Math.max(room, 0) });
+          // Lock against the room that is really left; report the limit the
+          // plan actually has, which is the number a person can act on.
+          await assertQuota(
+            trx,
+            'members.active',
+            { kind: 'limit', value: Math.max(room, 0) },
+            limit,
+          );
         }
 
         const existing = await trx

@@ -67,6 +67,49 @@ export async function readOutbox(
 }
 
 /**
+ * Read what the application is not allowed to write.
+ *
+ * `tenants.plan_code` and `tenants.status` carry no grant for app_role, and
+ * `audit_log` is append-only, so a test that wants to check what a webhook
+ * did has to look from outside — which is also the only honest way to check
+ * it, since looking through the API would only prove the API agrees with
+ * itself.
+ */
+export async function readTenantRow(
+  tenantId: string,
+): Promise<{ status: string; plan_code: string; billing_customer_id: string | null }> {
+  const pool = privilegedPool();
+  try {
+    const { rows } = await pool.query<{
+      status: string;
+      plan_code: string;
+      billing_customer_id: string | null;
+    }>(`SELECT status, plan_code, billing_customer_id FROM tenants WHERE id = $1`, [tenantId]);
+    return rows[0]!;
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function readAuditLog(
+  tenantId: string,
+): Promise<
+  { action: string; resource: string; actor_user_id: string | null; before: unknown; after: unknown }[]
+> {
+  const pool = privilegedPool();
+  try {
+    const { rows } = await pool.query(
+      `SELECT action, resource, actor_user_id, before, after
+         FROM audit_log WHERE tenant_id = $1 ORDER BY occurred_at`,
+      [tenantId],
+    );
+    return rows;
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
  * Move a tenant onto another plan, the way an upgrade does.
  *
  * Out-of-band on purpose: `tenants.plan_code` is not writable by app_role
@@ -139,6 +182,14 @@ export async function cleanupTestTenants(): Promise<void> {
     const users = `SELECT id FROM users WHERE email LIKE '%@vitest.test'`;
 
     await adminPool.query(`DELETE FROM audit_log WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    // Platform billing: both are append-only or unwritable to the app, so
+    // like the ledger below they can only be cleaned out of band.
+    await adminPool.query(`DELETE FROM billing_events WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    await adminPool.query(`DELETE FROM subscriptions WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
     await adminPool.query(`DELETE FROM sessions WHERE user_id IN (${users})`);

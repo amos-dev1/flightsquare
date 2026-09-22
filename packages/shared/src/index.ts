@@ -190,6 +190,13 @@ export interface TenantResponse {
   /** An IANA zone. How this club wants its timestamps rendered. */
   timezone: string;
   branding: Record<string, unknown>;
+  /**
+   * §7.3's lifecycle. Every member may know their own club is `past_due`,
+   * which is the only value they will ever see here that is not `active` or
+   * `trial` — a suspended or closed tenant fails at the session, so nothing
+   * gets far enough to read this.
+   */
+  status: TenantStatus;
 }
 
 /** Settings. Not the slug — it is in URLs and invite links already sent. */
@@ -283,6 +290,14 @@ export interface ResolvedQuota {
   /** A finite limit, or the string "unlimited" — never a sentinel number. */
   limit: number | 'unlimited';
   source: EntitlementSource;
+  /**
+   * What the tenant is using right now, counted in the database (§4.5).
+   *
+   * Here so a screen can say "2 of 1 aircraft" and offer the two things §5
+   * offers — upgrade, or choose what to archive — rather than waiting for
+   * somebody to walk into a 402. Absent for a quota nothing counts yet.
+   */
+  current?: number;
 }
 
 /**
@@ -305,6 +320,69 @@ export interface EntitlementsResponse {
   permissions: Record<string, 'none' | 'read' | 'write'>;
   /** How far each of those reaches. Absent means `all`. */
   permission_scopes?: Record<string, PermissionScope>;
+}
+
+// ---------------------------------------------------------------------------
+// Platform billing (§3.7's left-hand column) — tenant to FlightSquare.
+//
+// Never "billing" without the qualifier: `/billing` in the web app is member
+// billing, pilot to club, and the two get confused in conversation, in code
+// and in support tickets unless the names stay apart.
+// ---------------------------------------------------------------------------
+
+export interface PlanResponse {
+  code: string;
+  name: string;
+  description: string | null;
+  /** Ordered for display; the catalogue decides, not the client. */
+  sort_order: number;
+  /** Whether it can be bought without talking to anybody. */
+  self_serve: boolean;
+  /**
+   * What the provider will charge, asked of the provider — absent when the
+   * plan is free, not for sale, or the provider could not be reached. Never
+   * a number a shipped client carries (§8.1).
+   */
+  price?: { amount_cents: number; currency: string; interval: string };
+  /** The flags and quotas this plan would resolve to, for comparison. */
+  flags: Record<string, boolean>;
+  quotas: Record<string, number | 'unlimited'>;
+  /** True for the plan the tenant is on today. */
+  current: boolean;
+}
+
+export type SubscriptionStatus =
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'unpaid'
+  | 'canceled'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'paused';
+
+export interface SubscriptionResponse {
+  plan_code: string;
+  /** Null when the tenant has never paid — a complete state, not a gap. */
+  status: SubscriptionStatus | null;
+  /** ISO date-time. When the current paid period ends. */
+  current_period_end: string | null;
+  /**
+   * §5.1: a downgrade takes effect at the end of the paid period, so this is
+   * what lets a screen say "Pro until 14 October, then Free".
+   */
+  cancel_at_period_end: boolean;
+  /** Whether checkout and the portal can be offered at all. */
+  provider_configured: boolean;
+}
+
+/** Where to send the person. Always an absolute URL at the provider. */
+export interface BillingRedirectResponse {
+  url: string;
+}
+
+export interface CheckoutRequest {
+  plan_code: string;
 }
 
 // ---------------------------------------------------------------------------

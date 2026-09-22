@@ -157,6 +157,7 @@ BEGIN
                             'aircraft_config.tenant_isolation',
                             'aircraft_rates.tenant_isolation',
                             'audit_log.tenant_isolation',
+                            'billing_events.tenant_isolation',
                             'blackouts.tenant_isolation',
                             'compliance_records.tenant_isolation',
                             'device_registrations.user_isolation',
@@ -181,6 +182,7 @@ BEGIN
                             'sessions.user_isolation',
                             'squawk_deferrals.tenant_isolation',
                             'squawks.tenant_isolation',
+                            'subscriptions.tenant_isolation',
                             'tenant_entitlement_overrides.tenant_isolation',
                             'tenant_usage.tenant_isolation',
                             'tenants.tenant_isolation',
@@ -311,12 +313,14 @@ BEGIN
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.prosecdef;
 
-  IF names IS DISTINCT FROM ARRAY['assert_quota',
+  IF names IS DISTINCT FROM ARRAY['apply_subscription',
+                                  'assert_quota',
                                   'charge_for_flight',
                                   'credit_fuel_for_flight',
                                   'refresh_aircraft_active_usage',
                                   'refresh_aircraft_meter_totals',
                                   'refresh_members_active_usage',
+                                  'set_billing_customer',
                                   'sync_blackout_resource_window',
                                   'sync_reservation_resource_window']::text[] THEN
     RAISE EXCEPTION 'public holds SECURITY DEFINER functions % — §2.3 is a closed list', names;
@@ -365,7 +369,11 @@ $t$;
 DO $t$
 DECLARE t text;
 BEGIN
-  FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'sessions', 'audit_log'] LOOP
+  FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'sessions', 'audit_log',
+                           -- What a tenant pays and whether it is failing is
+                           -- most of support, and answering it must not need
+                           -- a consent grant (§7.2).
+                           'subscriptions', 'billing_events'] LOOP
     IF NOT has_table_privilege('admin_role', 'public.' || t, 'SELECT') THEN
       RAISE EXCEPTION 'admin_role cannot read %', t;
     END IF;
@@ -373,7 +381,7 @@ BEGIN
 
   FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'invites',
                            'sessions', 'refresh_tokens', 'device_registrations',
-                           'audit_log'] LOOP
+                           'audit_log', 'subscriptions', 'billing_events'] LOOP
     IF has_table_privilege('admin_role', 'public.' || t, 'INSERT')
        OR has_table_privilege('admin_role', 'public.' || t, 'UPDATE')
        OR has_table_privilege('admin_role', 'public.' || t, 'DELETE') THEN

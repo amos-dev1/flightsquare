@@ -174,8 +174,60 @@ export interface PlansTable {
   name: string;
   description: string | null;
   sort_order: Generated<number>;
+  /** Whether this plan can be bought without talking to anybody. */
+  self_serve: Generated<boolean>;
+  /**
+   * The provider's lookup key for this plan's price — stable across test and
+   * live, unlike a price id. No amount is stored: the provider is asked what
+   * it will charge, so there is never a second copy to drift (§3.7 rule 1).
+   */
+  price_lookup_key: string | null;
   created_at: Timestamp;
   updated_at: Timestamp;
+}
+
+/** Stripe's vocabulary, kept as Stripe says it (see migration 0015). */
+export type SubscriptionStatus =
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'unpaid'
+  | 'canceled'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'paused';
+
+/**
+ * Platform billing (§3.7's left-hand column) — tenant to FlightSquare.
+ *
+ * Every column is read-only to the application. The row is written by
+ * public.apply_subscription, because a role that can write its own plan
+ * resolves itself onto every entitlement in the registry.
+ */
+export interface SubscriptionsTable {
+  id: ColumnType<string, never, never>;
+  tenant_id: ColumnType<string, never, never>;
+  provider: ColumnType<string, never, never>;
+  provider_subscription_id: ColumnType<string, never, never>;
+  plan_code: ColumnType<string, never, never>;
+  status: ColumnType<SubscriptionStatus, never, never>;
+  current_period_end: ColumnType<Date | null, never, never>;
+  cancel_at_period_end: ColumnType<boolean, never, never>;
+  created_at: ColumnType<Date, never, never>;
+  updated_at: ColumnType<Date, never, never>;
+}
+
+/**
+ * Webhook idempotency, and the whole of it: a replayed delivery hits the
+ * unique key and does nothing. Insert-only — no update, no delete.
+ */
+export interface BillingEventsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  provider: Generated<string>;
+  provider_event_id: string;
+  type: string;
+  received_at: Timestamp;
 }
 
 export interface PlanEntitlementsTable {
@@ -781,6 +833,8 @@ export interface Database {
   plan_entitlements: PlanEntitlementsTable;
   tenant_entitlement_overrides: TenantEntitlementOverridesTable;
   tenant_usage: TenantUsageTable;
+  subscriptions: SubscriptionsTable;
+  billing_events: BillingEventsTable;
   role_bundles: RoleBundlesTable;
   role_bundle_permissions: RoleBundlePermissionsTable;
   tenants: TenantsTable;

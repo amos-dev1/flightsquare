@@ -9,6 +9,8 @@ import { parseMoney } from '@/lib/money';
 import { zonedToInstant } from '@/lib/time';
 import type {
   AircraftResponse,
+  BillingRedirectResponse,
+  CheckoutRequest,
   LoginResponse,
   SelectTenantResponse,
 } from '@flightsquare/shared';
@@ -1016,6 +1018,50 @@ export async function withdrawAuthorization(
 // ledger. Charges are generated when a flight is logged; nothing here makes
 // one, and nothing anywhere edits one.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Platform billing (§3.7's left-hand column) — what the club pays us.
+//
+// Both of these end in `redirect()` to somewhere that is not this site, which
+// Next's redirect handles: it throws, so nothing after it runs, and the
+// browser is sent on with a 303. Neither action ever sees a card number.
+// ---------------------------------------------------------------------------
+
+export async function startCheckout(planCode: string): Promise<ActionResult> {
+  let url: string;
+  try {
+    const response = await apiFetch<BillingRedirectResponse>('/subscription/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ plan_code: planCode } satisfies CheckoutRequest),
+    });
+    url = response.url;
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
+  redirect(url);
+}
+
+/**
+ * Card, invoices, switching plan and cancelling, all at the provider.
+ *
+ * §5.1 wants a downgrade to take effect at the end of the paid period, and
+ * the provider's own "cancel at period end" is exactly that — so there is no
+ * second plan-change UI here to disagree with it.
+ */
+export async function openBillingPortal(): Promise<ActionResult> {
+  let url: string;
+  try {
+    const response = await apiFetch<BillingRedirectResponse>('/subscription/portal', {
+      method: 'POST',
+    });
+    url = response.url;
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
+  redirect(url);
+}
 
 export async function setRate(_state: FormState, form: FormData): Promise<FormState> {
   const text = (key: string) => String(form.get(key) ?? '').trim();

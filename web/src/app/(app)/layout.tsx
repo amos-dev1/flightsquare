@@ -9,6 +9,16 @@ import { apiFetch, ApiError } from '@/lib/api';
 import { readSession } from '@/lib/session';
 import type { EntitlementsResponse, TenantResponse } from '@flightsquare/shared';
 
+/**
+ * Labels only. Every number beside them comes off the wire (§8.1) — this is
+ * the same list the footer renders and the same keys the 402 body carries.
+ */
+const QUOTA_NOUNS: Record<string, string> = {
+  'aircraft.active': 'aircraft',
+  'members.active': 'member',
+  'storage.bytes': 'storage',
+};
+
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const session = await readSession();
   if (!session) redirect('/login');
@@ -39,6 +49,22 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   const aircraftQuota = entitlements.quotas['aircraft.active'];
   const memberQuota = entitlements.quotas['members.active'];
+
+  /**
+   * §5.2: over a limit, reads work normally and existing records keep
+   * working — only creating more of that thing is refused. Which means the
+   * condition is otherwise invisible until somebody walks into a 402, and
+   * §5.3 wants the club to be told what is over and offered a way out.
+   *
+   * Computed rather than stored: it is the count §4.5 keeps against the
+   * limit §1.4 resolves, and inventing a state column for something both
+   * sides already know would be a third place to get it wrong.
+   */
+  const over = Object.entries(entitlements.quotas)
+    .filter(([, quota]) => quota.limit !== 'unlimited' && (quota.current ?? 0) > quota.limit)
+    .map(([key]) => QUOTA_NOUNS[key] ?? key);
+
+  const canSeePlan = entitlements.permissions.subscription !== 'none';
 
   return (
     <div className="min-h-screen">
@@ -94,6 +120,31 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </form>
         </div>
       </header>
+
+      {/*
+        One line, above everything, for the two conditions a member cannot
+        otherwise see. §11: the wording carries the meaning, and the border
+        rather than a colour carries the weight.
+      */}
+      {tenant.status === 'past_due' || over.length > 0 ? (
+        <div className="mx-auto max-w-4xl px-6 pt-6">
+          <div className="flex flex-wrap items-baseline justify-between gap-3 rounded-xl border border-brand-black bg-subtle px-5 py-3 text-sm">
+            <p>
+              {tenant.status === 'past_due'
+                ? 'A payment to FlightSquare did not go through. Nothing has been switched off.'
+                : `Over the ${over.join(' and ')} limit on this plan. Everything keeps working; you cannot add another.`}
+            </p>
+            {canSeePlan ? (
+              <Link
+                href="/settings/subscription"
+                className="font-semibold underline decoration-1 underline-offset-4"
+              >
+                {tenant.status === 'past_due' ? 'Update the card' : 'See the options'}
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <main className="mx-auto max-w-4xl px-6 py-8">{children}</main>
 

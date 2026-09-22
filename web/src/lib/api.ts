@@ -59,13 +59,19 @@ export async function apiFetch<T>(
  * corrected.
  */
 
-/** Labels, not plan data. The numbers always come from the response. */
-const QUOTA_NOUNS: Record<string, string> = {
-  'aircraft.active': 'active aircraft',
-  'members.active': 'members',
-  'storage.bytes': 'bytes of storage',
-  'exports.per_month': 'exports a month',
-  'api.calls_per_day': 'API calls a day',
+/**
+ * Labels, not plan data. The numbers always come from the response.
+ *
+ * Two forms, because the free tier's limits are mostly one and "Your plan
+ * allows 1 members" reads like a bug in a sentence that is otherwise trying
+ * to be helpful.
+ */
+const QUOTA_NOUNS: Record<string, readonly [singular: string, plural: string]> = {
+  'aircraft.active': ['active aircraft', 'active aircraft'],
+  'members.active': ['member', 'members'],
+  'storage.bytes': ['byte of storage', 'bytes of storage'],
+  'exports.per_month': ['export a month', 'exports a month'],
+  'api.calls_per_day': ['API call a day', 'API calls a day'],
 };
 
 const RESOURCE_NOUNS: Record<string, string> = {
@@ -157,14 +163,30 @@ export function messageFor(error: unknown): string {
     case 'quota_exceeded': {
       // The limit is whatever the server resolved for THIS tenant and THIS
       // key — never a number compiled in here.
-      const noun = QUOTA_NOUNS[body.quota ?? ''] ?? (body.quota ?? 'items');
       const limit = typeof body.limit === 'number' ? body.limit : undefined;
+      const forms = QUOTA_NOUNS[body.quota ?? ''];
+      const noun = forms ? forms[limit === 1 ? 0 : 1] : (body.quota ?? 'items');
       const cap = limit === undefined ? `Your plan limits ${noun}.` : `Your plan allows ${limit} ${noun}.`;
-      // Only offer remediation the server said was available. "Upgrade" is
-      // deliberately absent until there is somewhere to upgrade.
-      return body.remediation?.includes('archive')
-        ? `${cap} Archive one to make room.`
-        : cap;
+
+      /**
+       * Only remediation the server said was available (§1.6's 402 body
+       * carries it for exactly this reason), and only the ones this client
+       * can actually offer.
+       *
+       * "Upgrade" was deliberately absent here until M7, because there was
+       * nowhere to upgrade and a sentence pointing at nothing is worse than
+       * no sentence. There is somewhere now — on the web. It stays absent
+       * from the iOS app, which relies on Apple's 3.1.3(f) and must carry no
+       * call to action to purchase outside it (§8.3); mobile has its own
+       * wording for the same body, in mobile/src/lib/api.ts.
+       */
+      const paths = [
+        body.remediation?.includes('archive') ? 'move one out of the way' : null,
+        body.remediation?.includes('upgrade') ? 'change plan' : null,
+      ].filter((path): path is string => path !== null);
+
+      if (paths.length === 0) return cap;
+      return `${cap} You can ${paths.join(' or ')}.`;
     }
 
     case 'forbidden': {

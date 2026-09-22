@@ -82,6 +82,32 @@ export const config = {
     baseUrl: process.env.FS_WEB_URL ?? 'http://127.0.0.1:3001',
   },
   /**
+   * Platform billing (§8.3) — tenant to FlightSquare, web only.
+   *
+   * With no secret key the API runs the stub provider, which signs and
+   * delivers the same events to the same endpoint. That is not a degraded
+   * mode for development: it is how the whole flow is tested, and turning it
+   * into the real thing is these two variables and nothing else.
+   */
+  billing: {
+    secretKey: process.env.FS_STRIPE_SECRET_KEY ?? '',
+    /**
+     * Stripe prints this when you run `stripe listen`. The stub's default is
+     * a fixed development string on purpose — it is not a secret, because
+     * the only thing it authenticates is this process talking to itself.
+     */
+    webhookSecret: process.env.FS_STRIPE_WEBHOOK_SECRET ?? 'whsec_stub_development',
+    /**
+     * Where this API answers, from the outside. The stub builds its own
+     * checkout and portal URLs against it, and they are visited by a
+     * browser — so in development it must be the host the web app is served
+     * from (127.0.0.1, not localhost; see web/next.config.ts).
+     */
+    apiBaseUrl:
+      process.env.FS_API_PUBLIC_URL ??
+      `http://${process.env.FS_API_HOST ?? '127.0.0.1'}:${int('FS_API_PORT', 3000)}`,
+  },
+  /**
    * Rate limits on the unauthenticated endpoints. 429 is requests per unit
    * time and is never a plan quota (§1.6) — nothing here touches
    * entitlements, and nothing in entitlements reaches here.
@@ -94,6 +120,13 @@ export const config = {
     signup: { max: int('FS_RATE_LIMIT_SIGNUP_MAX', 5), timeWindow: '1 hour' },
     login: { max: int('FS_RATE_LIMIT_LOGIN_MAX', 10), timeWindow: '5 minutes' },
     refresh: { max: int('FS_RATE_LIMIT_REFRESH_MAX', 60), timeWindow: '5 minutes' },
+    /**
+     * The webhook is unauthenticated in the session sense — anyone can POST
+     * at it, and the signature is what decides whether it is listened to.
+     * Generous, because a real provider retries in bursts and a dropped
+     * webhook is a plan that silently never changed.
+     */
+    webhook: { max: int('FS_RATE_LIMIT_WEBHOOK_MAX', 300), timeWindow: '1 minute' },
   },
   logLevel: process.env.FS_LOG_LEVEL ?? 'info',
 } as const;

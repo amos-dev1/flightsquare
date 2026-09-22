@@ -11,7 +11,7 @@ import {
 import type { AircraftResponse, SquawkSeverity } from '@flightsquare/shared';
 
 import { Body, Button, Card, Choice, Field, Input, Notice, SectionHeading } from '@/components/ui';
-import { api, withAuth } from '@/lib/api';
+import { api, messageFor, withAuth } from '@/lib/api';
 import { saveSquawk } from '@/lib/sync';
 import { color, space, type } from '@/theme';
 
@@ -74,8 +74,10 @@ export default function ReportSquawk() {
         grounding: severity === 'grounding',
       });
       router.back();
-    } catch {
-      setError('Could not save. Try again.');
+    } catch (error) {
+      // The server's own words where it has them — a plan limit in
+      // particular, which this app states and never offers to fix (§8.3).
+      setError(messageFor(error));
     } finally {
       setBusy(false);
     }

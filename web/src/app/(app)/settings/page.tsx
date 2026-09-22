@@ -1,5 +1,7 @@
+import Link from 'next/link';
+
 import { apiFetch } from '@/lib/api';
-import { PageTitle, SectionHeading } from '@/components/ui';
+import { Card, PageTitle, SectionHeading } from '@/components/ui';
 import type { EntitlementsResponse, MeResponse, TenantResponse } from '@flightsquare/shared';
 
 import { ProfileForm, TenantSettingsForm, VerifyEmailNotice } from './client';
@@ -37,11 +39,34 @@ export default async function SettingsPage() {
         <ProfileForm me={me} />
       </section>
 
-      <p className="text-xs text-secondary">
-        {/* §8.1: read from what the server resolved, never a table compiled
-            in here — that goes stale where it cannot be corrected. */}
-        On the {entitlements.plan_code} plan.
-      </p>
+      {/*
+        §8.1: read from what the server resolved, never a table compiled in
+        here — that goes stale where it cannot be corrected.
+
+        A link rather than the subscription itself: this page is already two
+        things that live in different places (§3.1), and what the club pays
+        FlightSquare is a third. It is also the one thing here a Pilot may
+        not see at all.
+      */}
+      {entitlements.permissions.subscription === 'none' ? (
+        <p className="text-xs text-secondary">On the {entitlements.plan_code} plan.</p>
+      ) : (
+        <section className="space-y-3">
+          <SectionHeading>Subscription</SectionHeading>
+          <Card className="flex flex-wrap items-baseline justify-between gap-3 px-5 py-4">
+            <p className="text-sm">
+              On the <strong>{entitlements.plan_code}</strong> plan — what this club
+              pays FlightSquare.
+            </p>
+            <Link
+              href="/settings/subscription"
+              className="text-sm font-semibold underline decoration-1 underline-offset-4"
+            >
+              Plans and invoices
+            </Link>
+          </Card>
+        </section>
+      )}
     </div>
   );
 }

@@ -28,6 +28,23 @@ export async function entitlementsRoutes(app: FastifyInstance): Promise<void> {
     async (request) => {
       const { entitlements, permissions } = await request.loadGates();
 
+      /**
+       * What they are using, next to what they may use.
+       *
+       * §4.5 counts in the database because it is the only place that sees
+       * every write, and until now nothing read the counts back — so the
+       * only way a club learned it was over a limit was by walking into a
+       * 402. §5 offers two remediations, upgrade or archive, and neither can
+       * be offered by a screen that does not know how far over they are.
+       *
+       * Read here rather than in `loadGates` on purpose: every tenant-scoped
+       * request loads gates, and almost none of them care about usage.
+       */
+      const usage = await request.withTenant((trx) =>
+        trx.selectFrom('tenant_usage').select(['quota_key', 'current_value']).execute(),
+      );
+      const counted = new Map(usage.map((row) => [row.quota_key, Number(row.current_value)]));
+
       const flags: Record<string, boolean> = {};
       const quotas: Record<string, ResolvedQuota> = {};
       const config: Record<string, string> = {};
@@ -37,11 +54,15 @@ export async function entitlementsRoutes(app: FastifyInstance): Promise<void> {
         if (kind === 'flag') {
           flags[resolved.key] = resolved.value as boolean;
         } else if (kind === 'quota') {
+          const current = counted.get(resolved.key);
           quotas[resolved.key] = {
             limit: serialiseQuota(resolved.value as QuotaValue),
             // §7.8: which layer supplied it. Most support tickets are "the
             // customer says they cannot do X", and this ends that ticket class.
             source: resolved.source,
+            // Absent, not zero, for a quota nothing counts yet: a screen
+            // should be able to tell "none used" from "not measured".
+            ...(current === undefined ? {} : { current }),
           };
         } else {
           config[resolved.key] = resolved.value as string;

@@ -14,6 +14,8 @@ import {
   type RequestContextOptions,
 } from './plugins/request-context.js';
 import { accountRoutes } from './routes/account.js';
+import { billingStubRoutes } from './routes/billing-stub.js';
+import { billingWebhookRoutes } from './routes/billing-webhook.js';
 import { authRoutes } from './routes/auth.js';
 import { billingRoutes } from './routes/billing.js';
 import { aircraftRoutes } from './routes/aircraft.js';
@@ -23,6 +25,7 @@ import { healthRoutes } from './routes/health.js';
 import { maintenanceRoutes } from './routes/maintenance.js';
 import { memberRoutes } from './routes/members.js';
 import { squawkRoutes } from './routes/squawks.js';
+import { subscriptionRoutes } from './routes/subscription.js';
 import { referenceRoutes } from './routes/reference.js';
 import { schedulingRoutes } from './routes/scheduling.js';
 import { meRoutes } from './routes/me.js';
@@ -162,6 +165,21 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
 
   // Public.
   void app.register(healthRoutes);
+  /**
+   * The billing webhook, in its own plugin so the raw-body parser it needs
+   * stays encapsulated. Unauthenticated by nature — a provider has no
+   * session — and the signature is what stands between it and the internet.
+   */
+  void app.register(billingWebhookRoutes);
+  /**
+   * The stub provider's stand-in for the pages Stripe would host. Only when
+   * there is no key to use, and never in production: with no key these
+   * endpoints can change a plan, which is exactly right on a laptop and
+   * exactly wrong anywhere else.
+   */
+  if (!config.billing.secretKey && process.env.NODE_ENV !== 'production') {
+    void app.register(billingStubRoutes);
+  }
   void app.register(signupRoutes, { prefix: '/auth', limit: limits.signup });
   void app.register(authRoutes, { prefix: '/auth', limits });
   // Verification and reset are public by necessity: they are for people who
@@ -179,6 +197,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(memberRoutes);
   void app.register(schedulingRoutes);
   void app.register(squawkRoutes);
+  void app.register(subscriptionRoutes);
   void app.register(referenceRoutes);
 
   return app;

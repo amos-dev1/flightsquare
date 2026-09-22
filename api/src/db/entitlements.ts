@@ -94,6 +94,18 @@ export async function assertQuota(
   trx: Tx,
   key: QuotaKey,
   quota: QuotaValue,
+  /**
+   * What to tell the client the limit is, when that differs from what is
+   * being locked against.
+   *
+   * The invite path is the case: it subtracts outstanding invitations from
+   * the limit, because five pending invites on a limit of five would all
+   * pass and the sixth member would arrive through a door already checked.
+   * That is the right thing to enforce and the wrong thing to report — "your
+   * plan allows 0 members" is not true of any plan, and §1.6 puts these
+   * numbers in the body precisely so a screen can say something accurate.
+   */
+  reported?: number,
 ): Promise<void> {
   const limit = limitForDatabase(quota);
   if (limit === null) return; // Unlimited: nothing to lock, nothing to compare.
@@ -106,7 +118,7 @@ export async function assertQuota(
       const detail = Number((error as { detail?: unknown }).detail);
       throw new QuotaExceededError(
         key,
-        limit,
+        reported ?? limit,
         Number.isFinite(detail) ? detail : limit,
         // §5's remediation paths: upgrade, or choose what to archive.
         ['upgrade', 'archive'],

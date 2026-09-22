@@ -157,6 +157,8 @@ db/                             not an npm workspace — SQL and psql only
                                 them, fuel credits and adjustments (§3.7)
     0014_route_is_free_text.sql departure and arrival stop being keys into a
                                 twenty-row reference table
+    0015_platform_billing.sql   subscriptions, webhook idempotency, and the
+                                two helpers that hold the plan change
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -177,12 +179,15 @@ db/                             not an npm workspace — SQL and psql only
     130_scheduling.sql                     the race that cannot be lost, and
                                            who may book what
     140_member_billing.sql                 February keeps February's price
+    150_platform_billing.sql               the plan change the app cannot make
 api/
   src/
     config.ts                   env, client version floors, rate limits
     password.ts                 scrypt from node:crypto, no native build step
     tokens.ts                   session token generation and hashing
     permissions.ts              §1.5's twelve resources and three levels
+    billing/                    the provider behind one interface: Stripe when
+                                a key is set, a signing stub when not
     entitlements/
       registry.ts               every key, with a global default
       resolver.ts               §1.4's chain: override -> plan -> default
@@ -191,7 +196,7 @@ api/
       schema.ts                 Kysely types for every table and both views
       pool.ts                   pg pool, Kysely, and the boot-time role check
       context.ts                withSession / withTenant / withUser
-      auth.ts                   the nine §2.1 functions, typed
+      auth.ts                   the eleven §2.1 functions, typed
       sessions.ts               creating, rotating and revoking sessions
       idempotency.ts            §8.2's replay-safe writes
       entitlements.ts           loading the layers, and the quota gate
@@ -204,7 +209,7 @@ api/
       routes/                   health, signup, auth, account, me, tenant,
                                 entitlements, members, aircraft, flights,
                                 maintenance, squawks, scheduling, billing,
-                                reference
+                                subscription, billing-webhook, reference
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -362,8 +367,8 @@ is left:
 - **Large parts of the web app are not built, rather than broken.** What
   exists is sign-up and sign-in, the roster and invitations, settings and
   profile, the fleet, an aircraft, the post-flight entry, maintenance,
-  squawks, the calendar and member billing. What does not, in rough order of
-  how much it is missed:
+  squawks, the calendar, member billing and the subscription. What does not,
+  in rough order of how much it is missed:
 
   | Missing | Where it would go |
   |---|---|
@@ -372,7 +377,6 @@ is left:
   | Add or edit a maintenance item by hand | only seeding the whole library is wired, and only when an aircraft has none |
   | Compliance history | records can be written and never read back |
   | Meter correction | the API takes `supersedes_id`, so the "Corrected" badge can never appear from the web |
-  | Subscription and plan changes | no UI and no API — M7 |
   | Switching organisation after sign-in | the picker is only shown at login |
 
   These are honest gaps, not bugs. The web app tells the truth about what it
@@ -439,22 +443,31 @@ is left:
     to, and a club with three aircraft then picks from a list twice.
   - Members is a daily screen for a club of five, not a setting. Filing it
     under settings makes the most-used admin page the most buried one.
-  - Subscription genuinely belongs in a hub, and does not exist yet (M7).
+  - Subscription genuinely belongs in a hub, and now exists: it sits at
+    `/settings/subscription`, linked from a card on the settings page. That
+    is the first piece of the hub, arrived at by the route the argument
+    below predicted.
 
   The version worth building is probably a hub that **links** rather than
   absorbs: one page an admin can start from, pointing at the screens where
   the things already are, plus subscription and maintenance-preset setup
   which have nowhere else to be. That keeps one place to look without making
-  anything harder to reach. Worth deciding when M7 lands and there is
-  actually a third thing to put in it.
+  anything harder to reach. There are two things in it now — the club's own
+  settings and the subscription — and maintenance-preset setup would be the
+  third that settles it.
 - **MFA is reported but not enforced.** `login` returns `mfa_required` from
   the user row; nothing acts on it yet.
-- **Nothing writes to `audit_log`.** §5.9 wants every plan change recorded
-  there with before/after resolved entitlements, which arrives with plan
-  changes rather than with the plans themselves.
-- **§5's downgrade machinery does not exist.** `over_quota`, the 14-day
-  remediation window and the deterministic auto-archive are a later phase; the
-  schema does not foreclose them.
+- **A plan change is the only thing that writes `audit_log`.** §5.9 wants
+  before/after *resolved entitlements* rather than a plan code, and that is
+  what the webhook records. Nothing else writes there yet.
+- **§5's downgrade machinery is partly deliberate absence.** `over_quota` is
+  computed rather than stored — it is `tenant_usage` against the resolved
+  limit, which both sides already know, and a state column would be a third
+  place to get it wrong. The 14-day remediation window and the deterministic
+  auto-archive are out of v1 by V1_SCOPE's own decision: creates are blocked
+  and the club decides what to move, for as long as it takes. A downgrade to
+  Free is the provider's "cancel at period end", so §5.1 needs no timer of
+  ours and no subscription schedules.
 - **`packages/shared` has no build step.** It is consumed only with
   `import type`, which erases, so nothing resolves it at runtime. A *value*
   import from it would compile and then fail at runtime. The moment it needs

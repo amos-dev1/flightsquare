@@ -40,7 +40,7 @@ export async function tenantRoutes(app: FastifyInstance): Promise<void> {
     const tenant = await request.withTenant((trx) =>
       trx
         .selectFrom('tenants')
-        .select(['id', 'slug', 'name', 'archetype', 'timezone', 'branding'])
+        .select(['id', 'slug', 'name', 'archetype', 'timezone', 'branding', 'status'])
         .executeTakeFirst(),
     );
 
@@ -94,7 +94,7 @@ export async function tenantRoutes(app: FastifyInstance): Promise<void> {
         await trx.updateTable('tenants').set(changes).execute();
         return trx
           .selectFrom('tenants')
-          .select(['id', 'slug', 'name', 'archetype', 'timezone', 'branding'])
+          .select(['id', 'slug', 'name', 'archetype', 'timezone', 'branding', 'status'])
           .executeTakeFirst();
       });
 
