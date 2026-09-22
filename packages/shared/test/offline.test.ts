@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/client.js';
 import {
   createMemoryQueueStore,
+  discardFailed,
   flushQueue,
+  retryFailed,
   type QueuedFlight,
   type QueuedSquawk,
 } from '../src/offline.js';
@@ -157,5 +159,59 @@ describe('flushQueue', () => {
 
     expect(submit).not.toHaveBeenCalled();
     expect(result).toEqual({ sent: 0, failed: 0, deferred: 0 });
+  });
+});
+
+/**
+ * The other half of a parked write.
+ *
+ * `flushQueue` only looks at `pending`, which is what makes a 4xx terminal —
+ * and, until these existed, what made it a dead end: an entry could not be
+ * retried, read or removed from the device, and the screen reporting it told
+ * people to open it on the web, where there is no such screen. A flight that
+ * cannot be retried is a meter reading nothing else has.
+ */
+describe('a refused write', () => {
+  it('goes back in the queue and sends on the next pass', async () => {
+    const store = createMemoryQueueStore([
+      entry({ state: 'failed', attempts: 1, lastError: 'aircraft not found' }),
+    ]);
+
+    expect(await retryFailed(store, 'flight-1')).toBe(true);
+
+    const [requeued] = await store.all();
+    expect(requeued?.state).toBe('pending');
+    expect(requeued?.lastError).toBeUndefined();
+    // The count is kept: it is the honest record of how hard this has been,
+    // and it is what says whether the problem was transient.
+    expect(requeued?.attempts).toBe(1);
+
+    const submit = vi.fn().mockResolvedValue({});
+    expect(await flushQueue(store, submit)).toEqual({ sent: 1, failed: 0, deferred: 0 });
+    expect(await store.all()).toEqual([]);
+  });
+
+  it('will not resurrect something that is already waiting', async () => {
+    // A pending entry is not stuck, and "try again" on one would reset an
+    // error that is about to be overwritten anyway.
+    const store = createMemoryQueueStore([entry()]);
+    expect(await retryFailed(store, 'flight-1')).toBe(false);
+    expect((await store.all())[0]?.state).toBe('pending');
+  });
+
+  it('can be given up on, but only once it has actually failed', async () => {
+    const pending = createMemoryQueueStore([entry()]);
+    expect(await discardFailed(pending, 'flight-1')).toBe(false);
+    expect(await pending.all()).toHaveLength(1);
+
+    const failed = createMemoryQueueStore([entry({ state: 'failed', attempts: 2 })]);
+    expect(await discardFailed(failed, 'flight-1')).toBe(true);
+    expect(await failed.all()).toEqual([]);
+  });
+
+  it('says so when the entry is not there at all', async () => {
+    const store = createMemoryQueueStore([]);
+    expect(await retryFailed(store, 'gone')).toBe(false);
+    expect(await discardFailed(store, 'gone')).toBe(false);
   });
 });

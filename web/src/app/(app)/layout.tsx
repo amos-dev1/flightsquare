@@ -86,6 +86,13 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           <nav className="flex flex-1 items-center gap-6">
             <NavLink href="/aircraft">Fleet</NavLink>
             <NavLink href="/schedule">Schedule</NavLink>
+            {/*
+              The other half of §3.4's loop. Everyone holds `flights: write`
+              (§4.4), so there is nothing to gate — a club's flights are
+              shared on purpose, because who flew what is how the meters and
+              the money reconcile.
+            */}
+            <NavLink href="/flights">Flights</NavLink>
             <NavLink href="/maintenance">Maintenance</NavLink>
             <NavLink href="/squawks">Squawks</NavLink>
             {/*

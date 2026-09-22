@@ -82,6 +82,28 @@ arguments:
 ./scripts/roles.sh                     # after pulling a change that adds a role
 ```
 
+**Everything at once, including on a real phone.** `npm run dev:all` brings up
+the database, the API, the web app, the mail sender and the sweep together,
+binds them to this machine's LAN address, and prints what to point a phone at.
+`npm run dev:all -- --local` keeps it on `127.0.0.1`.
+
+It exists because almost all of this product can be exercised at home. Stripe
+runs in test mode with `stripe listen --forward-to <host>:3000/webhooks/stripe`
+— real webhooks, tunnelled to a laptop — and real email needs nothing but
+`FS_MAIL_API_KEY`. **The line where a deployment becomes unavoidable is a
+device that is not on your Wi-Fi**: TestFlight, and a club member at their own
+airfield. A shipped build also needs HTTPS, which Apple's ATS will not waive
+for a LAN address.
+
+Three things have to be true for a phone to reach it, and `dev.sh` sets all
+three: the API binds `0.0.0.0` rather than loopback; `FS_API_URL`,
+`FS_WEB_URL`, `FS_API_PUBLIC_URL` and `EXPO_PUBLIC_API_URL` all name the same
+host — the middle two are what email links and the billing stub's checkout
+URLs are built from, so a phone following a verification link to `127.0.0.1`
+lands nowhere; and `FS_LAN_HOST` is added to Next's `allowedDevOrigins`, or a
+phone browsing the web app reproduces the dead-button hydration failure on
+hardware.
+
 **Email.** `npm run mail -w api` starts the sender, and `npm run sweep -w api
 -- --once` runs the maintenance digest a single time (without `--once` it
 runs daily). With no API key it logs
@@ -258,13 +280,18 @@ mobile/
   src/
     lib/queue.ts                expo-sqlite behind the shared QueueStore
     lib/sync.ts                 save-locally-first, flush when there is signal
-    app/                        sign in, fleet, post-flight entry, squawk
+    lib/use-sync.ts             when the queue is flushed: foreground, reconnect
+    app/                        sign in, choose a club, and four tabs — fleet,
+                                schedule, squawks, charges — with post-flight
+                                entry, reporting a defect and the sync queue
+                                pushed from them
 scripts/
   lib.sh                        sourced by the rest; loads .env, finds docker
   roles.sh                      db/roles.sql against a database that exists
   migrate.sh                    forward-only, checksummed
   test.sh                       fixtures as superuser, assertions as app_role
   psql.sh                       interactive psql as any role
+  dev.sh                        everything at once, reachable from a phone
   outbox.sh                     what is queued, and what the sender did with it
   seed-demo.sh                  an account to sign in with, until signup exists
 ```
@@ -398,15 +425,23 @@ is left:
 - **The Expo app has run in the Simulator, and on nothing else.** It boots,
   renders and signs in there; no physical device has seen it, and the offline
   queue has not been exercised against a real dropped connection.
+  `npm run dev:all` now makes that testable without deploying anything — it
+  is the next thing worth doing on this app.
+- **Sync is foreground and reconnect, never background.** The queue flushes
+  when the app comes to the foreground and when the network returns, which
+  covers the real case — the phone was in a pocket on the walk back to the
+  car. It does not flush while the app is closed: `expo-background-task`
+  means a background mode in the entitlements and a conversation at App
+  Review, and a queued flight is not urgent, it is only not allowed to be
+  forgotten.
 - **Large parts of the web app are not built, rather than broken.** What
   exists is sign-up and sign-in, the roster and invitations, settings and
-  profile, the fleet, an aircraft, the post-flight entry, maintenance,
-  squawks, the calendar, member billing and the subscription. What does not,
-  in rough order of how much it is missed:
+  profile, the fleet, an aircraft, the post-flight entry, the flight list,
+  maintenance, squawks, the calendar, member billing and the subscription.
+  What does not, in rough order of how much it is missed:
 
   | Missing | Where it would go |
   |---|---|
-  | Flight list and history | `GET /flights` has no caller at all; flights are write-only from the UI, and `?needs_review=true` has no screen |
   | Work orders | list, create and signoff — the API and its guard trigger are done |
   | Add or edit a maintenance item by hand | only seeding the whole library is wired, and only when an aircraft has none |
   | Compliance history | records can be written and never read back |

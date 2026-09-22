@@ -5,7 +5,12 @@ import { closeDatabase } from '../src/db/pool.js';
 import { buildServer } from '../src/http/server.js';
 import type { ResolvedSession } from '../src/http/session.js';
 import { UnauthorizedError } from '../src/http/errors.js';
-import { cleanupTestTenants, provisionTestTenant } from './helpers/fixtures.js';
+import {
+  addTestMember,
+  cleanupTestTenants,
+  provisionTestTenant,
+  setPlan,
+} from './helpers/fixtures.js';
 
 const SESSION_ID = '01920000-0000-7000-8000-0000000000b0';
 let keyCounter = 0;
@@ -216,6 +221,35 @@ describe('flight logging', () => {
     const entitlements = await app.inject({ method: 'GET', url: '/entitlements' });
     const quotas = Object.keys(entitlements.json().quotas);
     expect(quotas.filter((q) => q.startsWith('flight'))).toEqual([]);
+  });
+
+  it('separates the whole club\u2019s flights from this pilot\u2019s own', async () => {
+    // A club's flights are shared by design — §4.4 gives everyone `flights`
+    // at scope `all`, because who flew what is how the meters and the money
+    // reconcile. So `mine` is a filter, not a permission, and until it
+    // existed there was no way to ask the question at all.
+    await setPlan(tenant.tenant_id, 'pro');
+    const other = await addTestMember(tenant.tenant_id, 'flights-other', 'pilot');
+
+    await logFlight({
+      flown_by: other.membership_id,
+      hobbs_start: '9500.0',
+      hobbs_end: '9501.0',
+    });
+
+    const everything = await app.inject({ method: 'GET', url: '/flights' });
+    const mine = await app.inject({ method: 'GET', url: '/flights?mine=true' });
+
+    expect(everything.json().length).toBeGreaterThan(mine.json().length);
+    expect(
+      mine.json().every((flight: { flown_by: string }) => flight.flown_by !== other.membership_id),
+    ).toBe(true);
+
+    // And the export stays own-only by construction, whatever the list is
+    // filtered to — §3.4 is explicit that the export is the whole of the
+    // pilot-logbook story, and somebody else's flights are not part of it.
+    const csv = await app.inject({ method: 'GET', url: '/flights/export.csv' });
+    expect(csv.body.split('\n').length - 1).toBe(mine.json().length + 1);
   });
 
   it('accepts a field the reference table has never heard of', async () => {

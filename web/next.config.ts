@@ -20,8 +20,17 @@ const config: NextConfig = {
    *
    * It fails that quietly because it is a dev-only safety check, not an
    * error. The only sign is one warning line in the dev server's own output.
+   *
+   * `FS_LAN_HOST` is the same trap one step further out. A phone on the same
+   * Wi-Fi reaches this app at the machine's LAN address, which is a third
+   * origin again — so without it here, testing on a real device reproduces
+   * the dead-button afternoon exactly, on hardware, where it is harder to
+   * diagnose. `scripts/dev.sh` sets it.
    */
-  allowedDevOrigins: ['127.0.0.1'],
+  allowedDevOrigins: [
+    '127.0.0.1',
+    ...(process.env.FS_LAN_HOST ? [process.env.FS_LAN_HOST] : []),
+  ],
 };
 
 export default config;

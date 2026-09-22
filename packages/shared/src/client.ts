@@ -3,10 +3,12 @@ import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
   AircraftTypeResponse,
+  BlackoutResponse,
   CreateAircraftRequest,
   CreateComplianceRecordRequest,
   CreateFlightRequest,
   CreateMeterReadingRequest,
+  CreateReservationRequest,
   CreateSquawkRequest,
   EntitlementsResponse,
   FlightResponse,
@@ -16,8 +18,10 @@ import type {
   MembershipSummaryResponse,
   MeterReadingResponse,
   RefreshResponse,
+  ReservationResponse,
   SelectTenantResponse,
   SquawkResponse,
+  StatementResponse,
   TenantResponse,
 } from './index.js';
 
@@ -133,11 +137,20 @@ export function createClient(options: ClientOptions) {
       request<{ id: string }>('POST', `/aircraft/${aircraftId}/meter-readings`, input),
 
     // ---- flights --------------------------------------------------------
-    listFlights: (query: { aircraftId?: string } = {}) =>
-      request<FlightResponse[]>(
-        'GET',
-        query.aircraftId ? `/flights?aircraft_id=${query.aircraftId}` : '/flights',
-      ),
+    /**
+     * `mine` is a filter, not a permission. A club's flights are shared by
+     * design (§4.4 gives `flights` scope `all` to everyone), because who
+     * flew what is how a club reconciles its meters and its money — but what
+     * a pilot usually wants to look at is their own.
+     */
+    listFlights: (query: { aircraftId?: string; needsReview?: boolean; mine?: boolean } = {}) => {
+      const params = new URLSearchParams();
+      if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
+      if (query.needsReview) params.set('needs_review', 'true');
+      if (query.mine) params.set('mine', 'true');
+      const search = params.toString();
+      return request<FlightResponse[]>('GET', search ? `/flights?${search}` : '/flights');
+    },
     /** §8.2: the idempotency key is required, not optional, on this one. */
     createFlight: (input: CreateFlightRequest, idempotencyKey: string) =>
       request<FlightResponse>('POST', '/flights', input, { idempotencyKey }),
@@ -180,6 +193,74 @@ export function createClient(options: ClientOptions) {
      */
     createSquawk: (input: CreateSquawkRequest, idempotencyKey: string) =>
       request<SquawkResponse>('POST', '/squawks', input, { idempotencyKey }),
+
+    // ---- scheduling (§3.3) ----------------------------------------------
+    /**
+     * The whole club's calendar, not just this pilot's.
+     *
+     * §4.4 gives a Pilot `reservations: write` with scope `own`, and the
+     * policies behind it scope the *writing* — `reservation_own_insert` and
+     * `reservation_own_update` — while SELECT stays tenant-wide. That is the
+     * point of a shared aeroplane: you cannot book around other people
+     * without seeing them. `mine` narrows it for the "my bookings" view.
+     */
+    listReservations: (
+      query: { from?: string; to?: string; aircraftId?: string; mine?: boolean } = {},
+    ) => {
+      const params = new URLSearchParams();
+      if (query.from) params.set('from', query.from);
+      if (query.to) params.set('to', query.to);
+      if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
+      if (query.mine) params.set('mine', 'true');
+      const search = params.toString();
+      return request<ReservationResponse[]>(
+        'GET',
+        search ? `/reservations?${search}` : '/reservations',
+      );
+    },
+    /**
+     * No idempotency key, unlike a flight or a squawk — and deliberately not
+     * queued offline either. §8.2 queues the writes that must not be lost
+     * standing at an aeroplane; a booking is a claim on a shared resource in
+     * the future, and one made from a phone with no signal could be granted
+     * against a calendar the phone has not seen. The exclusion constraint is
+     * what decides, and it can only decide online.
+     */
+    createReservation: (input: CreateReservationRequest) =>
+      request<ReservationResponse>('POST', '/reservations', input),
+    cancelReservation: (id: string) =>
+      request<ReservationResponse>('POST', `/reservations/${id}/cancel`),
+    listBlackouts: (query: { from?: string; to?: string; aircraftId?: string } = {}) => {
+      const params = new URLSearchParams();
+      if (query.from) params.set('from', query.from);
+      if (query.to) params.set('to', query.to);
+      if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
+      const search = params.toString();
+      return request<BlackoutResponse[]>('GET', search ? `/blackouts?${search}` : '/blackouts');
+    },
+
+    // ---- member billing (§3.7) -------------------------------------------
+    /**
+     * Their own, and only their own.
+     *
+     * The `member` parameter the web treasurer's view uses is deliberately
+     * not exposed here: a Pilot holds `charges: read` scope `own`, so asking
+     * for somebody else's returns an empty statement rather than an error,
+     * and a client that can ask is a client that will one day ask by
+     * accident. Omitting it makes the endpoint answer the only question this
+     * client has.
+     *
+     * Behind `member_billing`, so this 404s on a free tenant — the one call
+     * in this client that can. §8.3: the app reads the flag and does not
+     * offer the screen, and says nothing about why.
+     */
+    statement: (query: { from?: string; to?: string } = {}) => {
+      const params = new URLSearchParams();
+      if (query.from) params.set('from', query.from);
+      if (query.to) params.set('to', query.to);
+      const search = params.toString();
+      return request<StatementResponse>('GET', search ? `/statement?${search}` : '/statement');
+    },
 
     // ---- reference ------------------------------------------------------
     aircraftTypes: (q?: string) =>

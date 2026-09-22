@@ -80,7 +80,7 @@ function toResponse(row: FlightRow): FlightResponse {
 }
 
 export async function flightRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: { aircraft_id?: string; needs_review?: string } }>(
+  app.get<{ Querystring: { aircraft_id?: string; needs_review?: string; mine?: string } }>(
     '/flights',
     { config: { requiresTenant: true, permission: ['flights', 'read'] } },
     async (request) => {
@@ -91,6 +91,28 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
         }
         if (request.query.needs_review === 'true') {
           query = query.where('flights.needs_review', '=', true);
+        }
+        /**
+         * `mine=true` — a filter, not a permission.
+         *
+         * A club's flights are shared by design: `flights` carries scope
+         * `all` for everyone (§4.4), because who flew what is how a club
+         * reconciles its meters and its money. What a pilot usually *wants*
+         * is their own, and the same distinction the calendar draws
+         * (`/reservations?mine=true`) applies here for the same reason —
+         * "show me mine" is a question about the screen, not about access.
+         *
+         * `/flights/export.csv` is own-only by construction rather than by
+         * this flag, and stays that way: it is the §3.4 logbook export, and
+         * transcribing somebody else's flights into your logbook is not a
+         * thing to make easy.
+         */
+        if (request.query.mine === 'true') {
+          query = query.where(
+            'flights.flown_by',
+            '=',
+            await ownMembership(trx, request.ctx!.userId),
+          );
         }
         return query
           .orderBy('flights.flight_date', 'desc')

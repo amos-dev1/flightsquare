@@ -20,16 +20,27 @@ export default function SignIn() {
       const result = await api.login(email.trim(), password);
 
       // §3.1: one human, many memberships. A solo owner has exactly one and
-      // should not be asked; anyone with more picks on the web for now.
+      // should not be asked; anyone with more chooses.
       const only = result.memberships.length === 1 ? result.memberships[0] : undefined;
+
       await writeSession({
         accessToken: result.access_token,
         refreshToken: result.refresh_token,
         expiresAt: result.expires_at,
+        // No tenantId yet, on purpose. The boot redirect keys on it, so a
+        // session written with one before a tenant is actually selected
+        // looks complete and is not — which is how a multi-club account used
+        // to get bounced back here on every launch.
       });
 
       if (!only) {
-        setError('This account belongs to more than one organisation. Choose one on the web first.');
+        router.replace({
+          pathname: '/choose-tenant',
+          // The login response already carries the names, so the picker
+          // needs no call of its own — and cannot make one usefully, since
+          // /me/memberships wants a session that has chosen.
+          params: { memberships: JSON.stringify(result.memberships) },
+        });
         return;
       }
 

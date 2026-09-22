@@ -151,6 +151,44 @@ function describe(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error';
 }
 
+/**
+ * Put a parked entry back in the queue.
+ *
+ * `flushQueue` only ever looks at `pending`, which is what makes a 4xx
+ * terminal — and, until this existed, what made it a dead end. A failed
+ * entry could not be retried, edited or removed from the device, and the
+ * screen that reported it told people to "open them on the web", where there
+ * is no such screen. A flight that cannot be retried is a meter reading
+ * nobody can recover.
+ *
+ * The attempt count is kept rather than reset. It is the honest record of
+ * how hard this has been, and it is what tells somebody looking at the row
+ * later whether the problem was transient.
+ */
+export async function retryFailed(store: QueueStore, id: string): Promise<boolean> {
+  const entry = (await store.all()).find((candidate) => candidate.id === id);
+  if (!entry || entry.state !== 'failed') return false;
+
+  await store.put({ ...entry, state: 'pending', lastError: undefined });
+  return true;
+}
+
+/**
+ * Give up on one, permanently.
+ *
+ * Only for a `failed` entry, and only on an explicit instruction from the
+ * person whose flight it is — §11 wants a destructive act worded plainly and
+ * confirmed, and discarding one of these loses a meter reading that nothing
+ * else in the system has.
+ */
+export async function discardFailed(store: QueueStore, id: string): Promise<boolean> {
+  const entry = (await store.all()).find((candidate) => candidate.id === id);
+  if (!entry || entry.state !== 'failed') return false;
+
+  await store.remove(id);
+  return true;
+}
+
 /** An in-memory store, used by the tests and as the reference implementation. */
 export function createMemoryQueueStore(initial: QueuedWrite[] = []): QueueStore {
   const entries = new Map(initial.map((entry) => [entry.id, entry]));

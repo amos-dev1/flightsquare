@@ -1,5 +1,7 @@
 import {
+  discardFailed,
   flushQueue,
+  retryFailed,
   uuidv7,
   type CreateFlightRequest,
   type CreateSquawkRequest,
@@ -84,6 +86,26 @@ function submit(entry: QueuedWrite): Promise<unknown> {
 
 export async function sync(): Promise<FlushResult> {
   return flushQueue(sqliteQueueStore, submit);
+}
+
+/** Everything on the device, for the screen that shows it. */
+export async function queued(): Promise<QueuedWrite[]> {
+  return sqliteQueueStore.all();
+}
+
+/**
+ * Put a refused write back in the queue, or give up on it.
+ *
+ * Both live in `packages/shared/src/offline.ts` beside the algorithm they
+ * complement, so they are tested in Node rather than on a phone. These two
+ * lines are the whole of what this workspace adds: the store.
+ */
+export async function retry(id: string): Promise<boolean> {
+  return retryFailed(sqliteQueueStore, id);
+}
+
+export async function discard(id: string): Promise<boolean> {
+  return discardFailed(sqliteQueueStore, id);
 }
 
 export async function pendingCount(): Promise<{ pending: number; failed: number }> {
