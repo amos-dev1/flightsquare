@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
@@ -177,15 +177,21 @@ export default function Schedule() {
         </Card>
       ) : null}
 
+      {/*
+        A filter, not a field — so not a `Choice`, which renders a
+        full-width fill and would put a second visually dominant action on a
+        screen that already has "Book it" (§11: one per section). Weight and
+        a teal rule carry the selected state, and the label carries the
+        meaning, so it is never colour alone.
+      */}
       <View style={styles.viewToggle}>
-        <Choice
-          options={[
-            { value: 'everyone', label: 'Everyone' },
-            { value: 'mine', label: 'Mine' },
-          ]}
-          value={showing}
-          onChange={setShowing}
-        />
+        {(['everyone', 'mine'] as const).map((option) => (
+          <Pressable key={option} onPress={() => setShowing(option)} hitSlop={space.sm}>
+            <Text style={[styles.filter, showing === option && styles.filterOn]}>
+              {option === 'everyone' ? 'Everyone' : 'Mine'}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
       {byDay.length === 0 ? (
@@ -243,6 +249,14 @@ export default function Schedule() {
   );
 }
 
+/**
+ * Which aeroplane, and whether it may fly.
+ *
+ * The registration is here rather than implied: with one aircraft the
+ * selector above is not rendered at all, and a bare "Available" chip then
+ * describes something the screen never names. §11 wants a status attached to
+ * the thing it is about.
+ */
 function Dispatch({
   availability,
   aircraftId,
@@ -253,18 +267,22 @@ function Dispatch({
   const state = availability.find((row) => row.aircraft_id === aircraftId);
   if (!state) return null;
 
-  return state.available ? (
-    <View style={styles.field}>
-      <Status label="Available" />
-    </View>
-  ) : (
-    <View style={styles.field}>
-      <Status label="Grounded" emphatic />
-      {state.grounding_reasons.map((reason) => (
-        <Text key={reason} style={styles.meta}>
-          {reason}
-        </Text>
-      ))}
+  return (
+    <View style={styles.dispatch}>
+      <View style={styles.dispatchLine}>
+        <Text style={styles.registration}>{state.registration}</Text>
+        <Status
+          label={state.available ? 'Available' : 'Grounded'}
+          emphatic={!state.available}
+        />
+      </View>
+      {state.available
+        ? null
+        : state.grounding_reasons.map((reason) => (
+            <Text key={reason} style={styles.meta}>
+              {reason}
+            </Text>
+          ))}
     </View>
   );
 }
@@ -330,7 +348,15 @@ const styles = StyleSheet.create({
   field: { marginTop: space.md },
   times: { flexDirection: 'row', gap: space.md },
   time: { flex: 1 },
-  viewToggle: { marginTop: space.sm },
+  viewToggle: { flexDirection: 'row', gap: space.lg, marginTop: space.sm },
+  filter: { ...type.label, color: color.secondary, paddingVertical: space.xs },
+  filterOn: {
+    color: color.brandBlack,
+    borderBottomWidth: 2,
+    borderBottomColor: color.accent,
+  },
+  dispatch: { marginTop: space.md, marginBottom: space.sm, gap: space.xs },
+  dispatchLine: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   empty: { gap: space.sm, paddingVertical: space.lg },
   day: { gap: space.sm },
   dayLabel: { ...type.sectionHeading, marginTop: space.sm },

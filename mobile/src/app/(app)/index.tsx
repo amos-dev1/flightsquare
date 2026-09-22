@@ -227,7 +227,7 @@ function squawkLine(squawks: SquawkResponse[], aircraftId: string): string {
 
 const styles = StyleSheet.create({
   queueNotice: { gap: space.sm },
-  attention: { ...type.supporting, color: color.secondary, marginTop: space.sm },
+  attention: { ...type.supporting, color: color.secondary, marginTop: space.sm, marginBottom: space.base },
   container: { padding: space.base, gap: space.base },
   row: { flexDirection: 'row', alignItems: 'center' },
   identity: { flex: 1, gap: space.xs },
