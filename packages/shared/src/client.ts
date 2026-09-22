@@ -12,6 +12,7 @@ import type {
   CreateSquawkRequest,
   EntitlementsResponse,
   FlightResponse,
+  FlightSummaryResponse,
   LoginResponse,
   MaintenanceItemResponse,
   MeResponse,
@@ -150,6 +151,22 @@ export function createClient(options: ClientOptions) {
       if (query.mine) params.set('mine', 'true');
       const search = params.toString();
       return request<FlightResponse[]>('GET', search ? `/flights?${search}` : '/flights');
+    },
+    /**
+     * The same flights, added up by the server rather than by this client.
+     *
+     * §8.2 again: a total on a dashboard matters, and `listFlights` caps at
+     * 200 rows — so summing them here would be wrong past that, quietly.
+     */
+    flightSummary: (query: { aircraftId?: string; mine?: boolean } = {}) => {
+      const params = new URLSearchParams();
+      if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
+      if (query.mine) params.set('mine', 'true');
+      const search = params.toString();
+      return request<FlightSummaryResponse>(
+        'GET',
+        search ? `/flights/summary?${search}` : '/flights/summary',
+      );
     },
     /** §8.2: the idempotency key is required, not optional, on this one. */
     createFlight: (input: CreateFlightRequest, idempotencyKey: string) =>

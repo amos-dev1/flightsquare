@@ -8,6 +8,24 @@ const workspaceRoot = path.resolve(projectRoot, '..');
 
 const config = getDefaultConfig(projectRoot);
 
+/**
+ * `.svg` becomes source rather than an opaque asset, so the approved brand
+ * artwork in `assets/` can be imported as a component.
+ *
+ * §11 says never to recreate the logo in CSS or from an icon library, and to
+ * prefer the approved SVG. Inlining its path data into a `.tsx` would render
+ * correctly today and is exactly how brand artwork drifts: the file in
+ * `web/public` would change and the copy in code would not.
+ *
+ * This does not interact with the resolveRequest below — different hook,
+ * different question.
+ */
+config.transformer.babelTransformerPath = require.resolve(
+  'react-native-svg-transformer/expo',
+);
+config.resolver.assetExts = config.resolver.assetExts.filter((ext) => ext !== 'svg');
+config.resolver.sourceExts = [...config.resolver.sourceExts, 'svg'];
+
 // packages/shared is consumed as source, so Metro has to watch it.
 config.watchFolders = [workspaceRoot];
 config.resolver.nodeModulesPaths = [

@@ -1,53 +1,87 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Feather from '@expo/vector-icons/Feather';
 import type {
-  AircraftAvailabilityResponse,
-  AircraftResponse,
+  FlightResponse,
+  FlightSummaryResponse,
   MaintenanceItemResponse,
+  MeResponse,
+  ReservationResponse,
   SquawkResponse,
+  StatementResponse,
+  TenantResponse,
 } from '@flightsquare/shared';
 
-import { Body, Button, Card, Meter, Notice, SectionHeading, Status } from '@/components/ui';
+import { Body, Button, Card, Notice, SectionHeading } from '@/components/ui';
 import { api, withAuth } from '@/lib/api';
-import { pendingCount, sync } from '@/lib/sync';
+import { formatBalance, formatMoney, routeOf } from '@/lib/format';
+import { useQuota } from '@/lib/entitlements';
 import { color, space, type } from '@/theme';
 
-export default function Fleet() {
-  const [fleet, setFleet] = useState<AircraftResponse[] | null>(null);
-  const [availability, setAvailability] = useState<AircraftAvailabilityResponse[]>([]);
-  const [items, setItems] = useState<MaintenanceItemResponse[]>([]);
+/**
+ * The first screen after signing in.
+ *
+ * Its job is the question a pilot opens the app to answer on the way to the
+ * field: is the aeroplane fit, what do I owe, what did I last fly, and what
+ * have I got booked. Everything on it is a number the server worked out —
+ * §8.2 is explicit that the client never computes anything that matters, and
+ * on a screen made entirely of summaries that rule does most of the work.
+ *
+ * Eight small calls, each allowed to fail on its own. A club on the free
+ * plan has no statement at all — `member_billing` is Pro and up, so
+ * `/statement` answers 404 (§1.6) — and the balance simply is not there.
+ * Absence, never an upsell: §8.3 keeps this app inside Apple's 3.1.3(f), so
+ * nothing here carries a price or a link.
+ */
+export default function Dashboard() {
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const [tenant, setTenant] = useState<TenantResponse | null>(null);
+  const [statement, setStatement] = useState<StatementResponse | null>(null);
+  const [summary, setSummary] = useState<FlightSummaryResponse | null>(null);
+  const [flights, setFlights] = useState<FlightResponse[]>([]);
   const [squawks, setSquawks] = useState<SquawkResponse[]>([]);
-  const [queue, setQueue] = useState({ pending: 0, failed: 0 });
+  const [items, setItems] = useState<MaintenanceItemResponse[]>([]);
+  const [reservations, setReservations] = useState<ReservationResponse[]>([]);
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  const aircraftQuota = useQuota('aircraft.active');
+
   const load = useCallback(async () => {
-    // Flush first: a flight logged on the ramp should reach the server
-    // before the meters are read back, or the list shows stale numbers.
-    await sync().catch(() => undefined);
-    setQueue(await pendingCount());
+    // Each one catches its own. A free tenant's missing statement must not
+    // blank the greeting, and a maintenance module switched off by override
+    // must not blank the fleet count.
+    const optional = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+      promise.catch(() => fallback);
+
     try {
-      // §3.3: dispatch state comes from the server's one resolved view, not
-      // from anything worked out here. It is the question this screen is
-      // opened to answer — whether it is worth driving to the airport.
-      const [aircraft, dispatch, maintenance, defects] = await Promise.all([
-        withAuth(() => api.listAircraft()),
-        withAuth(() => api.availability()),
-        // Every tier has maintenance tracking (§4.3), so this does not 404
-        // for entitlement reasons — but a tenant override could turn it off,
-        // and a fleet list is not worth failing over a count.
-        withAuth(() => api.listMaintenanceItems()).catch(() => []),
-        withAuth(() => api.listSquawks({ open: true })).catch(() => []),
+      const [profile, club, ledger, totals, mine, defects, due, booked] = await Promise.all([
+        withAuth(() => api.me()),
+        withAuth(() => api.tenant()),
+        optional(withAuth(() => api.statement()), null),
+        optional(withAuth(() => api.flightSummary()), null),
+        optional(withAuth(() => api.listFlights({ mine: true })), []),
+        optional(withAuth(() => api.listSquawks()), []),
+        optional(withAuth(() => api.listMaintenanceItems()), []),
+        optional(
+          withAuth(() => api.listReservations({ mine: true, from: new Date().toISOString() })),
+          [],
+        ),
       ]);
-      setFleet(aircraft);
-      setAvailability(dispatch);
-      setItems(maintenance);
+
+      setMe(profile);
+      setTenant(club);
+      setStatement(ledger);
+      setSummary(totals);
+      setFlights(mine);
       setSquawks(defects);
+      setItems(due);
+      setReservations(booked);
       setOffline(false);
     } catch {
-      // No signal. Whatever was loaded last stays on screen — this is a
-      // field app, and an empty list would be a lie.
+      // No signal. Whatever loaded last stays on screen — this is a field
+      // app, and an empty dashboard would be a lie.
       setOffline(true);
     }
   }, []);
@@ -58,7 +92,8 @@ export default function Fleet() {
     }, [load]),
   );
 
-  const active = fleet?.filter((aircraft) => aircraft.status === 'active') ?? [];
+  const recent = flights.slice(0, 3);
+  const upcoming = reservations.filter((r) => r.status !== 'cancelled').slice(0, 3);
 
   return (
     <ScrollView
@@ -73,170 +108,280 @@ export default function Fleet() {
         />
       }
     >
-      {offline ? <Notice>Offline. Showing the last known readings.</Notice> : null}
+      {offline ? <Notice>Offline. Showing what loaded last.</Notice> : null}
 
-      {queue.pending > 0 ? (
-        <Notice>
-          {queue.pending} {queue.pending === 1 ? 'entry' : 'entries'} waiting to sync. They
-          go on their own when there is a signal.
-        </Notice>
-      ) : null}
+      {/* Greeting ---------------------------------------------------- */}
+      <View style={styles.greeting}>
+        <Text style={styles.hello}>
+          {timeOfDay()}
+          {me ? `, ${nameOf(me)}` : ''}
+        </Text>
+        {tenant ? <Text style={styles.club}>{tenant.name}</Text> : null}
+      </View>
 
-      {queue.failed > 0 ? (
-        <View style={styles.queueNotice}>
-          <Notice tone="error">
-            {queue.failed} {queue.failed === 1 ? 'entry' : 'entries'} could not be saved.
-          </Notice>
-          {/*
-            This used to say "open them on the web to fix the details", and
-            there was no such screen on the web — so the entry sat in SQLite
-            forever and the flight it held was gone. Now it goes somewhere.
-          */}
-          <Button
-            label="See what is stuck"
-            variant="secondary"
-            onPress={() => router.push('/(app)/queue')}
-          />
-        </View>
-      ) : null}
-
-      {active.map((aircraft) => {
-        const dispatch = availability.find((row) => row.aircraft_id === aircraft.id);
-        return (
-          <Card key={aircraft.id}>
-            <View style={styles.row}>
-              <View style={styles.identity}>
-                {/* §11 reserves uppercase for registrations. */}
-                <Text style={styles.registration}>{aircraft.registration}</Text>
-                <Text style={styles.subtitle}>
-                  {aircraft.type_code ?? 'Unknown type'}
-                  {aircraft.home_base ? ` · ${aircraft.home_base}` : ''}
-                </Text>
-              </View>
-              {/*
-                Stated, never inferred. §11: do not read "Airworthy" out of the
-                absence of a warning — so nothing is shown at all until the
-                server has told us, and what it tells us is "available", which
-                is a claim about the records rather than about the aeroplane.
-              */}
-              {dispatch ? (
-                <Status
-                  label={dispatch.available ? 'Available' : 'Grounded'}
-                  emphatic={!dispatch.available}
-                />
-              ) : null}
+      {/* Balance ----------------------------------------------------- */}
+      {statement ? (
+        <Pressable
+          onPress={() => router.push('/charges')}
+          accessibilityRole="button"
+          accessibilityLabel="Your balance"
+        >
+          <Card>
+            <View style={styles.balanceRow}>
+              <Feather name="dollar-sign" size={18} color={color.secondary} />
+              <Text style={styles.balanceLabel}>Your balance</Text>
+              <Feather name="chevron-right" size={18} color={color.secondary} />
             </View>
-
-            {dispatch && !dispatch.available ? (
-              <View style={styles.reasons}>
-                {dispatch.grounding_reasons.map((reason) => (
-                  <Text key={reason} style={styles.reason}>
-                    {reason}
-                  </Text>
-                ))}
-              </View>
-            ) : null}
-
-            {/* Hobbs and tach named explicitly, never implied by position. */}
-            <View style={styles.meters}>
-              <View>
-                <Text style={styles.meterLabel}>Hobbs</Text>
-                <Meter value={aircraft.hobbs} />
-              </View>
-              <View>
-                <Text style={styles.meterLabel}>Tach</Text>
-                <Meter value={aircraft.tach} />
-              </View>
-              <View>
-                {/*
-                  §3.4: what the last pilot left in the tanks. Aircraft
-                  state, latest reading wins, and never arithmetic across
-                  flights — pilots estimate, gauges lie, and somebody always
-                  tops off without logging it. It tells the next person what
-                  they are walking out to, and it grounds nothing.
-                */}
-                <Text style={styles.meterLabel}>Fuel</Text>
-                <Meter value={aircraft.fuel_remaining} unit={aircraft.fuel_units === 'litres' ? 'L' : 'gal'} />
-              </View>
-            </View>
-
-            {/*
-              The two questions a walk-around asks that the dispatch line
-              does not answer: what is coming due, and what has somebody
-              already found. Both are counts — the detail is one tap away on
-              its own tab, and this card is read standing up.
-            */}
-            <Text style={styles.attention}>
-              {maintenanceLine(items, aircraft.id)} · {squawkLine(squawks, aircraft.id)}
+            <Text style={styles.balance}>
+              {formatBalance(statement.balance_cents, statement.currency)}
             </Text>
-
-            <Button
-              label="Log flight"
-              onPress={() => router.push(`/(app)/log-flight?aircraft=${aircraft.id}`)}
-            />
-            <View style={styles.secondary}>
-              <Button
-                label="Report a defect"
-                variant="secondary"
-                onPress={() => router.push(`/(app)/report-squawk?aircraft=${aircraft.id}`)}
-              />
-            </View>
           </Card>
-        );
-      })}
-
-      {fleet !== null && active.length === 0 ? (
-        <View style={styles.empty}>
-          <SectionHeading>No aircraft yet</SectionHeading>
-          <Body muted>Add one on the web to start tracking hours.</Body>
-        </View>
+        </Pressable>
       ) : null}
+
+      {/* Three boxes ------------------------------------------------- */}
+      <View style={styles.boxes}>
+        <Box
+          label="Aircraft"
+          value={aircraftQuota?.current ?? null}
+          onPress={() => router.push('/aircraft')}
+        />
+        <Box
+          label="Issues"
+          value={countIssues(squawks, items)}
+          onPress={() => router.push('/maintenance')}
+        />
+        <Box
+          label="Total hours"
+          value={summary ? hoursOf(summary).value : null}
+          // §11 and §3.4: which meter, said out loud. Inline with the
+          // number so all three boxes are the same two lines.
+          unit={summary ? hoursOf(summary).meter : undefined}
+          onPress={() => router.push('/logs')}
+        />
+      </View>
+
+      {/* Last three flights ------------------------------------------ */}
+      <View style={styles.section}>
+        <SectionHeading>Your last flights</SectionHeading>
+        {recent.length === 0 ? (
+          <Body muted>Nothing logged yet. The post-flight entry is on an aircraft.</Body>
+        ) : (
+          recent.map((flight) => (
+            <Card key={flight.id}>
+              <View style={styles.flightRow}>
+                {/*
+                  Route where there is one. Both fields are nullable free
+                  text since 0014, and a flight with neither rendered as
+                  "— → —", which is noise standing where the headline goes.
+                  The aeroplane is the honest fallback: it is the one thing
+                  every flight has.
+                */}
+                <Text style={styles.route}>{routeOf(flight)}</Text>
+                {squawks.some((squawk) => squawk.found_on_flight_id === flight.id) ? (
+                  // §3.6: a defect found on this flight. Stated, not implied
+                  // by a colour, and it says nothing about airworthiness —
+                  // the Maintenance tab holds that answer.
+                  <Feather
+                    name="flag"
+                    size={16}
+                    color={color.brandBlack}
+                    accessibilityLabel="A defect was reported on this flight"
+                  />
+                ) : null}
+              </View>
+              <Text style={styles.flightMeta}>
+                {flight.flight_date}
+                {routeOf(flight) === flight.aircraft_registration
+                  ? ''
+                  : ` · ${flight.aircraft_registration}`}
+                {flight.hobbs_hours ? ` · ${flight.hobbs_hours} hobbs` : ''}
+              </Text>
+              {statement ? (
+                <Text style={styles.cost}>{costOf(statement, flight.id)}</Text>
+              ) : null}
+            </Card>
+          ))
+        )}
+      </View>
+
+      {/*
+        Upcoming reservations.
+        §1: scheduling is "unused, never unavailable" — no flag, no separate
+        code path. A solo owner sees nothing here because nobody has booked
+        anything, which is the same outcome as hiding it and arrived at the
+        way the constitution requires.
+      */}
+      <View style={styles.section}>
+        <SectionHeading>Coming up</SectionHeading>
+        {upcoming.length === 0 ? (
+          <Body muted>Nothing booked.</Body>
+        ) : (
+          upcoming.map((reservation) => (
+            <Card key={reservation.id}>
+              <Text style={styles.route}>{reservation.aircraft_registration}</Text>
+              <Text style={styles.flightMeta}>
+                {when(reservation.starts_at)} – {clock(reservation.ends_at)}
+                {reservation.purpose ? ` · ${reservation.purpose}` : ''}
+              </Text>
+            </Card>
+          ))
+        )}
+        <Button label="Schedule flight" onPress={() => router.push('/schedule')} />
+      </View>
     </ScrollView>
   );
 }
 
-/**
- * What is coming due, in a sentence.
- *
- * "Not recorded" is kept apart from "overdue" on purpose, the way every
- * other screen keeps them apart: an interval seeded with the aeroplane that
- * nobody has confirmed is not overdue, it is unknown, and §11 forbids
- * asserting the stronger thing.
- */
-function maintenanceLine(items: MaintenanceItemResponse[], aircraftId: string): string {
-  const mine = items.filter((item) => item.aircraft_id === aircraftId);
-  const overdue = mine.filter((item) => item.state === 'overdue' && item.ever_complied).length;
-  const unrecorded = mine.filter((item) => item.state === 'overdue' && !item.ever_complied).length;
-  const soon = mine.filter((item) => item.state === 'due_soon').length;
-
-  const parts: string[] = [];
-  if (overdue > 0) parts.push(`${overdue} overdue`);
-  if (unrecorded > 0) parts.push(`${unrecorded} not recorded`);
-  if (soon > 0) parts.push(`${soon} due soon`);
-  return parts.length > 0 ? `Maintenance: ${parts.join(', ')}` : 'Maintenance: nothing due';
+function Box({
+  label,
+  value,
+  unit,
+  onPress,
+}: {
+  label: string;
+  value: number | string | null;
+  unit?: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`${label}: ${value ?? 'not known'}`}
+      style={({ pressed }) => [styles.box, pressed && styles.boxPressed]}
+    >
+      <Text style={styles.boxValue}>
+        {value ?? '—'}
+        {unit ? <Text style={styles.boxUnit}> {unit}</Text> : null}
+      </Text>
+      <Text style={styles.boxLabel}>{label}</Text>
+    </Pressable>
+  );
 }
 
-function squawkLine(squawks: SquawkResponse[], aircraftId: string): string {
-  const mine = squawks.filter((squawk) => squawk.aircraft_id === aircraftId);
-  if (mine.length === 0) return 'no open squawks';
-  const grounding = mine.filter((squawk) => squawk.grounding).length;
-  return grounding > 0
-    ? `${mine.length} open, ${grounding} grounding`
-    : `${mine.length} open`;
+// ---------------------------------------------------------------------------
+// The small decisions
+// ---------------------------------------------------------------------------
+
+function timeOfDay(now: Date = new Date()): string {
+  const hour = now.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+}
+
+/**
+ * `users.name` is one nullable field, not a first and a last.
+ *
+ * The doc asks for both names, and whatever somebody typed is both names —
+ * splitting and rejoining it would only be a chance to get it wrong. When
+ * there is no name at all it falls back to the address, which every account
+ * has. A real first/last split is a migration and a decision, not something
+ * to improvise in a greeting.
+ */
+function nameOf(me: MeResponse): string {
+  return me.name?.trim() || me.email.split('@')[0]!;
+}
+
+/**
+ * Things wanting attention, which is not the same as things overdue.
+ *
+ * A maintenance item that is `overdue` with `ever_complied === false` was
+ * seeded with the aeroplane and never confirmed — the aircraft screen is
+ * careful about this and so is the digest. It belongs in the count, because
+ * somebody should deal with it, and it does not make this screen say the
+ * word "overdue" about an aeroplane. The Maintenance tab is where each group
+ * gets its correct name.
+ */
+function countIssues(squawks: SquawkResponse[], items: MaintenanceItemResponse[]): number {
+  const open = squawks.filter((squawk) => squawk.status !== 'resolved').length;
+  const attention = items.filter(
+    (item) => item.state === 'overdue' || item.state === 'due_soon',
+  ).length;
+  return open + attention;
+}
+
+/**
+ * Which meter the hours are counted on, said out loud.
+ *
+ * §11 requires Hobbs and tach to be distinguished explicitly and §3.4 says
+ * neither is derived from the other. Hobbs is what most clubs fly on; an
+ * aeroplane with only a tach would otherwise show a silent zero.
+ */
+function hoursOf(summary: FlightSummaryResponse): { value: string; meter: string } {
+  const hobbs = Number(summary.hobbs_hours);
+  if (hobbs > 0) return { value: round(summary.hobbs_hours), meter: 'hobbs' };
+  const tach = Number(summary.tach_hours);
+  if (tach > 0) return { value: round(summary.tach_hours), meter: 'tach' };
+  return { value: '0', meter: 'hobbs' };
+}
+
+function round(hours: string): string {
+  return Number(hours).toFixed(1);
+}
+
+/**
+ * What this flight cost this pilot.
+ *
+ * Summed across every line carrying the flight's id rather than the first
+ * one found: a wet rate produces a charge *and* a fuel credit, and a
+ * correction leaves both halves of a reversal on the statement (§3.7 rule
+ * 2). Adding them is the only reading that survives either.
+ */
+function costOf(statement: StatementResponse, flightId: string): string {
+  const lines = statement.lines.filter((line) => line.flight_id === flightId);
+  if (lines.length === 0) return 'Not charged';
+  const cents = lines.reduce((total, line) => total + line.amount_cents, 0);
+  return formatMoney(cents, statement.currency);
+}
+
+function when(instant: string): string {
+  return new Date(instant).toLocaleString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function clock(instant: string): string {
+  return new Date(instant).toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 const styles = StyleSheet.create({
-  queueNotice: { gap: space.sm },
-  attention: { ...type.supporting, color: color.secondary, marginTop: space.sm, marginBottom: space.base },
-  container: { padding: space.base, gap: space.base },
-  row: { flexDirection: 'row', alignItems: 'center' },
-  identity: { flex: 1, gap: space.xs },
-  registration: { ...type.cardHeading, color: color.brandBlack },
-  subtitle: { ...type.bodySmall, color: color.secondary },
-  meters: { flexDirection: 'row', gap: space.xl, marginVertical: space.base },
-  meterLabel: { ...type.supporting, color: color.secondary },
-  reasons: { gap: space.xs, marginTop: space.md },
-  reason: { ...type.bodySmall, color: color.brandBlack },
-  secondary: { marginTop: space.sm },
-  empty: { gap: space.sm, paddingVertical: space.xl, alignItems: 'center' },
+  container: { padding: space.base, gap: space.md },
+  greeting: { gap: space.xs },
+  hello: { ...type.pageTitle },
+  club: { ...type.body, color: color.secondary },
+  balanceRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  balanceLabel: { ...type.supporting, color: color.secondary, flex: 1 },
+  balance: { ...type.metric, marginTop: space.xs },
+  boxes: { flexDirection: 'row', gap: space.sm },
+  box: {
+    flex: 1,
+    minHeight: 96,
+    justifyContent: 'center',
+    paddingVertical: space.base,
+    paddingHorizontal: space.md,
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: 12,
+    backgroundColor: color.surface,
+  },
+  boxPressed: { backgroundColor: color.subtle },
+  boxValue: { ...type.metric },
+  boxUnit: { ...type.supporting, color: color.secondary },
+  boxLabel: { ...type.supporting, color: color.secondary, marginTop: space.xs },
+  section: { gap: space.sm, marginTop: space.sm },
+  flightRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  route: { ...type.cardHeading, flex: 1 },
+  flightMeta: { ...type.supporting, color: color.secondary, marginTop: space.xs },
+  cost: { ...type.bodySmall, marginTop: space.xs },
 });

@@ -5,6 +5,7 @@ import type { StatementResponse } from '@flightsquare/shared';
 
 import { Body, Card, Notice, SectionHeading } from '@/components/ui';
 import { api, withAuth } from '@/lib/api';
+import { formatBalance, formatMoney } from '@/lib/format';
 import { color, space, type } from '@/theme';
 
 /**
@@ -110,24 +111,6 @@ export default function Charges() {
       ))}
     </ScrollView>
   );
-}
-
-/**
- * Money, formatted from integer minor units (§3.7 rule 3).
- *
- * The web has `web/src/lib/money.ts` and this is the same two functions; they
- * are not shared because `packages/shared` is the API contract and a currency
- * string is a rendering decision, not part of it.
- */
-function formatMoney(cents: number, currency: string): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(cents / 100);
-}
-
-/** Never a bare sign: §11 wants the meaning in words. */
-function formatBalance(cents: number, currency: string): string {
-  if (cents === 0) return 'Settled';
-  const amount = formatMoney(Math.abs(cents), currency);
-  return cents > 0 ? `${amount} owed` : `${amount} in credit`;
 }
 
 const styles = StyleSheet.create({

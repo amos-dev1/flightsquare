@@ -9,6 +9,9 @@ import {
   type TextInputProps,
 } from 'react-native';
 
+// Relative, not via `@/`, which maps to src/ — the artwork lives beside it.
+import LogoSymbol from '../../assets/logo-mark.svg';
+import LogoWordmark from '../../assets/logo.svg';
 import { CONTROL_HEIGHT, color, font, radius, space, type } from '@/theme';
 
 /** §11, as React Native styles. Same tokens as the web theme. */
@@ -122,8 +125,7 @@ export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?
 
 /**
  * A status, as §11 specifies it: explicit wording and a border, never colour
- * alone. There is no icon set on the phone, so weight and the outline carry
- * what an icon carries on the web.
+ * alone. Weight and the outline carry here what an icon carries on the web.
  */
 export function Status({ label, emphatic }: { label: string; emphatic?: boolean }) {
   return (
@@ -256,3 +258,50 @@ const styles = StyleSheet.create({
   choiceLabel: { ...type.body, color: color.brandBlack },
   choiceLabelSelected: { color: color.surface, fontFamily: font.semibold },
 });
+
+/**
+ * The approved logo, used as supplied.
+ *
+ * §11: never stretched, rotated, redrawn or given effects, and never
+ * recreated in CSS or from an icon library. These are the same two files the
+ * web serves from `public/`, imported as components by the SVG transformer
+ * (see metro.config.js) so the artwork stays one file rather than path data
+ * copied into code.
+ *
+ * Both are pure black artwork for light backgrounds. There is no colour to
+ * set, and §11 forbids teal here regardless.
+ *
+ * Intrinsic ratios: 1864 x 380 for the horizontal lockup, 394 x 394 for the
+ * standalone symbol.
+ */
+
+/** Symbol height in a header, from §11's 28-32px range. */
+const HEADER_SYMBOL_HEIGHT = 30;
+const HORIZONTAL_RATIO = 1864 / 380;
+
+/** The horizontal lockup, for a centred brand presentation like sign-in. */
+export function Logo({ height = HEADER_SYMBOL_HEIGHT }: { height?: number }) {
+  return (
+    <View
+      // Clear space of at least a quarter of the symbol height, per §11.
+      style={{ padding: height / 4 }}
+      accessibilityRole="image"
+      accessibilityLabel="FlightSquare"
+    >
+      <LogoWordmark height={height} width={Math.round(height * HORIZONTAL_RATIO)} />
+    </View>
+  );
+}
+
+/** The standalone symbol, which §11 asks for in compact spaces like a header. */
+export function LogoMark({ size = HEADER_SYMBOL_HEIGHT }: { size?: number }) {
+  return (
+    <View
+      style={{ padding: size / 4 }}
+      accessibilityRole="image"
+      accessibilityLabel="FlightSquare"
+    >
+      <LogoSymbol height={size} width={size} />
+    </View>
+  );
+}

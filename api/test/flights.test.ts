@@ -252,6 +252,55 @@ describe('flight logging', () => {
     expect(csv.body.split('\n').length - 1).toBe(mine.json().length + 1);
   });
 
+  it('adds the flights up on the server, because the client must not', async () => {
+    // §8.2: the client never computes anything that matters, and a headline
+    // number on a dashboard matters. `GET /flights` also caps at 200 rows,
+    // so a client-side sum is wrong past that in the direction nobody
+    // notices — which is the whole reason this endpoint exists.
+    const all = await app.inject({ method: 'GET', url: '/flights' });
+    const summary = await app.inject({ method: 'GET', url: '/flights/summary' });
+
+    expect(summary.statusCode).toBe(200);
+    expect(summary.json().flights).toBe(all.json().length);
+
+    // Both meters, neither derived from the other (§3.4). Hours are strings
+    // because they are `numeric`, and a float round-trip is how a
+    // maintenance countdown drifts.
+    const hobbs = all
+      .json()
+      .reduce((total: number, f: { hobbs_hours: string | null }) => total + Number(f.hobbs_hours ?? 0), 0);
+    expect(Number(summary.json().hobbs_hours)).toBeCloseTo(hobbs, 1);
+    expect(summary.json().tach_hours).toBeDefined();
+    expect(summary.json().first_flight_date).not.toBeNull();
+
+    // Narrowed the same ways the list is, because it is the same question.
+    const mine = await app.inject({ method: 'GET', url: '/flights/summary?mine=true' });
+    const mineList = await app.inject({ method: 'GET', url: '/flights?mine=true' });
+    expect(mine.json().flights).toBe(mineList.json().length);
+    expect(mine.json().flights).toBeLessThan(summary.json().flights);
+
+    const perAircraft = await app.inject({
+      method: 'GET',
+      url: `/flights/summary?aircraft_id=${aircraftId}`,
+    });
+    expect(perAircraft.json().flights).toBeGreaterThan(0);
+
+    // An aeroplane with nothing logged answers zero, not null. "None yet" is
+    // an answer; "we could not tell you" is a different one, and only one of
+    // them belongs on a dashboard.
+    const empty = await app.inject({
+      method: 'GET',
+      url: '/flights/summary?aircraft_id=01920000-0000-7000-8000-00000000dead',
+    });
+    expect(empty.json()).toMatchObject({
+      flights: 0,
+      hobbs_hours: '0',
+      tach_hours: '0',
+      first_flight_date: null,
+      last_flight_date: null,
+    });
+  });
+
   it('accepts a field the reference table has never heard of', async () => {
     // `aerodromes` holds twenty rows; there are twenty thousand airfields in
     // the United States. A key against a list that incomplete refuses almost

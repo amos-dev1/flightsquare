@@ -1,5 +1,10 @@
 import type { FastifyInstance } from 'fastify';
-import type { CreateFlightRequest, FlightResponse } from '@flightsquare/shared';
+import { sql } from 'kysely';
+import type {
+  CreateFlightRequest,
+  FlightResponse,
+  FlightSummaryResponse,
+} from '@flightsquare/shared';
 
 import { withIdempotency } from '../../db/idempotency.js';
 import { ownMembership } from '../../db/membership.js';
@@ -121,6 +126,68 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           .execute();
       });
       return rows.map(toResponse);
+    },
+  );
+
+  /**
+   * The same set of flights, added up.
+   *
+   * This exists because the alternative was the client doing it, and §8.2 is
+   * explicit that the client never computes anything that matters — a
+   * headline number on a dashboard matters. Adding up `/flights` on a phone
+   * would also be silently wrong past 200 rows, which is where that endpoint
+   * caps, and wrong in the direction nobody notices.
+   *
+   * **Both meters, never one derived from the other** (§3.4). They run at
+   * different rates by design and the difference between them is real data
+   * about how the aeroplane was flown, so a caller that wants "hours" has to
+   * say which — and §11 requires the answer to say so too.
+   *
+   * Same filters as the list and the same gate, because it is the same
+   * question asked differently. What it is *not* is a pilot's logbook total:
+   * §3.4 draws that line at experience totals, and the filters here are the
+   * aeroplane and the member, for utilisation and for reconciliation.
+   */
+  app.get<{ Querystring: { aircraft_id?: string; mine?: string } }>(
+    '/flights/summary',
+    { config: { requiresTenant: true, permission: ['flights', 'read'] } },
+    async (request) => {
+      return request.withTenant(async (trx) => {
+        let query = trx
+          .selectFrom('flights')
+          .leftJoin('flight_meters', 'flight_meters.flight_id', 'flights.id')
+          .select(({ fn }) => [
+            fn.countAll<string>().as('flights'),
+            // coalesce so an empty set is a zero rather than a null: "no
+            // hours yet" and "we could not tell you" are different answers
+            // and only one of them belongs on a dashboard.
+            sql<string>`coalesce(sum(flight_meters.hobbs_hours), 0)`.as('hobbs_hours'),
+            sql<string>`coalesce(sum(flight_meters.tach_hours), 0)`.as('tach_hours'),
+            fn.min<string | null>('flights.flight_date').as('first_flight_date'),
+            fn.max<string | null>('flights.flight_date').as('last_flight_date'),
+          ]);
+
+        if (request.query.aircraft_id) {
+          query = query.where('flights.aircraft_id', '=', request.query.aircraft_id);
+        }
+        if (request.query.mine === 'true') {
+          query = query.where(
+            'flights.flown_by',
+            '=',
+            await ownMembership(trx, request.ctx!.userId),
+          );
+        }
+
+        const row = await query.executeTakeFirstOrThrow();
+
+        return {
+          flights: Number(row.flights),
+          hobbs_hours: row.hobbs_hours,
+          tach_hours: row.tach_hours,
+          first_flight_date: row.first_flight_date,
+          last_flight_date: row.last_flight_date,
+        } satisfies FlightSummaryResponse;
+      });
     },
   );
 

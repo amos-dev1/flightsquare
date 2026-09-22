@@ -2,7 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Button, Field, Input, Notice, PageTitle } from '@/components/ui';
+import { Button, Field, Input, Logo, Notice } from '@/components/ui';
 import { api } from '@/lib/api';
 import { writeSession } from '@/lib/auth';
 import { color, space, type } from '@/theme';
@@ -68,7 +68,12 @@ export default function SignIn() {
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <PageTitle>Sign in</PageTitle>
+          {/*
+            The horizontal lockup rather than the symbol: this is a brand
+            presentation, not a compact space, and it is the first thing
+            anybody sees of the product (§11).
+          */}
+          <Logo height={34} />
           {/* §11 uses the tagline sparingly; sign-in is one of the places. */}
           <Text style={styles.tagline}>Aircraft management, simplified.</Text>
         </View>

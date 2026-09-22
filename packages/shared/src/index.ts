@@ -572,6 +572,33 @@ export interface FlightResponse {
  * was actually read. What is not optional is that *some* meter ended: that is
  * what a flight record is for.
  */
+/**
+ * The same flights as `FlightResponse[]`, added up by the server.
+ *
+ * §8.2: the client never computes anything that matters. A total on a
+ * dashboard matters, and the list endpoint caps at 200 rows — so adding them
+ * up on the device is wrong in the direction nobody notices.
+ *
+ * Both meters, never one derived from the other (§3.4). A caller asking for
+ * "hours" has to say which, and §11 requires whatever displays it to say so
+ * too. Hours are strings for the same reason every meter is: they are
+ * `numeric` in Postgres, and a float round-trip is how a maintenance
+ * countdown drifts.
+ *
+ * Not a pilot's logbook total. §3.4 draws that line at experience totals;
+ * these filters are the aeroplane and the member, for utilisation and for
+ * reconciliation.
+ */
+export interface FlightSummaryResponse {
+  flights: number;
+  /** Zero rather than null for an empty set: "none yet" is an answer. */
+  hobbs_hours: string;
+  tach_hours: string;
+  /** Calendar days, or null when there are no flights to bound. */
+  first_flight_date: string | null;
+  last_flight_date: string | null;
+}
+
 export interface CreateFlightRequest {
   aircraft_id: string;
   flight_date: string;
