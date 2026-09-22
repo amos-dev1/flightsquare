@@ -42,6 +42,59 @@ END
 $t$;
 
 -- ---------------------------------------------------------------------------
+-- M8: the sender, and how narrow it is.
+--
+-- 0009 said this would happen — "a mail sender has no business owning
+-- tables" — and the shape it takes is the point. mail_role holds the one
+-- capability nothing else may have (reading a live reset link) and holds
+-- nothing else at all, so a stolen mail credential sends the queue and
+-- cannot reach a single flight, squawk or ledger row.
+-- ---------------------------------------------------------------------------
+DO $t$
+DECLARE t text;
+BEGIN
+  IF NOT has_table_privilege('mail_role', 'public.outbox', 'SELECT') THEN
+    RAISE EXCEPTION 'mail_role cannot read the queue it exists to drain';
+  END IF;
+
+  -- It records what happened to a message; it does not write messages.
+  FOREACH t IN ARRAY ARRAY['sent_at', 'attempts', 'last_error', 'last_attempt_at'] LOOP
+    IF NOT has_column_privilege('mail_role', 'public.outbox', t, 'UPDATE') THEN
+      RAISE EXCEPTION 'mail_role cannot record delivery in %', t;
+    END IF;
+  END LOOP;
+  FOREACH t IN ARRAY ARRAY['to_email', 'subject', 'body', 'kind'] LOOP
+    IF has_column_privilege('mail_role', 'public.outbox', t, 'UPDATE') THEN
+      RAISE EXCEPTION 'mail_role can rewrite %, which is the message itself', t;
+    END IF;
+  END LOOP;
+
+  IF has_table_privilege('mail_role', 'public.outbox', 'INSERT')
+     OR has_table_privilege('mail_role', 'public.outbox', 'DELETE') THEN
+    RAISE EXCEPTION 'mail_role can add to or remove from the queue';
+  END IF;
+
+  -- And nothing else in the database, which is the whole argument for it
+  -- being a role rather than a grant on one that already exists.
+  FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'flights',
+                           'squawks', 'flight_charges', 'auth_tokens',
+                           'sessions', 'subscriptions'] LOOP
+    IF has_table_privilege('mail_role', 'public.' || t, 'SELECT') THEN
+      RAISE EXCEPTION 'mail_role can read % — it sends email', t;
+    END IF;
+  END LOOP;
+
+  -- §7.2 does not put this in either tier. Reading it is reading password
+  -- resets in flight, and no support ticket is worth that.
+  IF has_table_privilege('admin_role', 'public.outbox', 'SELECT') THEN
+    RAISE EXCEPTION 'admin_role can read the outbox';
+  END IF;
+
+  RAISE NOTICE '   ok: the sender reads one table and writes four columns of it';
+END
+$t$;
+
+-- ---------------------------------------------------------------------------
 -- An unknown address is indistinguishable from a known one.
 -- ---------------------------------------------------------------------------
 BEGIN;

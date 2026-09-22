@@ -7,7 +7,7 @@ import { config } from '../config.js';
 import { db } from '../db/pool.js';
 import type { Database } from '../db/schema.js';
 import type { Kysely } from 'kysely';
-import { ApiError, ClientTooOldError, isRlsRefusal } from './errors.js';
+import { ApiError, ClientTooOldError, isMalformedValue, isRlsRefusal } from './errors.js';
 import {
   assertRouteGatesDeclared,
   requestContext,
@@ -123,6 +123,17 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       } else {
         void reply.status(status).send({ error: 'invalid_request', detail: 'bad request' });
       }
+      return;
+    }
+
+    /**
+     * An id in a URL that Postgres could not parse as a uuid. Not a server
+     * error — the caller asked for something that cannot exist — and §6 says
+     * it must read the same as an id belonging to another tenant, which is
+     * already a 404.
+     */
+    if (isMalformedValue(error)) {
+      void reply.status(404).send({ error: 'not_found' });
       return;
     }
 

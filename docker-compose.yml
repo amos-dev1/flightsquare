@@ -21,6 +21,7 @@ services:
       FS_OWNER_PASSWORD: ${FS_OWNER_PASSWORD:-owner_dev_password}
       FS_APP_PASSWORD: ${FS_APP_PASSWORD:-app_dev_password}
       FS_ADMIN_PASSWORD: ${FS_ADMIN_PASSWORD:-admin_dev_password}
+      FS_MAIL_PASSWORD: ${FS_MAIL_PASSWORD:-mail_dev_password}
     ports:
       # Bound to loopback: the dev database is not reachable from the network.
       - "127.0.0.1:${FS_DB_PORT:-5432}:5432"

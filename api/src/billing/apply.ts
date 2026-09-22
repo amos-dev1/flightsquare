@@ -3,7 +3,10 @@ import { sql } from 'kysely';
 import { tenantForBillingCustomer } from '../db/auth.js';
 import { withSession, type Tx } from '../db/context.js';
 import { loadEntitlements } from '../db/entitlements.js';
-import { isUnlimited, type QuotaValue } from '../entitlements/values.js';
+import { overQuotaEmail } from '../email.js';
+import { queueAll, recipientsWith } from '../mail/notify.js';
+import type { QuotaKey } from '../entitlements/registry.js';
+import { isUnlimited, limitForDatabase, type QuotaValue } from '../entitlements/values.js';
 import type { Entitlements } from '../entitlements/resolver.js';
 import { isUniqueViolation } from '../http/errors.js';
 import { entitlesToPlan, tenantStatusFor, type BillingEvent } from './provider.js';
@@ -123,6 +126,13 @@ export async function applyBillingEvent(
           after,
         })
         .execute();
+
+      // §5.3: the club is told what is over and offered a way out, rather
+      // than finding out the next time somebody tries to add an aeroplane.
+      // Inside the changed branch on purpose — a renewal that resolves to
+      // the same thing is not news, and this is the one moment a tenant can
+      // newly become over-quota without anybody in it doing anything.
+      await notifyIfOverQuota(trx, effectivePlan);
     }
 
     return { outcome: 'applied' as const, tenantId, planCode: effectivePlan };
@@ -166,6 +176,55 @@ async function planForLookupKey(trx: Tx, lookupKey: string): Promise<string | nu
     .where('price_lookup_key', '=', lookupKey)
     .executeTakeFirst();
   return plan?.code ?? null;
+}
+
+/** Labels for the two quotas anything counts today (§4.5). */
+const COUNTED: Record<string, string> = {
+  'aircraft.active': 'Aircraft',
+  'members.active': 'Members',
+};
+
+/**
+ * Tell the people who can do something about it.
+ *
+ * `subscription: write`, not "the admins" — §1.5 makes a role a bundle of
+ * pairs and nothing branches on its name, so whoever a club has given the
+ * subscription to is who hears about it.
+ *
+ * Nothing is enforced here. `assert_quota` already refuses the next create,
+ * and §5.2 is explicit that everything else keeps working; this is only the
+ * telling.
+ */
+async function notifyIfOverQuota(trx: Tx, planCode: string): Promise<void> {
+  const entitlements = await loadEntitlements(trx);
+
+  const usage = await trx
+    .selectFrom('tenant_usage')
+    .select(['quota_key', 'current_value'])
+    .execute();
+
+  const over: { noun: string; used: number; limit: number }[] = [];
+  for (const row of usage) {
+    const noun = COUNTED[row.quota_key];
+    if (!noun) continue;
+    const quota = entitlements.quota(row.quota_key as QuotaKey);
+    const limit = limitForDatabase(quota);
+    const used = Number(row.current_value);
+    if (limit !== null && used > limit) over.push({ noun, used, limit });
+  }
+
+  if (over.length === 0) return;
+
+  const tenant = await trx.selectFrom('tenants').select(['name']).executeTakeFirst();
+  const recipients = await recipientsWith(trx, 'subscription', 'write');
+
+  await queueAll(trx, 'over_quota', recipients, () =>
+    overQuotaEmail({
+      tenantName: tenant?.name ?? 'Your club',
+      planCode,
+      over,
+    }),
+  );
 }
 
 /** What §5.9 asks to be reconstructable: the resolved values, not the label. */

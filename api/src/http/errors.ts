@@ -197,6 +197,7 @@ export class TenantRequiredError extends ApiError {
 }
 
 const PG_UNIQUE_VIOLATION = '23505';
+const PG_INVALID_TEXT_REPRESENTATION = '22P02';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
 const PG_INSUFFICIENT_PRIVILEGE = '42501';
 
@@ -208,6 +209,20 @@ function pgCode(error: unknown): string | undefined {
 
 export function isUniqueViolation(error: unknown): boolean {
   return pgCode(error) === PG_UNIQUE_VIOLATION;
+}
+
+/**
+ * A value the database could not even parse — in practice, an id in a URL
+ * that is not a uuid.
+ *
+ * `/reservations/not-a-uuid/cancel` reached Postgres and came back as an
+ * unhandled 500. It is not a server error: the caller asked for something
+ * that cannot exist. §6 also settles which answer it gets — a malformed id
+ * and an id belonging to another tenant must be indistinguishable, and the
+ * other one is already a 404.
+ */
+export function isMalformedValue(error: unknown): boolean {
+  return pgCode(error) === PG_INVALID_TEXT_REPRESENTATION;
 }
 
 /**

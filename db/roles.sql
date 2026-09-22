@@ -1,8 +1,15 @@
--- Database roles. Run once at initdb as the container superuser.
+-- Database roles. Run at initdb as the container superuser, and re-runnable
+-- against an existing database with scripts/roles.sh.
 --
--- Production provisions the same three roles with real secrets; nothing about
+-- Production provisions the same four roles with real secrets; nothing about
 -- the shape below is dev-only. The attributes matter more than the passwords:
 -- NOSUPERUSER and NOBYPASSRLS are the whole point (CLAUDE.md §1.2).
+--
+-- Every statement here is idempotent, because a role added later has to reach
+-- databases that already exist — initdb only ever runs on an empty one. The
+-- password lives in an ALTER outside the guard rather than inside it: psql
+-- does not substitute :'variables' within a dollar-quoted body, and §6 does
+-- not hand setup scripts an exception for building SQL by interpolation.
 
 -- ---------------------------------------------------------------------------
 -- flightsquare_owner — DDL / migration role.
@@ -12,7 +19,15 @@
 -- the owner loophole, so even this role is inside the policies. A migration
 -- that needs to touch tenant rows sets tenant context and loops, per §1.1.
 -- ---------------------------------------------------------------------------
-CREATE ROLE flightsquare_owner
+DO $role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'flightsquare_owner') THEN
+    CREATE ROLE flightsquare_owner NOLOGIN;
+  END IF;
+END
+$role$;
+
+ALTER ROLE flightsquare_owner
   LOGIN PASSWORD :'owner_password'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
 
@@ -23,7 +38,15 @@ CREATE ROLE flightsquare_owner
 -- reaches unscoped data only through the enumerated auth.* functions in §2.1.
 -- No BYPASSRLS: not in production, not in staging, not to debug the seeder.
 -- ---------------------------------------------------------------------------
-CREATE ROLE app_role
+DO $role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_role') THEN
+    CREATE ROLE app_role NOLOGIN;
+  END IF;
+END
+$role$;
+
+ALTER ROLE app_role
   LOGIN PASSWORD :'app_password'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
 
@@ -35,8 +58,42 @@ CREATE ROLE app_role
 -- new table grants admin_role nothing until someone writes a policy for it
 -- and classifies it under §7.2.
 -- ---------------------------------------------------------------------------
-CREATE ROLE admin_role
+DO $role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'admin_role') THEN
+    CREATE ROLE admin_role NOLOGIN;
+  END IF;
+END
+$role$;
+
+ALTER ROLE admin_role
   LOGIN PASSWORD :'admin_password'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
+
+-- ---------------------------------------------------------------------------
+-- mail_role — the sender, and nothing else.
+--
+-- 0009 left this note against the outbox: "When it does it gets a role of its
+-- own with exactly this policy and no DDL, and this one goes away: a mail
+-- sender has no business owning tables." This is that role.
+--
+-- It reads and updates one table. The bodies it reads contain live
+-- verification and password-reset links, which is exactly why app_role must
+-- not be able to read them and why this role can do nothing else: no tenant
+-- data, no users, no sessions. A stolen mail credential can send the queue
+-- and read what is in it, which is bad, and cannot touch a single flight,
+-- squawk or ledger row, which is the point of it being a separate role.
+-- ---------------------------------------------------------------------------
+DO $role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mail_role') THEN
+    CREATE ROLE mail_role NOLOGIN;
+  END IF;
+END
+$role$;
+
+ALTER ROLE mail_role
+  LOGIN PASSWORD :'mail_password'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
 
 -- ---------------------------------------------------------------------------
@@ -44,11 +101,11 @@ CREATE ROLE admin_role
 -- ---------------------------------------------------------------------------
 ALTER DATABASE :"db" OWNER TO flightsquare_owner;
 REVOKE ALL ON DATABASE :"db" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"db" TO flightsquare_owner, app_role, admin_role;
+GRANT CONNECT ON DATABASE :"db" TO flightsquare_owner, app_role, admin_role, mail_role;
 
 ALTER SCHEMA public OWNER TO flightsquare_owner;
 REVOKE ALL ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO app_role, admin_role;
+GRANT USAGE ON SCHEMA public TO app_role, admin_role, mail_role;
 
 -- ---------------------------------------------------------------------------
 -- The bootstrap flag (see 0002_auth_functions.sql).

@@ -9,6 +9,8 @@ import type {
 
 import { withIdempotency } from '../../db/idempotency.js';
 import { ownMembership } from '../../db/membership.js';
+import { squawkFiledEmail } from '../../email.js';
+import { queueAll, recipientsWith } from '../../mail/notify.js';
 import { NotFoundError } from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
@@ -236,7 +238,32 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
             .executeTakeFirstOrThrow();
 
           const rows = await selectSquawks(trx).where('s.id', '=', created.id).execute();
-          return { status: 201, body: (await withDeferrals(trx, rows))[0]! };
+          const squawk = (await withDeferrals(trx, rows))[0]!;
+
+          /**
+           * Tell whoever can act on it — `maintenance: write`, not "the
+           * admins". §1.5 makes a role a bundle of pairs and nothing
+           * branches on its name, so a club that invents a Maintenance
+           * Controller bundle gets this without anybody editing this file.
+           *
+           * The reporter is left out: they know, and in a partnership of two
+           * they would otherwise be half the mail.
+           */
+          const reporter = await ownMembership(trx, ctx.userId);
+          await queueAll(
+            trx,
+            'squawk_filed',
+            await recipientsWith(trx, 'maintenance', 'write', { except: reporter }),
+            () =>
+              squawkFiledEmail({
+                registration: squawk.aircraft_registration,
+                summary: squawk.summary,
+                reportedBy: squawk.reported_by_email,
+                grounding: squawk.grounding,
+              }),
+          );
+
+          return { status: 201, body: squawk };
         },
       );
 

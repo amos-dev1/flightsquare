@@ -154,6 +154,7 @@ export interface OutboxTable {
   sent_at: ColumnType<Date | null, never, never>;
   attempts: ColumnType<number, never, never>;
   last_error: ColumnType<string | null, never, never>;
+  last_attempt_at: ColumnType<Date | null, never, never>;
 }
 
 export interface AuditLogTable {

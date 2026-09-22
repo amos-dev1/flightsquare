@@ -82,6 +82,30 @@ export const config = {
     baseUrl: process.env.FS_WEB_URL ?? 'http://127.0.0.1:3001',
   },
   /**
+   * The mail sender (M8). Runs as its own database role and its own process:
+   * `npm run mail -w api`.
+   *
+   * With no API key it logs each message and marks it delivered, which is a
+   * real pass through the worker rather than a skipped one —
+   * `scripts/outbox.sh` is where a link is actually read in development.
+   */
+  mail: {
+    user: process.env.FS_DB_MAIL_USER ?? 'mail_role',
+    password: process.env.FS_MAIL_PASSWORD ?? 'mail_dev_password',
+    apiKey: process.env.FS_MAIL_API_KEY ?? '',
+    from: process.env.FS_MAIL_FROM ?? 'FlightSquare <no-reply@flightsquare.local>',
+    /** How often to look, when the last look found nothing. */
+    pollSeconds: int('FS_MAIL_POLL_SECONDS', 10),
+    /** How many to take in one pass. */
+    batchSize: int('FS_MAIL_BATCH', 20),
+    /**
+     * After this many failures a message is left alone with its last error,
+     * for a person. A queue that retries forever is how a sending domain
+     * gets itself blocked.
+     */
+    maxAttempts: int('FS_MAIL_MAX_ATTEMPTS', 8),
+  },
+  /**
    * Platform billing (§8.3) — tenant to FlightSquare, web only.
    *
    * With no secret key the API runs the stub provider, which signs and

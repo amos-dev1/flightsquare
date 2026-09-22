@@ -11,6 +11,8 @@ import type {
 } from '@flightsquare/shared';
 
 import { ownMembership } from '../../db/membership.js';
+import { bookingCancelledEmail, bookingConfirmedEmail } from '../../email.js';
+import { inClubTime, queue } from '../../mail/notify.js';
 import { ConflictError, NotFoundError, PermissionError } from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
@@ -129,6 +131,41 @@ function selectReservations(trx: Tx) {
 }
 
 type ReservationRow = Awaited<ReturnType<ReturnType<typeof selectReservations>['execute']>>[number];
+
+/**
+ * Tell whoever the booking is for.
+ *
+ * Only them. A club of twelve does not want eleven emails every time
+ * somebody takes the 172 on a Tuesday, and V1_SCOPE keeps per-user
+ * notification preferences out of v1 — so the restraint has to be in what is
+ * sent rather than in what people can switch off.
+ */
+async function notifyBooked(
+  trx: Tx,
+  row: ReservationRow,
+  actingMembershipId: string,
+): Promise<void> {
+  const tenant = await trx.selectFrom('tenants').select(['timezone']).executeTakeFirst();
+  const zone = tenant?.timezone ?? 'UTC';
+
+  const bookedForSomeoneElse = row.booked_by !== actingMembershipId;
+  const actor = bookedForSomeoneElse
+    ? await trx
+        .selectFrom('memberships as m')
+        .innerJoin('users as u', 'u.id', 'm.user_id')
+        .select(['u.name', 'u.email'])
+        .where('m.id', '=', actingMembershipId)
+        .executeTakeFirst()
+    : null;
+
+  await queue(trx, 'booking_confirmed', row.booked_by_email, bookingConfirmedEmail({
+    registration: row.aircraft_registration,
+    starts: inClubTime(row.starts_at, zone),
+    ends: inClubTime(row.ends_at, zone),
+    bookedForSomeoneElse,
+    bookedBy: actor?.name ?? actor?.email ?? null,
+  }));
+}
 
 function toReservation(row: ReservationRow, viewer: Viewer): ReservationResponse {
   return {
@@ -268,7 +305,18 @@ export async function schedulingRoutes(app: FastifyInstance): Promise<void> {
             })
             .execute();
 
-          return selectReservations(trx).where('r.id', '=', reservation.id).executeTakeFirstOrThrow();
+          const row = await selectReservations(trx)
+            .where('r.id', '=', reservation.id)
+            .executeTakeFirstOrThrow();
+
+          /**
+           * Queued inside the same transaction as the booking, so a slot
+           * that loses the race to the exclusion constraint tells nobody it
+           * was won. §8.2's other half: the pilot who booked from a phone
+           * with one bar gets confirmation they can act on.
+           */
+          await notifyBooked(trx, row, viewer.membershipId);
+          return row;
         })
         .catch(rethrowSchedulingError);
 
@@ -371,10 +419,33 @@ export async function schedulingRoutes(app: FastifyInstance): Promise<void> {
 
         if (result.numUpdatedRows === 0n) throw new PermissionError('reservations', 'write');
 
-        return selectReservations(trx)
+        const row = await selectReservations(trx)
           .where('r.id', '=', request.params.id)
-          .executeTakeFirstOrThrow()
-          .then((row) => toReservation(row, viewer));
+          .executeTakeFirstOrThrow();
+
+        // The member whose booking it was, told by somebody who is not them
+        // — a dispatcher freeing an aeroplane, an admin clearing a day. A
+        // pilot cancelling their own gets nothing, because they know.
+        if (row.booked_by !== viewer.membershipId) {
+          const [tenant, actor] = await Promise.all([
+            trx.selectFrom('tenants').select(['timezone']).executeTakeFirst(),
+            trx
+              .selectFrom('memberships as m')
+              .innerJoin('users as u', 'u.id', 'm.user_id')
+              .select(['u.name', 'u.email'])
+              .where('m.id', '=', viewer.membershipId)
+              .executeTakeFirst(),
+          ]);
+
+          await queue(trx, 'booking_cancelled', row.booked_by_email, bookingCancelledEmail({
+            registration: row.aircraft_registration,
+            starts: inClubTime(row.starts_at, tenant?.timezone ?? 'UTC'),
+            cancelledBy: actor?.name ?? actor?.email ?? null,
+            self: false,
+          }));
+        }
+
+        return toReservation(row, viewer);
       });
     },
   );

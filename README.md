@@ -78,7 +78,21 @@ arguments:
 ```sh
 ./scripts/psql.sh                      # interactive psql as app_role
 ./scripts/psql.sh flightsquare_owner   # ... or as any other role
+./scripts/outbox.sh                    # what is queued, and what went
+./scripts/roles.sh                     # after pulling a change that adds a role
 ```
+
+**Email.** `npm run mail -w api` starts the sender. With no API key it logs
+each message and marks it delivered — a real pass through the worker rather
+than a skipped one — and `./scripts/outbox.sh` is where a verification or
+reset link is actually read. It runs as `mail_role`, which can read and drain
+one table and reach nothing else in the database; `app_role` still cannot read
+the queue at all, because the bodies carry live single-use links.
+
+`scripts/roles.sh` exists because roles are created at initdb and initdb only
+runs on an empty data directory — so a database from before M8 has no
+`mail_role` until it is run once. The migration says so rather than failing on
+a name that does not exist.
 
 Local credentials default to the values in `.env.example`; copy it to `.env`
 to change them. They are development-only and the container is bound to
@@ -159,6 +173,8 @@ db/                             not an npm workspace — SQL and psql only
                                 twenty-row reference table
     0015_platform_billing.sql   subscriptions, webhook idempotency, and the
                                 two helpers that hold the plan change
+    0016_outbox_drain.sql       the queue gets a sender, and the owner steps
+                                back from it
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -188,6 +204,9 @@ api/
     permissions.ts              §1.5's twelve resources and three levels
     billing/                    the provider behind one interface: Stripe when
                                 a key is set, a signing stub when not
+    mail/                       the sender: its own role, its own process, and
+                                who gets told about what
+    email.ts                    every message, rendered as plain text
     entitlements/
       registry.ts               every key, with a global default
       resolver.ts               §1.4's chain: override -> plan -> default
@@ -229,9 +248,11 @@ mobile/
     app/                        sign in, fleet, post-flight entry, squawk
 scripts/
   lib.sh                        sourced by the rest; loads .env, finds docker
+  roles.sh                      db/roles.sql against a database that exists
   migrate.sh                    forward-only, checksummed
   test.sh                       fixtures as superuser, assertions as app_role
   psql.sh                       interactive psql as any role
+  outbox.sh                     what is queued, and what the sender did with it
   seed-demo.sh                  an account to sign in with, until signup exists
 ```
 
