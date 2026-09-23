@@ -5,9 +5,11 @@ import type { ComponentProps, ReactNode } from 'react';
  * Shared components, owned outright — no component-library runtime and
  * nothing to theme around.
  *
- * The §11 type scale lives here rather than being retyped per screen:
+ * Inter throughout — §11 §4 makes it the whole operational interface, and
+ * Manrope is kept for the brand roles it names. The §11 type scale lives here
+ * rather than being retyped per screen:
  *
- *   page title      text-3xl font-bold        (30px / 700)
+ *   page title      text-3xl font-semibold    (30px / 600)
  *   section heading text-xl font-semibold     (20px / 600)
  *   card heading    text-base font-semibold   (16px / 600)
  *   body            text-sm / text-base       (14–16px / 400)
@@ -28,7 +30,9 @@ export function Card({ children, className = '' }: { children: ReactNode; classN
 }
 
 export function PageTitle({ children }: { children: ReactNode }) {
-  return <h1 className="text-3xl font-bold tracking-tight">{children}</h1>;
+  // 600, not 700: §11's scale tops out at semibold for a page title, and
+  // Inter at 700 is heavier than Manrope was at the same weight.
+  return <h1 className="text-3xl font-semibold tracking-tight">{children}</h1>;
 }
 
 export function SectionHeading({ children }: { children: ReactNode }) {
@@ -40,12 +44,13 @@ export function Button({
   className = '',
   ...props
 }: ComponentProps<'button'> & { variant?: 'primary' | 'secondary' | 'tertiary' }) {
-  // §11: the primary action is black with white text. Teal is never a button
-  // fill — it is emphasis, and one dominant primary per workflow.
+  // §11 §6: the primary action is navy with white text, and teal is never a
+  // button fill — it is selection and emphasis. One dominant primary per
+  // workflow.
   const styles = {
-    primary: 'bg-brand-black text-surface hover:bg-[#1F1F1F] disabled:bg-secondary',
-    secondary: 'border border-control bg-surface text-brand-black hover:bg-subtle',
-    tertiary: 'text-brand-black hover:bg-subtle',
+    primary: 'bg-navy text-on-dark hover:bg-navy-hover disabled:bg-slate',
+    secondary: 'border border-control bg-surface text-navy hover:bg-subtle',
+    tertiary: 'text-navy hover:bg-subtle',
   }[variant];
 
   return (
@@ -89,11 +94,17 @@ export function Field({
   );
 }
 
+/**
+ * §11 §8: white fields, navy text, a boundary that actually says where the
+ * field is. `border-control` rather than the decorative divider token,
+ * because the guideline is explicit that the subtle border is not enough
+ * when the boundary identifies the control.
+ */
 const controlStyles =
-  'h-11 w-full rounded-lg border border-control bg-surface px-3 text-base ' +
+  'h-11 w-full rounded-lg border border-control bg-surface px-3 text-base text-navy ' +
   'transition-colors duration-150 placeholder:text-secondary ' +
   'disabled:bg-subtle disabled:text-secondary read-only:bg-subtle ' +
-  'aria-[invalid=true]:border-brand-black aria-[invalid=true]:border-2';
+  'aria-[invalid=true]:border-navy aria-[invalid=true]:border-2';
 
 export function Input({ className = '', ...props }: ComponentProps<'input'>) {
   return <input {...props} className={`${controlStyles} ${className}`} />;
@@ -118,7 +129,7 @@ export function Alert({ children, tone = 'error' }: { children: ReactNode; tone?
   return (
     <p
       role={tone === 'error' ? 'alert' : 'status'}
-      className="flex items-start gap-2 rounded-lg border border-brand-black bg-subtle px-3 py-2.5 text-sm"
+      className="flex items-start gap-2 rounded-lg border border-navy bg-subtle px-3 py-2.5 text-sm"
     >
       <Icon aria-hidden size={16} strokeWidth={2} className="mt-0.5 shrink-0" />
       <span>{children}</span>
@@ -198,7 +209,7 @@ export function Status({ kind, children }: { kind: StatusKind; children?: ReactN
     <span
       className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${
         // Critical states get weight, a border and an icon — not a colour.
-        emphatic ? 'border border-brand-black bg-subtle' : 'bg-subtle text-secondary'
+        emphatic ? 'border border-navy bg-mist' : 'bg-mist text-secondary'
       }`}
     >
       <Icon aria-hidden size={14} strokeWidth={2} />
@@ -228,7 +239,7 @@ const HORIZONTAL_RATIO = 1864 / 380;
 export function Logo({ height = HEADER_SYMBOL_HEIGHT }: { height?: number }) {
   return (
     <img
-      src="/logo.svg"
+      src="/flightsquare-logo.svg"
       alt="FlightSquare"
       height={height}
       width={Math.round(height * HORIZONTAL_RATIO)}
@@ -242,7 +253,7 @@ export function Logo({ height = HEADER_SYMBOL_HEIGHT }: { height?: number }) {
 export function LogoMark({ size = HEADER_SYMBOL_HEIGHT }: { size?: number }) {
   return (
     <img
-      src="/logo-mark.svg"
+      src="/flightsquare-icon.svg"
       alt="FlightSquare"
       height={size}
       width={size}

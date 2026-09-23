@@ -1,6 +1,6 @@
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
   AircraftResponse,
   FlightResponse,
@@ -136,27 +136,38 @@ export default function Logs() {
         </View>
       ) : (
         flights.map((flight) => (
-          <Card key={flight.id}>
-            <View style={styles.row}>
-              <Text style={styles.route}>{routeOf(flight)}</Text>
-              <Text style={styles.date}>{flight.flight_date}</Text>
-            </View>
-            <Text style={styles.meta}>
-              {/* The projection carries the address and no name, which is
-                  enough to say who had the aeroplane. */}
-              {administers ? `${flight.flown_by_email ?? 'Unknown pilot'} · ` : ''}
-              {flight.aircraft_registration}
-            </Text>
-            <Text style={styles.meters}>
-              {flight.hobbs_hours ? `${flight.hobbs_hours} hobbs` : 'no hobbs'}
-              {flight.tach_hours ? ` · ${flight.tach_hours} tach` : ''}
-            </Text>
-            {flight.needs_review && flight.review_reason ? (
-              // §8.2: a meter gap is a flag for a person, never a rejection,
-              // and it is usually a maintenance run or an unlogged flight.
-              <Text style={styles.review}>{flight.review_reason}</Text>
-            ) : null}
-          </Card>
+          // The same gesture as the dashboard's widget, on the screen its
+          // "View all" leads to — a row that opens there and not here would
+          // read as two different kinds of thing.
+          <Pressable
+            key={flight.id}
+            onPress={() => router.push({ pathname: '/flight', params: { id: flight.id } })}
+            accessibilityRole="button"
+            accessibilityLabel={`Flight on ${flight.flight_date}, ${routeOf(flight)}`}
+            style={({ pressed }) => [pressed && styles.pressed]}
+          >
+            <Card>
+              <View style={styles.row}>
+                <Text style={styles.route}>{routeOf(flight)}</Text>
+                <Text style={styles.date}>{flight.flight_date}</Text>
+              </View>
+              <Text style={styles.meta}>
+                {/* The projection carries the address and no name, which is
+                    enough to say who had the aeroplane. */}
+                {administers ? `${flight.flown_by_email ?? 'Unknown pilot'} · ` : ''}
+                {flight.aircraft_registration}
+              </Text>
+              <Text style={styles.meters}>
+                {flight.hobbs_hours ? `${flight.hobbs_hours} hobbs` : 'no hobbs'}
+                {flight.tach_hours ? ` · ${flight.tach_hours} tach` : ''}
+              </Text>
+              {flight.needs_review && flight.review_reason ? (
+                // §8.2: a meter gap is a flag for a person, never a rejection,
+                // and it is usually a maintenance run or an unlogged flight.
+                <Text style={styles.review}>{flight.review_reason}</Text>
+              ) : null}
+            </Card>
+          </Pressable>
         ))
       )}
     </ScrollView>
@@ -192,6 +203,7 @@ const styles = StyleSheet.create({
   route: { ...type.cardHeading, flex: 1 },
   date: { ...type.supporting, color: color.secondary },
   meta: { ...type.supporting, color: color.secondary, marginTop: space.xs },
-  meters: { ...type.bodySmall, marginTop: space.xs },
+  meters: { ...type.bodySmall, marginTop: space.xs, fontVariant: ['tabular-nums'] },
+  pressed: { opacity: 0.7 },
   review: { ...type.supporting, marginTop: space.xs },
 });

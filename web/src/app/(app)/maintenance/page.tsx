@@ -71,7 +71,7 @@ export default async function MaintenancePage() {
                   <h2 className="text-xl font-semibold tracking-tight">
                     <Link
                       href={`/aircraft/${aircraft.aircraft_id}`}
-                      className="underline decoration-line decoration-1 underline-offset-4 hover:decoration-brand-black"
+                      className="underline decoration-line decoration-1 underline-offset-4 hover:decoration-navy"
                     >
                       {aircraft.registration}
                     </Link>

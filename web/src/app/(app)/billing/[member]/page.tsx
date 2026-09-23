@@ -86,7 +86,7 @@ export default async function MemberStatementPage({
 
           <button
             type="submit"
-            className="inline-flex h-11 items-center rounded-lg bg-brand-black px-4 text-sm font-semibold text-surface transition-colors duration-150 hover:bg-[#1F1F1F]"
+            className="inline-flex h-11 items-center rounded-lg bg-navy px-4 text-sm font-semibold text-on-dark transition-colors duration-150 hover:bg-navy-hover"
           >
             Show that period
           </button>

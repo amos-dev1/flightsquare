@@ -40,6 +40,13 @@ export default function LogFlight() {
     tach_start: '',
     tach_end: '',
   });
+  /**
+   * Both prefilled from the aeroplane's home base, because most flights start
+   * and finish there. Free text either way — the pilot overwrites the leg
+   * that was not local, which is one field rather than two.
+   */
+  const [departedFrom, setDepartedFrom] = useState('');
+  const [arrivedAt, setArrivedAt] = useState('');
   const [fuelRemaining, setFuelRemaining] = useState('');
   const [fuelAdded, setFuelAdded] = useState('');
   const [fuelCost, setFuelCost] = useState('');
@@ -62,6 +69,10 @@ export default function LogFlight() {
           hobbs_start: current.hobbs_start || (found.hobbs ?? ''),
           tach_start: current.tach_start || (found.tach ?? ''),
         }));
+        if (found.home_base) {
+          setDepartedFrom((current) => current || found.home_base!);
+          setArrivedAt((current) => current || found.home_base!);
+        }
       })
       .catch(() => undefined);
   }, [aircraftId]);
@@ -92,6 +103,8 @@ export default function LogFlight() {
         ...(meters.hobbs_end ? { hobbs_end: meters.hobbs_end } : {}),
         ...(meters.tach_start ? { tach_start: meters.tach_start } : {}),
         ...(meters.tach_end ? { tach_end: meters.tach_end } : {}),
+        ...(departedFrom.trim() ? { departed_from: departedFrom.trim() } : {}),
+        ...(arrivedAt.trim() ? { arrived_at: arrivedAt.trim() } : {}),
         ...(fuelRemaining ? { fuel_remaining_after: fuelRemaining } : {}),
         ...(fuelAdded ? { fuel_added_qty: fuelAdded } : {}),
         // §3.7 rule 3: money is integer minor units. The form takes the
@@ -180,6 +193,43 @@ export default function LogFlight() {
           ) : null}
         </Card>
 
+        {/*
+          Where it went.
+          Two fields, optional, and free text since 0014 dropped the keys into
+          `aerodromes` — that table holds twenty fields out of twenty thousand,
+          and a list that incomplete refuses almost every true answer. "Q22"
+          and "the strip behind the barn" are both acceptable.
+        */}
+        <Card style={styles.group}>
+          <SectionHeading>Route</SectionHeading>
+          <View style={styles.pair}>
+            <View style={styles.half}>
+              <Field label="From">
+                <Input
+                  value={departedFrom}
+                  onChangeText={setDepartedFrom}
+                  placeholder={aircraft?.home_base ?? 'KPAO'}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={16}
+                />
+              </Field>
+            </View>
+            <View style={styles.half}>
+              <Field label="To">
+                <Input
+                  value={arrivedAt}
+                  onChangeText={setArrivedAt}
+                  placeholder={aircraft?.home_base ?? 'KHAF'}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={16}
+                />
+              </Field>
+            </View>
+          </View>
+        </Card>
+
         {/* Fuel behind one tap: most flights buy none. */}
         <Card style={styles.group}>
           {showFuel ? (
@@ -228,9 +278,9 @@ export default function LogFlight() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: color.surface },
+  flex: { flex: 1, backgroundColor: color.mist },
   container: { padding: space.base, gap: space.base },
-  registration: { ...type.pageTitle, color: color.brandBlack },
+  registration: { ...type.pageTitle, color: color.navy },
   group: { gap: space.md },
   pair: { flexDirection: 'row', gap: space.md },
   half: { flex: 1 },

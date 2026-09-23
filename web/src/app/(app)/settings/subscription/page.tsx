@@ -228,7 +228,7 @@ function PlanCard({ plan, canManage }: { plan: PlanResponse; canManage: boolean 
   ];
 
   return (
-    <Card className={`flex flex-col gap-4 p-5 ${plan.current ? 'border-brand-black' : ''}`}>
+    <Card className={`flex flex-col gap-4 p-5 ${plan.current ? 'border-navy' : ''}`}>
       <div>
         <p className="text-base font-semibold">{plan.name}</p>
         <p className="tabular mt-1 text-2xl font-semibold">

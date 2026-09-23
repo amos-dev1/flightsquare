@@ -192,6 +192,34 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
+   * One flight, in full.
+   *
+   * The list projection already carries every column a detail view needs —
+   * both meters start, end and hours, the fuel, the remarks, the review flag
+   * — so this is the same `selectFlights` narrowed to an id rather than a
+   * second, wider shape that could drift from it.
+   *
+   * Registered after `/flights/summary` and `/flights/export.csv` and it does
+   * not shadow them: find-my-way matches a static segment ahead of a
+   * parameter whatever order they were added in.
+   *
+   * A flight in another tenant is a 404 and not a 403 — §6 keeps errors from
+   * leaking cross-tenant existence, and RLS has already made it invisible, so
+   * there is nothing here to get wrong: the row simply is not returned.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/flights/:id',
+    { config: { requiresTenant: true, permission: ['flights', 'read'] } },
+    async (request) => {
+      const row = await request.withTenant((trx) =>
+        selectFlights(trx).where('flights.id', '=', request.params.id).executeTakeFirst(),
+      );
+      if (!row) throw new NotFoundError();
+      return toResponse(row);
+    },
+  );
+
+  /**
    * The post-flight entry. §3.4 calls it the most important screen in the
    * product: if it takes more than a minute at the tiedown, people skip it,
    * the meters go stale, and every number in the app quietly becomes wrong.

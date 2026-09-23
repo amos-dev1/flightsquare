@@ -301,6 +301,39 @@ describe('flight logging', () => {
     });
   });
 
+  it('returns one flight in full, and 404s the ones that are not yours', async () => {
+    const list = await app.inject({ method: 'GET', url: '/flights' });
+    const wanted = list.json()[0];
+
+    const one = await app.inject({ method: 'GET', url: `/flights/${wanted.id}` });
+    expect(one.statusCode).toBe(200);
+    // The same projection as the list, so a detail screen and a row can
+    // never disagree about a meter.
+    expect(one.json()).toEqual(wanted);
+
+    // Both meters travel, neither derived from the other (§3.4).
+    expect(one.json()).toHaveProperty('hobbs_start');
+    expect(one.json()).toHaveProperty('tach_hours');
+
+    // A static segment still wins over the parameter, whatever order they
+    // were registered in — otherwise this route would have eaten both.
+    const summary = await app.inject({ method: 'GET', url: '/flights/summary' });
+    expect(summary.json()).toHaveProperty('flights');
+    const csv = await app.inject({ method: 'GET', url: '/flights/export.csv' });
+    expect(csv.headers['content-type']).toContain('text/csv');
+
+    // §6: errors do not leak cross-tenant existence. A flight nobody here can
+    // see is missing, not forbidden — and a malformed id is the same answer
+    // rather than a 500 from the driver.
+    const absent = await app.inject({
+      method: 'GET',
+      url: '/flights/01920000-0000-7000-8000-00000000dead',
+    });
+    expect(absent.statusCode).toBe(404);
+    const malformed = await app.inject({ method: 'GET', url: '/flights/not-a-uuid' });
+    expect(malformed.statusCode).toBe(404);
+  });
+
   it('accepts a field the reference table has never heard of', async () => {
     // `aerodromes` holds twenty rows; there are twenty thousand airfields in
     // the United States. A key against a list that incomplete refuses almost

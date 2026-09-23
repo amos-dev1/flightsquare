@@ -319,7 +319,7 @@ function ViewLink({
       aria-current={active ? 'true' : undefined}
       className={`rounded-lg px-2 py-1 ${
         // §11: selection is weight and fill, never colour alone.
-        active ? 'bg-brand-black font-semibold text-surface' : 'text-secondary hover:bg-subtle'
+        active ? 'bg-navy font-semibold text-surface' : 'text-secondary hover:bg-subtle'
       }`}
     >
       {children}
@@ -341,18 +341,18 @@ function Day({
   today: boolean;
 }) {
   return (
-    <Card className={`p-3 ${today ? 'border-brand-black' : ''}`}>
+    <Card className={`p-3 ${today ? 'border-navy' : ''}`}>
       <p className="flex items-baseline gap-2 text-sm font-semibold">
         {dayLabel(day, zone)}
         {/* Today marked by weight and a border as well as the accent, so it
             survives being read without colour (§11). */}
-        {today ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" /> : null}
+        {today ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-teal" /> : null}
         {today ? <span className="sr-only">(today)</span> : null}
       </p>
 
       <div className="mt-2 space-y-2">
         {blackouts.map((blackout) => (
-          <div key={blackout.id} className="rounded-lg border border-brand-black bg-subtle p-2">
+          <div key={blackout.id} className="rounded-lg border border-navy bg-subtle p-2">
             <p className="text-xs font-semibold">Unavailable</p>
             <p className="text-xs text-secondary">
               {blackout.aircraft_registration} · {blackout.reason}

@@ -773,261 +773,428 @@ These need your call; they are not blocking the first tables.
 
 ## 11 DESIGN GUIDELINES
 
-## FlightSquare branding and interface guidelines
+## FlightSquare design system — Cool Aviation
 
-Apply these guidelines to all new and modified screens and components.
-Preserve unrelated project instructions, architecture, and business rules.
-Do not redesign unrelated screens unless requested.
+This is the authoritative FlightSquare design specification.
+It supersedes all earlier FlightSquare branding, typography, and color
+instructions, including monochrome-only rules and earlier addenda.
 
-### Brand identity
+Apply it to new features and use it to update existing interface styling.
+Preserve unrelated project instructions, application architecture,
+business logic, data, permissions, and functionality.
 
-FlightSquare is a modern aircraft-management platform. The design should
-feel minimal, precise, professional, calm, and approachable.
+### 1. Design direction
 
-- Product name in normal text: FlightSquare.
-- Official logo wordmark: flightsquare, entirely lowercase.
-- Tagline: "Aircraft management, simplified."
-- Use the tagline sparingly on marketing, sign-in, and onboarding screens.
-- Favor clear hierarchy, useful information, and generous whitespace.
-- Avoid cockpit themes, futuristic effects, decorative gauges, and
-  colorful generic SaaS styling.
+FlightSquare is a modern aircraft-management platform.
 
-### Logo assets
+The interface should feel:
+- Clean and minimal.
+- Precise and organized.
+- Calm and professional.
+- Approachable for general aviation owners and pilots.
 
-Use the supplied approved aircraft-in-rounded-square symbol and lowercase
-Manrope wordmark.
+The chosen visual direction is "Cool Aviation":
+white surfaces, soft mist backgrounds, midnight navy typography,
+slate supporting details, and restrained bright teal accents.
 
-- Keep the logo and app icon black and white. Never recolor them teal.
-- Use the horizontal logo in desktop headers.
-- Use the standalone symbol in compact spaces.
-- Use the stacked logo for centered brand presentations.
-- Use black artwork on light backgrounds and white artwork on black.
-- Preserve proportions and original spacing.
-- Keep clear space of at least one-quarter of the symbol height.
-- Default header symbol height: 28–32px.
-- Never stretch, rotate, redraw, or add effects to the logo.
-- Never recreate the logo using CSS, emoji, or an icon library.
-- Prefer an approved SVG; otherwise use the supplied transparent PNG.
-- If assets are missing, request them rather than inventing a replacement.
+Add depth through subtle surface tones and clear hierarchy.
+Avoid excessive decoration, cockpit themes, futuristic effects,
+glassmorphism, heavy shadows, and gradients.
 
-### Color tokens
+Brand name: FlightSquare.
+Official logo wordmark: flightsquare.
+Tagline: "Aircraft management, simplified."
 
-Centralize these values in the project's existing theme system:
+Use the tagline on marketing, onboarding, and sign-in screens.
+Do not repeat it throughout operational screens.
 
-| Token | Value | Use |
+### 2. Logo
+
+Use the supplied approved SVG assets:
+- flightsquare-logo.svg: horizontal symbol and wordmark.
+- flightsquare-icon.svg: standalone symbol.
+
+The logo remains black or white, even though interface text and buttons
+now use navy.
+
+- Black logo on light surfaces.
+- White logo on dark navy surfaces.
+- Horizontal logo for full headers.
+- Standalone symbol for compact navigation and app icons.
+- Preserve original proportions and internal spacing.
+- Keep external clear space of at least one-quarter of symbol height.
+- Typical header symbol height: 28–32px.
+- Never recolor the logo teal, redraw it, or replace it with an icon.
+- Never recreate the wordmark using live text.
+- Do not modify logo paths when changing application fonts.
+
+### 3. Color system
+
+Centralize colors in the existing theme/token system.
+
+Core palette:
+
+| Token | Hex | Purpose |
 |---|---|---|
-| brand-black | #000000 | Primary text, primary buttons |
-| surface | #FFFFFF | Main backgrounds and cards |
-| text-secondary | #6B6B6B | Supporting text |
-| surface-subtle | #F4F4F4 | Muted surfaces and hover states |
-| border-subtle | #E5E5E5 | Decorative dividers and card borders |
-| accent | #00C2B8 | Sparse teal emphasis |
-| accent-text-on-light | #007A74 | Teal text on white |
-| on-accent | #000000 | Text and icons on bright teal |
+| navy | #152B3C | Primary text, primary buttons, dark brand surfaces |
+| teal | #00C2B8 | Main accent, selected controls, key highlights |
+| mist | #EAF1F5 | Page backgrounds and subtle section surfaces |
+| slate | #718493 | Decorative secondary details and chart series |
+| white | #FFFFFF | Cards, forms, menus, dialogs |
+| black | #000000 | Approved black logo artwork |
 
-The interface remains approximately 95% monochrome. Teal should occupy
-roughly 5% or less of a screen, serving a specific purpose.
+Supporting interface tokens:
 
-Approved teal uses:
-- Small active-navigation markers.
-- Selected dates, checkboxes, or enabled toggles.
-- One emphasized chart series.
-- Occasional "New" feature badges.
-- Small onboarding or marketing details.
+| Token | Hex | Purpose |
+|---|---|---|
+| text-secondary | #526675 | Body-level supporting text |
+| border-subtle | #D6E1E8 | Card borders and decorative dividers |
+| border-control | #718493 | Input/control boundaries when needed |
+| surface-hover | #F3F7F9 | Hover and understated alternate surfaces |
+| surface-selected | #E0F5F3 | Selected navigation and control surfaces |
+| teal-text | #007A74 | Accessible teal text on light backgrounds |
+| navy-hover | #203E54 | Primary-button hover state |
+| on-dark | #FFFFFF | Text on navy |
+| on-teal | #152B3C | Text and icons on bright teal |
 
-Teal rules:
-- Keep primary buttons black with white text.
-- Keep ordinary headings, metrics, and icons black or graphite.
-- Do not apply teal to every interactive element.
-- Use one accent detail per component where possible.
-- Avoid large teal surfaces, teal card outlines everywhere, gradients,
-  glow, and additional accent colors.
-- Use black text or icons on #00C2B8, never white.
-- Do not use bright teal for small text on white.
-- Use #007A74 for teal links on white, with an underline.
-- Teal indicates selection or emphasis, not safety or airworthiness.
-- Retain non-color indicators for selected and active states.
-- Treat #007A74 as a functional shade of the same accent.
+Slate #718493 is not the default for small supporting text on white.
+Use text-secondary #526675 and verify contrast in context.
 
-Default to light mode. Do not introduce a dark theme unless requested.
-Override framework defaults that add unapproved colors.
+Color application:
+- Main app canvas: mist.
+- Cards, dialogs, menus, and form surfaces: white.
+- Primary text and headings: navy.
+- Supporting text: text-secondary.
+- Primary buttons: navy with white text.
+- Teal: selected indicators, enabled controls, and limited highlights.
+- Dark marketing panels and reverse business cards: navy.
+- Logo artwork: black or white only.
 
-### Typography
+White and mist should dominate most screens.
+Teal should remain a small portion of the interface, generally under 5%.
+Navy can occupy larger areas when useful, such as a marketing panel.
 
-Load and use the actual Manrope font throughout the app, with a
-sans-serif fallback. Reuse the existing font-loading mechanism.
+Do not introduce coral, ivory, sand, sage, or olive from other concepts.
+Do not turn every button, icon, link, and heading teal.
+Avoid large saturated teal backgrounds.
+
+Do not use white text on bright teal.
+Use teal-text for small teal links on light surfaces.
+Verify actual foreground/background contrast before implementation.
+
+### 4. Typography
+
+Use two font roles:
+
+- Brand font: Manrope.
+- Interface font: Inter.
+
+Manrope:
+- Marketing headlines.
+- Brand taglines.
+- Promotional display titles.
+- Report-cover display titles.
+
+Inter:
+- All operational app headings and subheadings.
+- Body text and descriptions.
+- Navigation, tabs, buttons, and menus.
+- Labels, inputs, placeholders, and validation.
+- Tables, flight logs, maintenance records, and financial information.
+- Metrics, badges, dialogs, notifications, and tooltips.
+- Chart labels and legends.
+- Marketing body copy and controls.
+- Report body text and data tables.
+
+The approved SVG wordmark remains unchanged and has no font dependency.
+
+Do not mix Manrope headings with Inter body copy inside working app screens.
+Inter is the default for the entire operational interface.
+
+Font stacks:
+- font-brand: "Manrope", sans-serif
+- font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif
+
+Inter weights:
+- 400: body, inputs, descriptions, table values.
+- 500: labels, navigation, tabs, table headers.
+- 600: headings, buttons, card titles, key metrics.
+
+Manrope weights:
+- 600–700 for marketing headings.
+- 400–500 for supporting brand treatments where appropriate.
+
+Preferred interface scale:
 
 | Element | Size | Weight |
 |---|---|---|
-| Page title | 28–32px | 700 |
+| Page title | 28–32px | 600 |
 | Section heading | 20–24px | 600 |
 | Card heading | 16–18px | 600 |
 | Body | 14–16px | 400 |
 | Form input | 16px | 400 |
-| Button, navigation, field label | 14px | 500–600 |
+| Button/navigation/label | 14px | 500–600 |
 | Supporting text | 12–13px | 400–500 |
-| Key metric | 28–36px | 600–700 |
+| Key metric | 28–36px | 600 |
+
+Retain existing sizes that already work within this scale.
+Do not enlarge the interface merely because the font changed.
 
 - Body line height: approximately 1.5.
 - Heading line height: approximately 1.2–1.3.
-- Use sentence case.
-- Reserve uppercase for short metadata, aircraft registrations,
-  and established aviation abbreviations.
-- Avoid excessive letter spacing.
-- Use tabular numerals for aligned hours, times, amounts, and tables.
-- Do not shrink essential text to force content into a layout.
+- Sentence case by default.
+- Uppercase only for short metadata, registrations, and aviation abbreviations.
+- Normal letter spacing for operational text.
+- Tabular numerals for aligned hours, amounts, and date/time columns.
+- Preserve intentional monospace styles for actual code.
 
-### Spacing and surfaces
+Load real font files and weights through the existing project mechanism.
+Avoid synthetic weights and duplicate font-loading systems.
+Preserve font license notices.
 
-Use a shared spacing scale: 4, 8, 12, 16, 24, 32, and 48px.
+### 5. Layout, spacing, and surfaces
 
+Use a shared spacing scale:
+4, 8, 12, 16, 24, 32, and 48px.
+
+Defaults:
 - Desktop page padding: 24–32px.
 - Mobile page padding: 16px.
-- Desktop card padding: 20–24px.
-- Mobile card padding: 16px.
+- Card padding: 20–24px desktop, 16px mobile.
 - Related field spacing: 16px.
 - Major section spacing: 24–32px.
-- Buttons and inputs: 8px corner radius.
-- Cards and dialogs: 12px corner radius.
-- Decorative borders: 1px solid #E5E5E5.
+- Button/input radius: 8px.
+- Card/dialog radius: 12px.
+- Borders: generally 1px.
 
-Prefer alignment, whitespace, and subtle borders over shadows.
-Use restrained elevation only where needed for floating menus or dialogs.
-Avoid unnecessary nested cards and oversized low-information panels.
+Use mist backgrounds to separate white cards naturally.
+Favor whitespace and alignment over unnecessary nested containers.
 
-### Buttons and links
+Cards should be useful and reasonably compact.
+Avoid oversized panels containing very little information.
 
-Primary:
-- Black background, white text, weight 600.
-- Approximately 44px high, with 8px corner radius.
-- Subtle neutral hover treatment.
+Use subtle shadows only where elevation matters, such as menus and dialogs.
+Do not apply heavy shadows to every card.
 
-Secondary:
-- White background, black text, neutral border.
-- #F4F4F4 hover background.
+### 6. Buttons and actions
 
-Tertiary:
-- Text or icon action with no permanent background.
+Primary button:
+- Navy background.
+- White text.
+- Inter 600.
+- Approximately 44px high.
+- 8px radius.
+- Navy-hover hover state.
+
+Secondary button:
+- White background.
+- Navy text.
+- Clearly visible neutral border.
+- Subtle hover background.
+
+Tertiary action:
+- Navy text or icon.
+- No permanent filled background.
 - Clear hover and focus feedback.
-- Underline inline links.
+
+Inline links:
+- Navy with underline, or teal-text with underline.
+- Do not rely on color alone to identify links.
 
 Use one visually dominant primary action per workflow or section.
 Use specific labels: "Add aircraft", "Schedule flight", "Save changes".
 
-Destructive actions must use explicit wording and appropriate confirmation.
-Do not rely on color alone to distinguish them.
+Do not make primary buttons bright teal by default.
 
-### Forms
+### 7. Navigation
 
-- Use visible labels above fields; placeholders are supplementary.
-- Use white fields, dark text, and consistent neutral borders.
-- Identify required fields consistently.
-- Put helper text and validation next to the relevant field.
-- Combine validation text with an icon or another non-color indicator.
-- Preserve entered information after errors.
-- Use visible neutral focus outlines.
-- Use darker neutral boundaries where needed for accessible control
-  contrast; decorative border tokens are not sufficient for every control.
-- Make disabled, read-only, focused, and invalid states distinguishable.
+Preserve the established navigation structure unless explicitly requested.
 
-### Navigation, cards, and tables
+Light navigation is the default:
+- White surface.
+- Navy text and outline icons.
+- Selected item: pale selected surface, stronger text weight,
+  and a small teal marker.
+- Keep an additional non-color cue for selection.
 
-Navigation:
-- Consistent outline icons with concise text labels.
-- Active item: black text, stronger weight, and a small teal indicator.
-- Keep the logo separate from navigation icons.
-- Preserve established navigation architecture unless asked to change it.
+Do not create a large dark sidebar solely to match a marketing mockup.
+A dark navy navigation treatment is acceptable only where the existing
+layout or an explicit design request calls for it.
+
+### 8. Forms
+
+- Visible labels above fields.
+- White fields with navy text.
+- Placeholders supplement labels; they never replace them.
+- Consistent field heights and padding.
+- Clear required-field identification.
+- Helper and validation text placed next to the relevant field.
+- Preserve entered values after validation errors.
+- Ensure inputs, selects, textareas, and buttons inherit Inter.
+- Use visible navy focus outlines with separation from the component.
+- Use sufficiently contrasting control borders, not decorative
+  low-contrast dividers when the boundary is needed to identify a field.
+
+Provide distinct disabled, read-only, focused, selected, and invalid states.
+
+### 9. Cards, tables, and data
 
 Cards:
-- White surface, subtle border, clear heading, minimal decoration.
-- Use consistent content hierarchy and action placement.
+- White surface.
+- Navy heading.
+- Muted supporting text.
+- Subtle border.
+- Consistent action placement.
+- Optional mist or pale selected surface for a specific highlighted area.
 
 Tables:
-- Clear headers, consistent row spacing, and subtle dividers.
-- Left-align text; right-align comparable numeric values.
-- Keep units and date/time formats consistent.
-- Provide clear sorting, filtering, loading, and empty states.
-- Adapt to mobile without hiding essential information.
+- Inter throughout.
+- Light mist or hover-tone header surface.
+- Clear headers and subtle row dividers.
+- Navy primary values; darker supporting text where needed.
+- Left-align text.
+- Right-align comparable numeric values.
+- Use tabular numerals.
+- Keep units, currencies, and date formats consistent.
+- Make sorting, filtering, and pagination understandable.
+- Adapt dense tables for mobile without hiding essential information.
 
-### Icons
+Avoid decorative aircraft imagery on every operational card.
+Use images where they help identify an aircraft or support marketing.
 
-Use the project's existing consistent outline icon family.
+### 10. Icons and imagery
+
+Use the existing consistent outline icon family.
 If none exists, use Lucide.
 
-- Default size: 20px.
-- Compact actions: 16px.
-- Larger navigation or empty states: 24px.
-- Consistent stroke weight: approximately 1.75–2px.
-- Default color: black or graphite.
-- Do not mix outline icons, filled icons, emoji, or multicolor artwork.
-- Do not substitute an icon-library airplane for the official logo.
+Icon sizes:
+- 16px for compact actions.
+- 20px default.
+- 24px for larger navigation or empty states.
 
-### Status and aviation data
+Use consistent stroke weight around 1.75–2px.
+Default icons are navy or supporting-text colored.
+Use teal only for deliberate emphasis.
 
-Use explicit text, recognizable icons, and hierarchy for statuses:
-- Check icon + "Available".
-- Clock icon + "Due soon".
-- Warning icon + "Overdue".
-- Restriction icon + "Grounded".
+Do not mix outline icons, emoji, multicolor artwork, and filled styles.
+Never replace the official logo with an icon-library airplane.
 
-- Keep ordinary status treatments neutral.
-- Make critical information prominent with wording, contrast, borders,
-  and icons; never rely on color alone.
-- Preserve established business logic and critical warning behavior.
-- Do not infer "Airworthy" from the absence of a maintenance warning.
-- Clearly identify units, currencies, and time zones where relevant.
-- Distinguish Hobbs and tach time explicitly.
-- Treat mockup registrations, names, dates, routes, and values as
-  illustrative content, not production data.
+Brand photography:
+- Small general aviation aircraft.
+- Cirrus SR20/SR22-style piston airplanes are preferred.
+- Natural daylight, clean airport or hangar settings.
+- Realistic scale, details, and proportions.
+- Avoid airliners and large business jets in general brand marketing.
+- Preserve real uploaded aircraft photos regardless of aircraft type.
 
-### Charts
+### 11. Status, warnings, and aviation information
 
-- Use neutral series with teal reserved for one emphasized series.
-- Use labels, markers, or line patterns to distinguish series.
-- Do not rely solely on similar gray shades or color.
-- Keep units, axes, and legends clear.
-- Avoid rainbow palettes, gradients, 3D charts, and decorative gauges.
-- Provide readable data summaries or table alternatives where appropriate.
+Brand accent colors are not substitutes for semantic status rules.
 
-### Motion and feedback
+- Teal represents interaction, selection, or limited emphasis.
+- Do not use teal as a universal "safe" or "airworthy" signal.
+- Pair statuses with explicit text and recognizable icons.
+- Keep routine statuses visually restrained.
+- Make warnings and blocking conditions clearly distinguishable.
+- Preserve existing functional error, warning, and success colors
+  where they communicate necessary meaning.
+- Do not remove established red/amber warning behavior to force
+  everything into the brand palette.
+- Semantic colors are functional exceptions, not decorative accents.
+- Never rely on color alone.
 
-- Use restrained transitions, generally 150–200ms.
-- Respect reduced-motion preferences.
-- Avoid bouncing, parallax, and decorative logo animation.
-- Provide loading, empty, error, success, and disabled states.
-- Prevent duplicate submissions.
-- Keep feedback concise and near the relevant action.
+Do not infer airworthiness from an absence of maintenance warnings.
+Preserve validated business rules and source data.
 
-### Accessibility and responsive behavior
+Explicitly identify Hobbs versus tach time, time zones, units, and currencies
+where ambiguity is possible.
 
-Target WCAG AA.
+Mockup names, registrations, dates, contacts, routes, and values are examples.
+Do not copy them into production as real data.
 
-- Verify contrast for actual foreground/background combinations.
-- Do not assume bright teal on white meets control or chart contrast needs.
-  Add a contrasting boundary, marker, or darker teal treatment when needed.
+### 12. Charts
+
+Use:
+- Teal for the primary emphasized series.
+- Navy and slate for supporting series.
+- Mist for restrained contextual surfaces and grid treatment.
+
+Use labels, markers, and line patterns to distinguish series.
+Do not depend solely on color or similar shades.
+Keep axes, units, legends, and supporting summaries readable.
+
+Avoid rainbow palettes, decorative gauges, 3D charts, and heavy fills.
+
+### 13. Motion and accessibility
+
+Use restrained transitions, generally 150–200ms.
+Respect reduced-motion preferences.
+Avoid decorative logo animation, bouncing, and parallax.
+
+Target WCAG AA:
+- Verify text and non-text contrast in actual context.
 - Maintain visible keyboard focus.
 - Aim for touch targets of at least 44 × 44px.
 - Give icon-only controls accessible names.
-- Support keyboard navigation and correct dialog focus management.
-- Never communicate meaning through color alone.
-- Adapt layouts to mobile rather than shrinking desktop screens.
+- Support keyboard navigation and dialog focus management.
+- Do not communicate meaning through color alone.
+- Preserve readable text on mobile.
+- Provide loading, empty, error, success, and disabled states.
+- Prevent duplicate submissions.
 
-### Implementation discipline
+Bright teal on white may need a darker boundary, marker, or supporting
+indicator to meet non-text contrast requirements.
 
-- Centralize tokens in the existing CSS/theme configuration.
-- Reuse shared buttons, inputs, cards, tables, badges, and dialogs.
-- Avoid scattered hardcoded values and one-off component styles.
-- Do not add a new UI library solely to implement these guidelines.
-- Keep business logic separate from visual styling.
-- Follow these rules for new work and components touched by a task.
-- Do not perform an unrelated application-wide redesign.
+### 14. Updating the existing app
 
-Before completing a UI change, check:
-- Approved logo and Manrope typography.
-- Predominantly monochrome palette with restrained teal.
-- Black primary buttons and black-and-white logo assets.
-- Consistent spacing, radii, icons, and component states.
-- Responsive layout and accessible interactions.
-- Clear loading, empty, error, and success behavior.
-- No mockup data or unsupported aviation status claims in production.
+This is an incremental design-system migration, not a rebuild.
 
+1. Inspect existing theme tokens, fonts, and shared components.
+2. Map existing tokens to the new Cool Aviation palette.
+3. Set Inter as the default operational interface font.
+4. Retain Manrope for explicit marketing and brand elements.
+5. Update shared components before adding page-level overrides.
+6. Replace outdated hardcoded visual values where needed.
+7. Review representative screens on desktop and mobile.
+8. Correct styling regressions with the smallest necessary changes.
+
+Preserve:
+- Routes and navigation structure.
+- Business logic and API behavior.
+- Authentication and permissions.
+- Data models and application state.
+- Existing workflows and content.
+- Working responsive behavior.
+- Accessibility and critical warning behavior.
+
+Do not:
+- Rebuild pages from the concept board.
+- Introduce new features or marketing claims.
+- Add a new UI library solely for this restyle.
+- Change layouts that already work without a concrete reason.
+- Globally replace every black value, including logo artwork.
+- Scatter raw colors and font definitions across components.
+
+Use the existing styling architecture and central theme configuration.
+Account for portals, dialogs, chart libraries, native form controls,
+and reports that may not inherit global typography.
+
+### 15. Completion checklist
+
+Before finishing a design update, verify:
+- Black/white approved SVG logos remain unchanged.
+- Inter is loaded and applied throughout operational UI.
+- Manrope remains in approved brand/marketing roles.
+- Navy, mist, white, slate, and restrained teal are applied consistently.
+- Primary buttons are navy with white text.
+- Supporting text has adequate contrast.
+- Controls and navigation have clear interaction states.
+- No text clipping, unexpected wrapping, or layout shifts.
+- Tables and numeric columns remain readable.
+- Mobile layouts and keyboard interactions work.
+- Loading, empty, error, and success states remain complete.
+- Functional warnings and business logic are preserved.
+
+The concept boards establish visual direction. This written specification
+and actual application requirements take precedence over incidental
+details in generated images.

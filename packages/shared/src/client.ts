@@ -153,6 +153,11 @@ export function createClient(options: ClientOptions) {
       return request<FlightResponse[]>('GET', search ? `/flights?${search}` : '/flights');
     },
     /**
+     * One flight, in full — the same projection the list returns, so a
+     * detail screen and a list row can never disagree about a meter.
+     */
+    getFlight: (id: string) => request<FlightResponse>('GET', `/flights/${id}`),
+    /**
      * The same flights, added up by the server rather than by this client.
      *
      * §8.2 again: a total on a dashboard matters, and `listFlights` caps at

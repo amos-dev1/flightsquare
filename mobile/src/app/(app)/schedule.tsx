@@ -1,4 +1,4 @@
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
@@ -35,6 +35,14 @@ import { color, space, type } from '@/theme';
 const DAYS = 7;
 
 export default function Schedule() {
+  /**
+   * The dashboard sends whichever aeroplane its card was showing, so
+   * "Schedule flight" lands on that one rather than on whichever sorts
+   * first. Arriving from the tab bar there is no parameter and the old
+   * behaviour stands.
+   */
+  const { aircraft: preselected } = useLocalSearchParams<{ aircraft?: string }>();
+
   const [fleet, setFleet] = useState<AircraftResponse[] | null>(null);
   const [availability, setAvailability] = useState<AircraftAvailabilityResponse[]>([]);
   const [reservations, setReservations] = useState<ReservationResponse[]>([]);
@@ -63,11 +71,20 @@ export default function Schedule() {
       setAvailability(dispatch);
       setReservations(rows);
       setOffline(false);
-      setAircraftId((current) => current ?? aircraft.find((a) => a.status === 'active')?.id ?? null);
+      setAircraftId((current) => {
+        if (current) return current;
+        // Only if it is really there and really bookable — a parameter is a
+        // suggestion, and an id that does not resolve would leave the picker
+        // pointing at nothing.
+        if (preselected && aircraft.some((a) => a.id === preselected && a.status === 'active')) {
+          return preselected;
+        }
+        return aircraft.find((a) => a.status === 'active')?.id ?? null;
+      });
     } catch {
       setOffline(true);
     }
-  }, []);
+  }, [preselected]);
 
   useFocusEffect(
     useCallback(() => {
@@ -351,9 +368,9 @@ const styles = StyleSheet.create({
   viewToggle: { flexDirection: 'row', gap: space.lg, marginTop: space.sm },
   filter: { ...type.label, color: color.secondary, paddingVertical: space.xs },
   filterOn: {
-    color: color.brandBlack,
+    color: color.navy,
     borderBottomWidth: 2,
-    borderBottomColor: color.accent,
+    borderBottomColor: color.teal,
   },
   dispatch: { marginTop: space.md, marginBottom: space.sm, gap: space.xs },
   dispatchLine: { flexDirection: 'row', alignItems: 'center', gap: space.sm },

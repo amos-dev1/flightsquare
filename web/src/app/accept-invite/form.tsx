@@ -33,7 +33,7 @@ export function AcceptInviteForm({
     <div className="space-y-4">
       <h1 className="text-xl font-semibold tracking-tight">Join {invite.tenant_name}</h1>
       <p className="text-sm text-secondary">
-        Invited as <span className="font-semibold text-brand-black">{invite.email}</span>.
+        Invited as <span className="font-semibold text-navy">{invite.email}</span>.
       </p>
 
       {needsSignIn ? (

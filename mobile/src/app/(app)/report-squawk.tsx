@@ -142,9 +142,9 @@ export default function ReportSquawk() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: color.surface },
+  flex: { flex: 1, backgroundColor: color.mist },
   container: { padding: space.base, gap: space.base, paddingBottom: space.xxl },
-  registration: { ...type.pageTitle, color: color.brandBlack },
+  registration: { ...type.pageTitle, color: color.navy },
   group: { gap: space.base },
   details: { height: 96, paddingTop: space.sm, textAlignVertical: 'top' },
 });

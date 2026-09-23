@@ -10,11 +10,18 @@ import {
 } from 'react-native';
 
 // Relative, not via `@/`, which maps to src/ — the artwork lives beside it.
-import LogoSymbol from '../../assets/logo-mark.svg';
-import LogoWordmark from '../../assets/logo.svg';
+import LogoSymbol from '../../assets/flightsquare-icon.svg';
+import LogoWordmark from '../../assets/flightsquare-logo.svg';
 import { CONTROL_HEIGHT, color, font, radius, space, type } from '@/theme';
 
-/** §11, as React Native styles. Same tokens as the web theme. */
+/**
+ * §11, as React Native styles. Same tokens as the web theme.
+ *
+ * Navy carries text and primary actions, white is the card surface, and the
+ * screens behind these sit on mist so a card separates from its canvas
+ * without a shadow. Nothing here fills with teal: §11 keeps it to selection
+ * and emphasis, and explicitly not to a safety or airworthiness signal.
+ */
 
 export function Card({ children, style }: { children: ReactNode; style?: object }) {
   return <View style={[styles.card, style]}>{children}</View>;
@@ -54,15 +61,15 @@ export function Button({
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
-        // §11: the primary action is black with white text. Teal is never a
-        // button fill.
+        // §11 §6: the primary action is navy with white text. Teal is never
+        // a button fill — it is selection and emphasis.
         isPrimary ? styles.buttonPrimary : styles.buttonSecondary,
-        pressed && styles.buttonPressed,
+        pressed && (isPrimary ? styles.buttonPrimaryPressed : styles.buttonPressed),
         (disabled || busy) && styles.buttonDisabled,
       ]}
     >
       {busy ? (
-        <ActivityIndicator color={isPrimary ? color.surface : color.brandBlack} />
+        <ActivityIndicator color={isPrimary ? color.onDark : color.navy} />
       ) : (
         <Text style={[styles.buttonLabel, isPrimary && styles.buttonLabelPrimary]}>{label}</Text>
       )}
@@ -126,6 +133,7 @@ export function Notice({ children, tone = 'info' }: { children: ReactNode; tone?
 /**
  * A status, as §11 specifies it: explicit wording and a border, never colour
  * alone. Weight and the outline carry here what an icon carries on the web.
+ * The chip sits on mist rather than white so it reads as a chip on a card.
  */
 export function Status({ label, emphatic }: { label: string; emphatic?: boolean }) {
   return (
@@ -139,8 +147,12 @@ export function Status({ label, emphatic }: { label: string; emphatic?: boolean 
  * A segmented choice, because a picker wheel for four options is four taps
  * and a scroll on a phone held in one hand at a tiedown.
  *
- * Selection is shown by fill and weight together — §11 keeps a non-colour
- * indicator for every selected state, and this palette is monochrome anyway.
+ * §11 §3 puts teal on selected controls and navy on primary buttons, which
+ * settles a fault the Simulator showed earlier: a selected option filled like
+ * a primary button reads as a second "Save", and on a form with a real one it
+ * competes with it. Selection here is the pale selected surface, a teal
+ * boundary and heavier text — three cues, none of them colour alone, and none
+ * of them shaped like the action.
  */
 export function Choice<T extends string>({
   options,
@@ -185,9 +197,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.card,
     padding: space.base,
   },
-  pageTitle: { ...type.pageTitle, color: color.brandBlack },
-  sectionHeading: { ...type.sectionHeading, color: color.brandBlack },
-  body: { ...type.body, color: color.brandBlack },
+  pageTitle: { ...type.pageTitle, color: color.navy },
+  sectionHeading: { ...type.sectionHeading, color: color.navy },
+  body: { ...type.body, color: color.navy },
   muted: { color: color.secondary },
 
   button: {
@@ -197,15 +209,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: space.base,
   },
-  buttonPrimary: { backgroundColor: color.brandBlack },
+  buttonPrimary: { backgroundColor: color.navy },
+  // The hover token, as a press state — a real colour change rather than the
+  // whole control fading, which §11 does not ask for and which drops the
+  // label's contrast with it.
+  buttonPrimaryPressed: { backgroundColor: color.navyHover },
   buttonSecondary: { backgroundColor: color.surface, borderWidth: 1, borderColor: color.control },
-  buttonPressed: { opacity: 0.85 },
+  buttonPressed: { backgroundColor: color.subtle },
   buttonDisabled: { opacity: 0.5 },
-  buttonLabel: { ...type.button, color: color.brandBlack },
-  buttonLabelPrimary: { color: color.surface },
+  buttonLabel: { ...type.button, color: color.navy },
+  buttonLabelPrimary: { color: color.onDark },
 
   field: { gap: space.sm },
-  label: { ...type.label, color: color.brandBlack },
+  label: { ...type.label, color: color.navy },
   labelHint: { ...type.bodySmall, color: color.secondary },
   hint: { ...type.supporting, color: color.secondary },
 
@@ -216,11 +232,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     paddingHorizontal: space.md,
     backgroundColor: color.surface,
-    color: color.brandBlack,
     ...type.input,
   },
 
-  meter: { ...type.body, color: color.brandBlack, fontVariant: ['tabular-nums'] },
+  meter: { ...type.body, color: color.navy, fontVariant: ['tabular-nums'] },
   meterUnit: { ...type.supporting, color: color.secondary },
 
   notice: {
@@ -230,19 +245,23 @@ const styles = StyleSheet.create({
     borderRadius: radius.control,
     padding: space.md,
   },
-  noticeError: { borderColor: color.brandBlack },
-  noticeText: { ...type.bodySmall, color: color.brandBlack },
+  noticeError: { borderColor: color.navy },
+  noticeText: { ...type.bodySmall, color: color.navy },
 
   status: {
     alignSelf: 'flex-start',
     borderRadius: radius.control,
-    backgroundColor: color.subtle,
-    paddingHorizontal: space.sm,
+    backgroundColor: color.mist,
+    paddingHorizontal: space.md,
     paddingVertical: space.xs,
+    // A transparent border on the ordinary chip, so the emphatic one is not
+    // 2px wider than its neighbour in a column of them.
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
-  statusEmphatic: { borderWidth: 1, borderColor: color.brandBlack },
+  statusEmphatic: { borderColor: color.navy },
   statusLabel: { ...type.supporting, color: color.secondary },
-  statusLabelEmphatic: { color: color.brandBlack, fontFamily: font.semibold },
+  statusLabelEmphatic: { color: color.navy, fontFamily: font.semibold },
 
   choice: { gap: space.sm },
   choiceOption: {
@@ -254,9 +273,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
-  choiceOptionSelected: { backgroundColor: color.brandBlack, borderColor: color.brandBlack },
-  choiceLabel: { ...type.body, color: color.brandBlack },
-  choiceLabelSelected: { color: color.surface, fontFamily: font.semibold },
+  choiceOptionSelected: { backgroundColor: color.selected, borderColor: color.teal, borderWidth: 2 },
+  choiceLabel: { ...type.body },
+  choiceLabelSelected: { fontFamily: font.semibold },
 });
 
 /**
@@ -269,7 +288,8 @@ const styles = StyleSheet.create({
  * copied into code.
  *
  * Both are pure black artwork for light backgrounds. There is no colour to
- * set, and §11 forbids teal here regardless.
+ * set: §11 forbids teal here, and the artwork is black rather than navy on
+ * purpose — it is the logo, not interface colour.
  *
  * Intrinsic ratios: 1864 x 380 for the horizontal lockup, 394 x 394 for the
  * standalone symbol.

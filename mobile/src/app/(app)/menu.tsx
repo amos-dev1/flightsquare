@@ -6,7 +6,7 @@ import { Pressable } from 'react-native';
 import { Body, Logo, SectionHeading } from '@/components/ui';
 import { clearSession } from '@/lib/auth';
 import { useFlag } from '@/lib/entitlements';
-import { color, space, type } from '@/theme';
+import { color, radius, space, type } from '@/theme';
 
 /**
  * Everything that does not fit five tabs.
@@ -81,7 +81,7 @@ function Item({
       accessibilityLabel={label}
       style={({ pressed }) => [styles.item, pressed && styles.itemPressed]}
     >
-      <Feather name={icon} size={20} color={color.brandBlack} />
+      <Feather name={icon} size={20} color={color.navy} />
       <View style={styles.itemText}>
         <Text style={styles.itemLabel}>{label}</Text>
         <Body muted>{hint}</Body>
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.base,
     borderWidth: 1,
     borderColor: color.line,
-    borderRadius: 12,
+    borderRadius: radius.card,
     backgroundColor: color.surface,
   },
   itemPressed: { backgroundColor: color.subtle },

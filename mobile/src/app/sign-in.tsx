@@ -109,8 +109,11 @@ export default function SignIn() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: color.surface },
+  flex: { flex: 1, backgroundColor: color.mist },
   container: { padding: space.base, gap: space.base, justifyContent: 'center', flexGrow: 1 },
   header: { gap: space.xs, marginBottom: space.sm },
-  tagline: { ...type.bodySmall, color: color.secondary },
+  // Manrope, and the one place on this screen that uses it: §11 §4 keeps
+  // the brand face for the tagline and the operational face for everything
+  // a pilot actually works in.
+  tagline: { ...type.tagline, color: color.secondary },
 });

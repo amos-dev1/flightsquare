@@ -126,7 +126,7 @@ export default async function BillingPage() {
                     <span className="text-sm text-secondary">
                       {rate ? (
                         <>
-                          <span className="tabular font-semibold text-brand-black">
+                          <span className="tabular font-semibold text-navy">
                             {formatMoney(rate.amount_cents, rate.currency)}
                           </span>{' '}
                           an hour on {aircraft.billing_meter} ·{' '}

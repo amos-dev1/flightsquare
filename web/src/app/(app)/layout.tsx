@@ -135,7 +135,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       */}
       {tenant.status === 'past_due' || over.length > 0 ? (
         <div className="mx-auto max-w-4xl px-6 pt-6">
-          <div className="flex flex-wrap items-baseline justify-between gap-3 rounded-xl border border-brand-black bg-subtle px-5 py-3 text-sm">
+          <div className="flex flex-wrap items-baseline justify-between gap-3 rounded-xl border border-navy bg-subtle px-5 py-3 text-sm">
             <p>
               {tenant.status === 'past_due'
                 ? 'A payment to FlightSquare did not go through. Nothing has been switched off.'

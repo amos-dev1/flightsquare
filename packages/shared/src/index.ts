@@ -447,6 +447,20 @@ export interface AircraftResponse {
    * records one.
    */
   fuel_remaining: string | null;
+  /**
+   * When that fuel reading was taken. Separate from `totals_updated_at`
+   * because the meters advance on every flight and fuel only when somebody
+   * records it — one shared "last recorded" over both would be a claim about
+   * one of them that nothing supports.
+   */
+  fuel_remaining_at: string | null;
+  /**
+   * The last place a flight was logged as *arriving* — free text a pilot
+   * typed, not a position. There is no telemetry in this product and nothing
+   * here should be read as tracking.
+   */
+  last_location: string | null;
+  last_location_at: string | null;
 }
 
 export interface CreateAircraftRequest {

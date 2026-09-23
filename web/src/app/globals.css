@@ -1,37 +1,55 @@
 @import "tailwindcss";
 
 /*
- * §11 colour tokens, centralised here and nowhere else.
+ * §11's Cool Aviation palette, centralised here and nowhere else.
  *
- * The interface is ~95% monochrome. Teal is emphasis, not decoration: small
- * active-navigation markers, a selected control, one emphasised chart series.
- * It never means "safe" or "airworthy" — §11 is explicit that teal indicates
- * selection, and airworthiness is never inferred from the absence of a
- * warning.
+ * White and mist dominate; navy carries text, headings and primary actions;
+ * teal stays under about 5% of a screen and means interaction or selection.
+ * §11 is explicit that it is never a "safe" or "airworthy" signal — an
+ * aircraft's fitness is never inferred from the absence of a warning, and
+ * semantic warning colours are functional exceptions rather than accents.
  *
- * Utility names are shortened where the guideline name would read badly as a
- * Tailwind class (text-text-secondary); the mapping is recorded per line.
+ * Token names follow §11's own, except where the guideline name would read
+ * badly as a Tailwind class (`text-text-secondary`); the mapping is recorded
+ * per line. The approved logo artwork stays black and is an `<img>`, so
+ * nothing here touches it (§14: do not globally replace every black value).
  */
 @theme {
-  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /*
+   * Inter runs the operational interface — every heading, label, table and
+   * number. Manrope is kept for the brand roles §11 reserves it for: the
+   * tagline, marketing headlines, nothing inside a working screen.
+   */
+  --font-sans: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
 
-  --color-brand-black: #000000;   /* brand-black          — text, primary buttons */
-  --color-surface: #FFFFFF;       /* surface              — backgrounds and cards */
-  --color-secondary: #6B6B6B;     /* text-secondary       — supporting text */
-  --color-subtle: #F4F4F4;        /* surface-subtle       — muted surfaces, hover */
-  --color-line: #E5E5E5;          /* border-subtle        — dividers, card borders */
-  --color-accent: #00C2B8;        /* accent               — sparse teal emphasis */
-  --color-accent-ink: #007A74;    /* accent-text-on-light — teal text on white */
-  --color-on-accent: #000000;     /* on-accent            — never white on teal */
+  --color-navy: #152B3C;          /* navy                 — text, headings, primary buttons */
+  --color-navy-hover: #203E54;    /* navy-hover           — primary button hover */
+  --color-teal: #00C2B8;          /* teal                 — selection and limited emphasis */
+  --color-teal-text: #007A74;     /* teal-text            — accessible teal text on light */
+  --color-mist: #EAF1F5;          /* mist                 — page canvas, section surfaces */
+  --color-slate: #718493;         /* slate                — decorative details, chart series */
+  --color-surface: #FFFFFF;       /* white                — cards, forms, menus, dialogs */
 
-  /* Controls need a darker boundary than the decorative border token: §11
-     says the border token alone is not sufficient for accessible contrast. */
-  --color-control: #8A8A8A;
+  --color-secondary: #526675;     /* text-secondary       — supporting text */
+  --color-line: #D6E1E8;          /* border-subtle        — dividers, card borders */
+  --color-subtle: #F3F7F9;        /* surface-hover        — hover and understated surfaces */
+  --color-selected: #E0F5F3;      /* surface-selected     — selected nav and controls */
+  --color-on-teal: #152B3C;       /* on-teal              — never white on bright teal */
+  --color-on-dark: #FFFFFF;       /* on-dark              — text on navy */
+
+  /*
+   * A control boundary, where the decorative border is not enough to say
+   * where a field begins. §11 is explicit that slate is not the default for
+   * small supporting text on white — it is for borders and chart series.
+   */
+  --color-control: #718493;
 }
 
 html {
-  background: var(--color-surface);
-  color: var(--color-brand-black);
+  /* Mist is the canvas; white belongs to the cards sitting on it (§11 §5). */
+  background: var(--color-mist);
+  color: var(--color-navy);
   /* Light mode by default; no dark theme unless asked for. */
   color-scheme: light;
 }
@@ -53,9 +71,9 @@ h1, h2, h3 {
   font-variant-numeric: tabular-nums;
 }
 
-/* A visible, neutral focus ring that does not depend on colour to be seen. */
+/* Visible focus, offset from the control so it reads on any surface. */
 :focus-visible {
-  outline: 2px solid var(--color-brand-black);
+  outline: 2px solid var(--color-navy);
   outline-offset: 2px;
 }
 

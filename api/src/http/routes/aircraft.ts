@@ -149,6 +149,48 @@ async function selectAircraft(trx: Tx, id?: string) {
            AND ff.fuel_remaining_after IS NOT NULL
          ORDER BY f.recorded_at DESC, f.id DESC
          LIMIT 1)`.as('fuel_remaining'),
+      /**
+       * When that reading was taken.
+       *
+       * Fuel, location and the meters come from three different places and
+       * are frequently three different moments — the meters advance on every
+       * flight, fuel only when somebody records it, and a location only when
+       * the arrival field was filled in. One "last recorded" line over all
+       * three would be a claim about two of them that nothing supports, so
+       * each reading carries its own and the client shares one line only when
+       * they genuinely agree.
+       */
+      sql<Date | null>`(
+        SELECT f.recorded_at
+          FROM public.flight_fuel ff
+          JOIN public.flights f ON f.id = ff.flight_id
+         WHERE f.aircraft_id = aircraft.id
+           AND ff.fuel_remaining_after IS NOT NULL
+         ORDER BY f.recorded_at DESC, f.id DESC
+         LIMIT 1)`.as('fuel_remaining_at'),
+      /**
+       * Where it last landed, as far as this product can honestly say.
+       *
+       * There is no telemetry and no position source: the only recorded
+       * location in the schema is the `arrived_at` a pilot typed on the
+       * post-flight form, which is free text since 0014. So this is "the last
+       * place a flight was logged as arriving", and the UI says so rather
+       * than implying the aeroplane is being tracked.
+       */
+      sql<string | null>`(
+        SELECT f.arrived_at
+          FROM public.flights f
+         WHERE f.aircraft_id = aircraft.id
+           AND f.arrived_at IS NOT NULL
+         ORDER BY f.recorded_at DESC, f.id DESC
+         LIMIT 1)`.as('last_location'),
+      sql<Date | null>`(
+        SELECT f.recorded_at
+          FROM public.flights f
+         WHERE f.aircraft_id = aircraft.id
+           AND f.arrived_at IS NOT NULL
+         ORDER BY f.recorded_at DESC, f.id DESC
+         LIMIT 1)`.as('last_location_at'),
     ]);
   if (id !== undefined) query = query.where('aircraft.id', '=', id);
   return query.orderBy('aircraft.registration').execute();
@@ -178,6 +220,9 @@ function toResponse(row: Awaited<ReturnType<typeof selectAircraft>>[number]): Ai
     fuel_capacity: row.fuel_capacity,
     fuel_units: row.fuel_units ?? 'gallons',
     fuel_remaining: row.fuel_remaining,
+    fuel_remaining_at: row.fuel_remaining_at?.toISOString() ?? null,
+    last_location: row.last_location,
+    last_location_at: row.last_location_at?.toISOString() ?? null,
   };
 }
 

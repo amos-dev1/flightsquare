@@ -23,7 +23,7 @@ export default async function LogFlightPage({ params }: { params: Promise<{ id: 
       <div>
         <Link
           href={`/aircraft/${id}`}
-          className="text-sm font-semibold text-accent-ink underline underline-offset-2"
+          className="text-sm font-semibold text-teal-text underline underline-offset-2"
         >
           {aircraft.registration}
         </Link>

@@ -14,6 +14,6 @@ export default function Index() {
     });
   }, []);
 
-  if (!target) return <View style={{ flex: 1, backgroundColor: color.surface }} />;
+  if (!target) return <View style={{ flex: 1, backgroundColor: color.mist }} />;
   return <Redirect href={target as '/sign-in'} />;
 }

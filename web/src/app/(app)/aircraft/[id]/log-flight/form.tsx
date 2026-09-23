@@ -121,7 +121,7 @@ export function LogFlightForm({ aircraft }: { aircraft: AircraftResponse }) {
           </div>
           {hobbsHours ? (
             <p className="text-sm text-secondary">
-              <span className="tabular font-semibold text-brand-black">{hobbsHours}</span> Hobbs
+              <span className="tabular font-semibold text-navy">{hobbsHours}</span> Hobbs
               hours
             </p>
           ) : null}
@@ -151,7 +151,7 @@ export function LogFlightForm({ aircraft }: { aircraft: AircraftResponse }) {
           </div>
           {tachHours ? (
             <p className="text-sm text-secondary">
-              <span className="tabular font-semibold text-brand-black">{tachHours}</span> tach
+              <span className="tabular font-semibold text-navy">{tachHours}</span> tach
               hours
             </p>
           ) : null}

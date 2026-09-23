@@ -5,10 +5,11 @@
  * boundaries cannot catch because they sit inside it.
  *
  * This file replaces the root layout when active, so it renders its own
- * `<html>` and `<body>` and cannot rely on globals.css being applied. The
- * styles are therefore inline and deliberately plain — §11's black on white,
- * Manrope if it happens to be available, and nothing that depends on the app
- * having loaded.
+ * `<html>` and `<body>` and cannot rely on globals.css or next/font being
+ * applied — neither the tokens nor Inter is loaded here. The styles are
+ * therefore inline, with §11's navy on mist written out literally and the
+ * system stack for type: naming Inter would be a font nobody has fetched,
+ * which is the synthetic-weight fallback §11 §4 tells us not to ship.
  */
 export default function GlobalError({
   error,
@@ -26,14 +27,14 @@ export default function GlobalError({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#FFFFFF',
-          color: '#000000',
-          fontFamily: 'Manrope, system-ui, sans-serif',
+          background: '#EAF1F5',
+          color: '#152B3C',
+          fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
           padding: 16,
         }}
       >
         <main style={{ maxWidth: 420 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>FlightSquare</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 600, margin: 0 }}>FlightSquare</h1>
           <p style={{ fontSize: 16, lineHeight: 1.5, marginTop: 12 }}>
             The app failed to load. Your records are unaffected.
           </p>
@@ -46,7 +47,7 @@ export default function GlobalError({
               padding: '0 16px',
               borderRadius: 8,
               border: 'none',
-              background: '#000000',
+              background: '#152B3C',
               color: '#FFFFFF',
               fontSize: 14,
               fontWeight: 600,
@@ -56,7 +57,7 @@ export default function GlobalError({
             Try again
           </button>
           {error.digest ? (
-            <p style={{ fontSize: 12, color: '#6B6B6B', marginTop: 16 }}>
+            <p style={{ fontSize: 12, color: '#526675', marginTop: 16 }}>
               Reference {error.digest}
             </p>
           ) : null}

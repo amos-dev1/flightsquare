@@ -166,8 +166,8 @@ function Filter({
       // marker, never colour on its own.
       className={
         on
-          ? 'font-semibold underline decoration-accent decoration-2 underline-offset-4'
-          : 'text-secondary hover:text-brand-black'
+          ? 'font-semibold underline decoration-teal decoration-2 underline-offset-4'
+          : 'text-secondary hover:text-navy'
       }
       aria-current={on ? 'true' : undefined}
     >
