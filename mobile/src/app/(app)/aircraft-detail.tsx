@@ -14,6 +14,7 @@ import {
 import { AircraftThumbnail, StatusBadge, statusesFor } from '@/components/aircraft';
 import { Body, Button, Card, Notice, SectionHeading } from '@/components/ui';
 import { api, withAuth } from '@/lib/api';
+import { useMoreThanOnePilot } from '@/lib/entitlements';
 import { color, space, type } from '@/theme';
 
 /**
@@ -31,6 +32,7 @@ import { color, space, type } from '@/theme';
  */
 export default function AircraftDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const shared = useMoreThanOnePilot();
 
   const [aircraft, setAircraft] = useState<AircraftResponse | null>(null);
   const [dispatch, setDispatch] = useState<AircraftAvailabilityResponse | undefined>(undefined);
@@ -200,13 +202,17 @@ export default function AircraftDetail() {
               router.push({ pathname: '/report-squawk', params: { aircraft: aircraft.id } })
             }
           />
-          <Button
-            label="Book it"
-            variant="secondary"
-            onPress={() =>
-              router.push({ pathname: '/schedule', params: { aircraft: aircraft.id } })
-            }
-          />
+          {/* §4.3: nobody to book around means no booking (unused, never
+              switched off — the screen behind this still works). */}
+          {shared ? (
+            <Button
+              label="Book it"
+              variant="secondary"
+              onPress={() =>
+                router.push({ pathname: '/schedule', params: { aircraft: aircraft.id } })
+              }
+            />
+          ) : null}
         </>
       ) : null}
     </ScrollView>

@@ -66,6 +66,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   const canSeePlan = entitlements.permissions.subscription !== 'none';
 
+  /**
+   * Whether anybody shares these aeroplanes. Unknown counts as shared: §4.3
+   * says scheduling is never *unavailable*, so the failure mode is offering
+   * a calendar nobody needs rather than hiding one somebody does.
+   */
+  const pilots = entitlements.quotas['members.active']?.current;
+  const sharesAircraft = pilots === undefined || pilots > 1;
+
   return (
     <div className="min-h-screen">
       <header className="border-b border-line bg-surface">
@@ -85,7 +93,20 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           */}
           <nav className="flex flex-1 items-center gap-6">
             <NavLink href="/aircraft">Fleet</NavLink>
-            <NavLink href="/schedule">Schedule</NavLink>
+            {/*
+              §4.3: scheduling is *unused* for a tenant with one pilot, never
+              switched off. Nobody to share with means nothing to book around,
+              so the calendar is not led with — and the moment a second member
+              is invited it is back, with every booking still where it was.
+              The route, the API and the policies are untouched; this is the
+              nav not offering a destination, not a feature being gated.
+
+              The pilot count and not the plan, because the constitution is
+              emphatic that "scheduling need tracks pilot count, not
+              ownership" — and because §1.3 forbids branching on the tenant,
+              which a check against `plan_code` would be.
+            */}
+            {sharesAircraft ? <NavLink href="/schedule">Schedule</NavLink> : null}
             {/*
               The other half of §3.4's loop. Everyone holds `flights: write`
               (§4.4), so there is nothing to gate — a club's flights are

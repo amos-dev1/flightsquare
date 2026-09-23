@@ -1,11 +1,16 @@
-import { Tabs, router } from 'expo-router';
-import Feather from '@expo/vector-icons/Feather';
-import { Pressable, Text } from 'react-native';
+import { Tabs, router } from "expo-router";
+import Feather from "@expo/vector-icons/Feather";
+import { Pressable, Text } from "react-native";
 
-import { LogoMark } from '@/components/ui';
-import { EntitlementsProvider, usePermission, useQuota } from '@/lib/entitlements';
-import { useBackgroundSync } from '@/lib/use-sync';
-import { color, font, radius, space, type } from '@/theme';
+import { LogoMark } from "@/components/ui";
+import {
+  EntitlementsProvider,
+  useMoreThanOnePilot,
+  usePermission,
+  useQuota,
+} from "@/lib/entitlements";
+import { useBackgroundSync } from "@/lib/use-sync";
+import { color, font, radius, space, type } from "@/theme";
 
 /**
  * Five tabs, and a menu for everything after them.
@@ -30,96 +35,122 @@ export default function AppLayout() {
    */
   useBackgroundSync();
 
+  // The bar itself is a child so it can read the entitlements this provides:
+  // whether anybody shares these aeroplanes decides whether the calendar is
+  // one of the five.
   return (
     <EntitlementsProvider>
-      <Tabs
-        screenOptions={{
-          headerStyle: { backgroundColor: color.surface },
-          headerTintColor: color.navy,
-          headerTitleStyle: { fontFamily: font.semibold },
-          // Left, beside the logo, rather than centred. Centred, the title
-          // has only the gap between the logo and the menu button to live in,
-          // and "Maintenance" came back as "Maintena…" — §11 §15 asks for no
-          // clipping, and shrinking the one word that names the screen is the
-          // wrong way to get it.
-          headerTitleAlign: 'left',
-          headerShadowVisible: false,
-          // §11: the logo on every screen, the standalone symbol because a
-          // phone header is a compact space, and kept apart from the
-          // navigation icons rather than sitting among them.
-          headerLeft: () => <LogoMark />,
-          headerRight: () => <HeaderMenuButton />,
-          // Mist is the canvas the white cards sit on (§11 §5).
-          sceneStyle: { backgroundColor: color.mist },
-          tabBarStyle: { backgroundColor: color.surface, borderTopColor: color.line },
-          // §11's one approved use of teal in navigation: a small active
-          // marker. The label's weight carries it too, so the state is never
-          // colour alone.
-          tabBarActiveTintColor: color.tealText,
-          tabBarInactiveTintColor: color.secondary,
-          // Five labels across a phone, and the longest of them is
-          // "Maintenance". 10px with no item padding fits it whole; 11px
-          // truncated it. Tab labels sit below §11's supporting-text size by
-          // platform convention, and a truncated label is less readable than
-          // a small one.
-          tabBarLabelStyle: { fontFamily: font.semibold, fontSize: 10 },
-          tabBarItemStyle: { paddingHorizontal: 0 },
-        }}
-      >
-        <Tabs.Screen
-          name="index"
-          options={{
-            // The header names the screen; the bar has five labels to fit
-            // across a phone and gets the short form.
-            title: 'Dashboard',
-            tabBarLabel: 'Dash',
-            tabBarIcon: ({ color: tint, size }) => (
-              <Feather name="grid" size={size} color={tint} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="aircraft"
-          options={{
-            title: 'Aircraft',
-            // The one screen whose header action is not the settings menu:
-            // adding an aeroplane is what somebody came to this tab to do,
-            // and it is gated rather than always present.
-            headerRight: () => <AddAircraftButton />,
-            tabBarIcon: ({ color: tint, size }) => (
-              <Feather name="send" size={size} color={tint} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="schedule"
-          options={{
-            title: 'Schedule',
-            tabBarIcon: ({ color: tint, size }) => (
-              <Feather name="calendar" size={size} color={tint} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="logs"
-          options={{
-            title: 'Logs',
-            tabBarIcon: ({ color: tint, size }) => (
-              <Feather name="book-open" size={size} color={tint} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="maintenance"
-          options={{
-            title: 'Maintenance',
-            tabBarIcon: ({ color: tint, size }) => (
-              <Feather name="alert-triangle" size={size} color={tint} />
-            ),
-          }}
-        />
+      <FleetTabs />
+    </EntitlementsProvider>
+  );
+}
 
-        {/*
+function FleetTabs() {
+  const shared = useMoreThanOnePilot();
+
+  return (
+    <Tabs
+      screenOptions={{
+        headerStyle: { backgroundColor: color.surface },
+        headerTintColor: color.navy,
+        headerTitleStyle: { fontFamily: font.semibold },
+        // Left, beside the logo, rather than centred. Centred, the title
+        // has only the gap between the logo and the menu button to live in,
+        // and "Maintenance" came back as "Maintena…" — §11 §15 asks for no
+        // clipping, and shrinking the one word that names the screen is the
+        // wrong way to get it.
+        headerTitleAlign: "left",
+        headerShadowVisible: false,
+        // §11: the logo on every screen, the standalone symbol because a
+        // phone header is a compact space, and kept apart from the
+        // navigation icons rather than sitting among them.
+        headerLeft: () => <LogoMark />,
+        headerRight: () => <HeaderMenuButton />,
+        // Mist is the canvas the white cards sit on (§11 §5).
+        sceneStyle: { backgroundColor: color.mist },
+        tabBarStyle: {
+          backgroundColor: color.surface,
+          borderTopColor: color.line,
+        },
+        // §11's one approved use of teal in navigation: a small active
+        // marker. The label's weight carries it too, so the state is never
+        // colour alone.
+        tabBarActiveTintColor: color.tealText,
+        tabBarInactiveTintColor: color.secondary,
+        // Five labels across a phone, and the longest of them is
+        // "Maintenance". 10px with no item padding fits it whole; 11px
+        // truncated it. Tab labels sit below §11's supporting-text size by
+        // platform convention, and a truncated label is less readable than
+        // a small one.
+        tabBarLabelStyle: { fontFamily: font.semibold, fontSize: 10 },
+        tabBarItemStyle: { paddingHorizontal: 0 },
+      }}
+    >
+      <Tabs.Screen
+        name="index"
+        options={{
+          // The header names the screen; the bar has five labels to fit
+          // across a phone and gets the short form.
+          title: "Dashboard",
+          tabBarLabel: "Dash",
+          tabBarIcon: ({ color: tint, size }) => (
+            <Feather name="grid" size={size} color={tint} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="aircraft"
+        options={{
+          title: "Aircraft",
+          // The one screen whose header action is not the settings menu:
+          // adding an aeroplane is what somebody came to this tab to do,
+          // and it is gated rather than always present.
+          headerRight: () => <AddAircraftButton />,
+          tabBarIcon: ({ color: tint, size }) => (
+            <Feather name="send" size={size} color={tint} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="schedule"
+        options={{
+          title: "Schedule",
+          /**
+           * Unused, never unavailable (§4.3).
+           *
+           * `href: null` takes the calendar off the bar for a tenant with
+           * one pilot — there is nobody to share with, so it is a tab that
+           * would never be opened. It does not switch anything off: the
+           * screen is still registered, still reachable, and the API has no
+           * idea this happened. Invite a second member and the count is two
+           * and the tab is back, with every booking still where it was.
+           */
+          href: shared ? undefined : null,
+          tabBarIcon: ({ color: tint, size }) => (
+            <Feather name="calendar" size={size} color={tint} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="logs"
+        options={{
+          title: "Logs",
+          tabBarIcon: ({ color: tint, size }) => (
+            <Feather name="book-open" size={size} color={tint} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="maintenance"
+        options={{
+          title: "Maintenance",
+          tabBarIcon: ({ color: tint, size }) => (
+            <Feather name="alert-triangle" size={size} color={tint} />
+          ),
+        }}
+      />
+
+      {/*
           Reached from a card or from the menu, never from the bar — and each
           gets a back control in place of the logo.
 
@@ -130,35 +161,43 @@ export default function AppLayout() {
           on a screen you arrived at from another, the way back is what
           belongs in that corner.
         */}
-        <Tabs.Screen name="charges" options={{ href: null, title: 'Charges', headerLeft: Back }} />
-        <Tabs.Screen
-          name="aircraft-detail"
-          options={{ href: null, title: 'Aircraft', headerLeft: Back }}
-        />
-        <Tabs.Screen
-          name="add-aircraft"
-          options={{ href: null, title: 'Add aircraft', headerLeft: Back }}
-        />
-        <Tabs.Screen name="flight" options={{ href: null, title: 'Flight', headerLeft: Back }} />
-        <Tabs.Screen
-          name="reservation"
-          options={{ href: null, title: 'Booking', headerLeft: Back }}
-        />
-        <Tabs.Screen
-          name="log-flight"
-          options={{ href: null, title: 'Log flight', headerLeft: Back }}
-        />
-        <Tabs.Screen
-          name="report-squawk"
-          options={{ href: null, title: 'Report a defect', headerLeft: Back }}
-        />
-        <Tabs.Screen
-          name="queue"
-          options={{ href: null, title: 'Waiting to sync', headerLeft: Back }}
-        />
-        <Tabs.Screen name="menu" options={{ href: null, title: 'More', headerLeft: Back }} />
-      </Tabs>
-    </EntitlementsProvider>
+      <Tabs.Screen
+        name="charges"
+        options={{ href: null, title: "Charges", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="aircraft-detail"
+        options={{ href: null, title: "Aircraft", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="add-aircraft"
+        options={{ href: null, title: "Add aircraft", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="flight"
+        options={{ href: null, title: "Flight", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="reservation"
+        options={{ href: null, title: "Booking", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="log-flight"
+        options={{ href: null, title: "Log flight", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="report-squawk"
+        options={{ href: null, title: "Report a defect", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="queue"
+        options={{ href: null, title: "Waiting to sync", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="menu"
+        options={{ href: null, title: "More", headerLeft: Back }}
+      />
+    </Tabs>
   );
 }
 
@@ -180,27 +219,28 @@ export default function AppLayout() {
  * offering the door is the kinder half of that.
  */
 function AddAircraftButton() {
-  const permission = usePermission('aircraft');
-  const quota = useQuota('aircraft.active');
+  const permission = usePermission("aircraft");
+  const quota = useQuota("aircraft.active");
 
-  if (permission !== 'write') return null;
+  if (permission !== "write") return null;
   // Absent until the entitlements arrive: §8.1's "not yet known" is not
   // "not entitled", but it is also not a reason to offer something that may
   // be refused a second later.
   if (!quota) return null;
-  const room = quota.limit === 'unlimited' || (quota.current ?? 0) < quota.limit;
+  const room =
+    quota.limit === "unlimited" || (quota.current ?? 0) < quota.limit;
   if (!room) return null;
 
   return (
     <Pressable
-      onPress={() => router.push('/(app)/add-aircraft')}
+      onPress={() => router.push("/(app)/add-aircraft")}
       accessibilityRole="button"
       accessibilityLabel="Add aircraft"
       hitSlop={space.sm}
       style={({ pressed }) => [
         {
-          flexDirection: 'row',
-          alignItems: 'center',
+          flexDirection: "row",
+          alignItems: "center",
           gap: space.xs,
           height: 40,
           paddingHorizontal: space.md,
@@ -245,7 +285,7 @@ function Back() {
 function HeaderMenuButton() {
   return (
     <Pressable
-      onPress={() => router.push('/(app)/menu')}
+      onPress={() => router.push("/(app)/menu")}
       accessibilityRole="button"
       accessibilityLabel="Settings"
       hitSlop={space.sm}

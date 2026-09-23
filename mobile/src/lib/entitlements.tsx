@@ -90,3 +90,31 @@ export function useQuota(key: string): { limit: number | 'unlimited'; current?: 
 export function usePermission(resource: string): 'none' | 'read' | 'write' {
   return useEntitlements().resolved?.permissions[resource] ?? 'none';
 }
+
+/**
+ * Whether anybody shares these aeroplanes.
+ *
+ * The constitution is emphatic that **scheduling need tracks pilot count,
+ * not ownership** — "a single owner who shares their aircraft with a partner
+ * and two friends has a real scheduling problem", and "a solo owner flying
+ * alone needs no scheduling at all". So this asks the only question that
+ * actually creates the need, and deliberately does not ask the plan's name:
+ * §1.3 forbids branching on tenant identity, §4.3 makes a tier rows in
+ * `plans`, and a Pro tenant with one pilot has no more use for a calendar
+ * than a free one.
+ *
+ * **Nothing here makes scheduling unavailable.** §4.3 says it is *unused* in
+ * the solo case, never switched off, and that is exactly what this is: no
+ * feature flag, no 404, no second code path. The endpoints keep working, the
+ * screen keeps working, RLS keeps deciding — the calendar simply is not led
+ * with when there is nobody to share with. The moment a second member is
+ * invited the count is two and it is all already there, already correct.
+ *
+ * Defaults to **true** while the count is unknown. Showing a calendar nobody
+ * needs is a smaller error than hiding one somebody does, and it keeps the
+ * "never unavailable" promise during the beat before entitlements arrive.
+ */
+export function useMoreThanOnePilot(): boolean {
+  const current = useQuota('members.active')?.current;
+  return current === undefined ? true : current > 1;
+}

@@ -19,6 +19,7 @@ import { Body, Button, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
 import { api, withAuth } from '@/lib/api';
 import { readSession } from '@/lib/auth';
+import { useEntitlements, useMoreThanOnePilot } from '@/lib/entitlements';
 import { formatMoney, routeOf } from '@/lib/format';
 import { SELECTED_AIRCRAFT, readPref, writePref } from '@/lib/prefs';
 import { color, radius, space, type } from '@/theme';
@@ -62,6 +63,14 @@ export default function Dashboard() {
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  /**
+   * The provider fetches once at launch. That is right for a plan, and not
+   * quite right for the member count, which decides whether this screen
+   * leads with a calendar — so a pull-to-refresh here picks up a second
+   * pilot having been invited rather than waiting for the next launch.
+   */
+  const { refresh: refreshEntitlements } = useEntitlements();
+
   const load = useCallback(async () => {
     // Each one catches its own. A free tenant's missing statement must not
     // blank the greeting, and a maintenance module switched off by override
@@ -86,6 +95,8 @@ export default function Dashboard() {
             [],
           ),
         ]);
+
+      void refreshEntitlements();
 
       setMe(profile);
       setTenant(club);
@@ -127,7 +138,7 @@ export default function Dashboard() {
     } finally {
       setLoaded(true);
     }
-  }, []);
+  }, [refreshEntitlements]);
 
   useFocusEffect(
     useCallback(() => {
@@ -154,6 +165,8 @@ export default function Dashboard() {
   );
 
   const upcoming = reservations.filter((r) => r.status !== 'cancelled').slice(0, 3);
+  // Nobody to share with means no calendar to lead with (§4.3).
+  const shared = useMoreThanOnePilot();
   const recent = flights.slice(0, 3);
   const balance = statement ? describeBalance(statement) : null;
 
@@ -305,21 +318,30 @@ export default function Dashboard() {
           <EmptyFleet />
         ) : null}
 
-        {/* 6 — Two actions --------------------------------------------- */}
+        {/*
+          6 — Actions.
+
+          Two when somebody shares the aeroplane, one when nobody does. A
+          solo owner has nothing to book around, so "Log flight" stops being
+          the secondary action and becomes the only one — which is also the
+          one §3.4 calls the most important screen in the product.
+        */}
         {selected ? (
           <View style={styles.actions}>
-            <View style={styles.action}>
-              <Button
-                label="Schedule flight"
-                onPress={() =>
-                  router.push({ pathname: '/schedule', params: { aircraft: selected.id } })
-                }
-              />
-            </View>
+            {shared ? (
+              <View style={styles.action}>
+                <Button
+                  label="Schedule flight"
+                  onPress={() =>
+                    router.push({ pathname: '/schedule', params: { aircraft: selected.id } })
+                  }
+                />
+              </View>
+            ) : null}
             <View style={styles.action}>
               <Button
                 label="Log flight"
-                variant="secondary"
+                variant={shared ? 'secondary' : 'primary'}
                 onPress={() =>
                   router.push({ pathname: '/log-flight', params: { aircraft: selected.id } })
                 }
@@ -328,57 +350,64 @@ export default function Dashboard() {
           </View>
         ) : null}
 
-        {/* 7 — Upcoming flights ---------------------------------------- */}
         {/*
-          §1: scheduling is "unused, never unavailable" — no flag, no separate
-          code path. A solo owner sees the empty state because nobody has
-          booked anything, which is the outcome the design asks for, arrived
-          at the way the constitution requires.
+          7 — Upcoming flights.
+
+          §4.3: scheduling is *unused* for a tenant with one pilot, never
+          switched off. There is nobody to share with, so there is nothing
+          here to show and nothing to link to — and the section is absent
+          rather than sitting empty, which is what "the UI doesn't lead with
+          it" means. Invite a second member and it is back, bookings and all.
         */}
-        <SectionRow
-          heading="Upcoming flights"
-          action="View schedule"
-          onPress={() => router.push('/schedule')}
-        />
-        {upcoming.length === 0 ? (
-          <View style={[styles.card, styles.emptyRow]}>
-            <Feather name="calendar" size={20} color={color.secondary} />
-            <Text style={styles.quietBody}>No upcoming flights</Text>
-          </View>
-        ) : (
-          <View style={styles.list}>
-            {upcoming.map((reservation, index) => (
-              <View key={reservation.id}>
-                {index > 0 ? <View style={styles.rule} /> : null}
-                <Pressable
-                  onPress={() =>
-                    router.push({ pathname: '/reservation', params: { id: reservation.id } })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel={`Booking, ${reservation.aircraft_registration}, ${when(
-                    reservation.starts_at,
-                  )}`}
-                  style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
-                >
-                  <View style={styles.listMain}>
-                    <Text style={styles.rowTitle}>{reservation.aircraft_registration}</Text>
-                    <Text style={styles.rowMeta}>
-                      {when(reservation.starts_at)} – {clock(reservation.ends_at)}
-                      {reservation.purpose ? ` · ${reservation.purpose}` : ''}
-                    </Text>
-                    {reservation.needs_review ? (
-                      /* §3.3: the club flagged this one for somebody to ring.
-                         Said here rather than only inside, because the point
-                         of a flag is being seen without opening anything. */
-                      <Text style={styles.rowMeta}>Needs review</Text>
-                    ) : null}
-                  </View>
-                  <Feather name="chevron-right" size={18} color={color.secondary} />
-                </Pressable>
+        {shared ? (
+          <>
+            <SectionRow
+              heading="Upcoming flights"
+              action="View schedule"
+              onPress={() => router.push('/schedule')}
+            />
+            {upcoming.length === 0 ? (
+              <View style={[styles.card, styles.emptyRow]}>
+                <Feather name="calendar" size={20} color={color.secondary} />
+                <Text style={styles.quietBody}>No upcoming flights</Text>
               </View>
-            ))}
-          </View>
-        )}
+            ) : (
+              <View style={styles.list}>
+                {upcoming.map((reservation, index) => (
+                  <View key={reservation.id}>
+                    {index > 0 ? <View style={styles.rule} /> : null}
+                    <Pressable
+                      onPress={() =>
+                        router.push({ pathname: '/reservation', params: { id: reservation.id } })
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel={`Booking, ${reservation.aircraft_registration}, ${when(
+                        reservation.starts_at,
+                      )}`}
+                      style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
+                    >
+                      <View style={styles.listMain}>
+                        <Text style={styles.rowTitle}>{reservation.aircraft_registration}</Text>
+                        <Text style={styles.rowMeta}>
+                          {when(reservation.starts_at)} – {clock(reservation.ends_at)}
+                          {reservation.purpose ? ` · ${reservation.purpose}` : ''}
+                        </Text>
+                        {reservation.needs_review ? (
+                          /* §3.3: the club flagged this one for somebody to
+                             ring. Said here rather than only inside, because
+                             the point of a flag is being seen without
+                             opening anything. */
+                          <Text style={styles.rowMeta}>Needs review</Text>
+                        ) : null}
+                      </View>
+                      <Feather name="chevron-right" size={18} color={color.secondary} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
+        ) : null}
 
         {/* 8 — Recent flights ------------------------------------------ */}
         <SectionRow
