@@ -19,7 +19,15 @@ import type {
   TenantResponse,
 } from '@flightsquare/shared';
 
-import { AircraftThumbnail, StatusBadge, statusesFor, type FleetStatus } from '@/components/aircraft';
+import {
+  AircraftThumbnail,
+  StatusIndicator,
+  maintenanceDetail,
+  maintenanceIsOverdue,
+  reservationDetail,
+  statusesFor,
+  type FleetStatus,
+} from '@/components/aircraft';
 import { Body, Button, Notice, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
 import { api, withAuth } from '@/lib/api';
@@ -144,6 +152,24 @@ export default function Fleet() {
         dueSoon: dueSoon(items, aircraft.id),
       }),
     [availability, flying, items],
+  );
+
+  /**
+   * The second line under a status, where one exists.
+   *
+   * Only facts already on the wire: when the booking in progress ends, and
+   * which maintenance item is nearest with the server's own countdown.
+   * Nothing is invented — a status with no such fact simply has one line.
+   */
+  const detailsFor = useCallback(
+    (aircraft: AircraftResponse) => ({
+      detail: {
+        reserved: reservationDetail(flying.find((row) => row.aircraft_id === aircraft.id)),
+        due_soon: maintenanceDetail(items, aircraft.id),
+      } as Partial<Record<FleetStatus, string | null>>,
+      overdue: maintenanceIsOverdue(items, aircraft.id),
+    }),
+    [flying, items],
   );
 
   const shown = useMemo(() => {
@@ -272,7 +298,12 @@ export default function Fleet() {
         ) : null}
 
         {shown.map((aircraft) => (
-          <AircraftCard key={aircraft.id} aircraft={aircraft} badges={badgesFor(aircraft)} />
+          <AircraftCard
+            key={aircraft.id}
+            aircraft={aircraft}
+            badges={badgesFor(aircraft)}
+            details={detailsFor(aircraft)}
+          />
         ))}
 
         {fleet !== null && !failed && shown.length === 0 ? (
@@ -304,12 +335,16 @@ export default function Fleet() {
 function AircraftCard({
   aircraft,
   badges,
+  details,
 }: {
   aircraft: AircraftResponse;
   badges: FleetStatus[];
+  /** Second lines, where the data for one already exists. */
+  details: {
+    detail: Partial<Record<FleetStatus, string | null>>;
+    overdue: boolean;
+  };
 }) {
-  const [primary, ...extra] = badges;
-
   return (
     <Pressable
       onPress={() =>
@@ -331,26 +366,28 @@ function AircraftCard({
               <Text style={styles.registration}>{aircraft.registration}</Text>
               <Text style={styles.model}>{modelOf(aircraft)}</Text>
             </View>
-
-            {/*
-              The first badge sits beside the registration, and it is always
-              the availability one — `statusesFor` puts it first precisely so
-              that a grounded aeroplane cannot end up behind a calendar badge.
-              Anything additional reflows onto the row below rather than
-              squeezing the tail number, which is what happened when the whole
-              set shared this line: "N2435C" came back as "N2435 / C".
-            */}
-            {primary ? <StatusBadge status={primary} small /> : null}
+            {/* The chevron stands alone on the right, clear of the statuses. */}
             <Feather name="chevron-right" size={20} color={color.secondary} />
           </View>
 
-          {extra.length > 0 ? (
-            <View style={styles.badges}>
-              {extra.map((badge) => (
-                <StatusBadge key={badge} status={badge} small />
-              ))}
-            </View>
-          ) : null}
+          {/*
+            Statuses stack under the model rather than sitting beside the
+            registration. Unboxed, they are text — and right-aligned text next
+            to a chevron reads as a caption for the chevron. Stacked at the
+            left edge, the severity markers line up into a column a pilot can
+            run an eye down, and `statusesFor` puts availability first so a
+            grounded aeroplane is always the top line.
+          */}
+          <View style={styles.statuses}>
+            {badges.map((badge) => (
+              <StatusIndicator
+                key={badge}
+                status={badge}
+                detail={details.detail[badge]}
+                label={badge === 'due_soon' && details.overdue ? 'Overdue' : undefined}
+              />
+            ))}
+          </View>
         </View>
       </View>
 
@@ -512,7 +549,7 @@ function FilterSheet({
               pressed && styles.pressed,
             ]}
           >
-            <StatusBadge status={status} />
+            <StatusIndicator status={status} />
             <View style={styles.spacer} />
             {on ? <Feather name="check" size={20} color={color.tealText} /> : null}
           </Pressable>
@@ -690,7 +727,7 @@ const styles = StyleSheet.create({
   names: { flex: 1, gap: 2 },
   registration: { ...type.sectionHeading, textTransform: 'uppercase' },
   model: { ...type.body, color: color.secondary },
-  badges: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space.xs },
+  statuses: { gap: space.sm },
 
   readings: { flexDirection: 'row', paddingVertical: space.md, paddingHorizontal: space.base },
   reading: { flex: 1, gap: space.xs },

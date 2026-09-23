@@ -11,7 +11,14 @@ import {
   type SquawkResponse,
 } from '@flightsquare/shared';
 
-import { AircraftThumbnail, StatusBadge, statusesFor } from '@/components/aircraft';
+import {
+  AircraftThumbnail,
+  StatusIndicator,
+  maintenanceDetail,
+  maintenanceIsOverdue,
+  reservationDetail,
+  statusesFor,
+} from '@/components/aircraft';
 import { Body, Button, Card, Notice, SectionHeading } from '@/components/ui';
 import { api, withAuth } from '@/lib/api';
 import { useMoreThanOnePilot } from '@/lib/entitlements';
@@ -123,7 +130,25 @@ export default function AircraftDetail() {
                   reservedNow: flying.length > 0,
                   dueSoon: soon.length > 0 || overdue.length > 0,
                 }).map((badge) => (
-                  <StatusBadge key={badge} status={badge} small />
+                  <StatusIndicator
+                    key={badge}
+                    status={badge}
+                    label={
+                      badge === 'due_soon' && maintenanceIsOverdue(items, aircraft.id)
+                        ? 'Overdue'
+                        : undefined
+                    }
+                    // The same two facts the fleet card carries, from the
+                    // same helpers, so the two screens cannot word them
+                    // differently.
+                    detail={
+                      badge === 'reserved'
+                        ? reservationDetail(flying[0])
+                        : badge === 'due_soon'
+                          ? maintenanceDetail(items, aircraft.id)
+                          : null
+                    }
+                  />
                 ))}
               </View>
             </View>
@@ -281,7 +306,7 @@ const styles = StyleSheet.create({
   identity: { flex: 1, gap: space.xs },
   registration: { ...type.pageTitle, textTransform: 'uppercase' },
   model: { ...type.body, color: color.secondary },
-  badges: { flexDirection: 'row', flexWrap: 'wrap', gap: space.xs, marginTop: space.xs },
+  badges: { gap: space.sm, marginTop: space.sm },
 
   line: {
     flexDirection: 'row',
