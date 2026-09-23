@@ -1,11 +1,11 @@
 import { Tabs, router } from 'expo-router';
 import Feather from '@expo/vector-icons/Feather';
-import { Pressable } from 'react-native';
+import { Pressable, Text } from 'react-native';
 
 import { LogoMark } from '@/components/ui';
-import { EntitlementsProvider } from '@/lib/entitlements';
+import { EntitlementsProvider, usePermission, useQuota } from '@/lib/entitlements';
 import { useBackgroundSync } from '@/lib/use-sync';
-import { color, font, space } from '@/theme';
+import { color, font, radius, space, type } from '@/theme';
 
 /**
  * Five tabs, and a menu for everything after them.
@@ -82,6 +82,10 @@ export default function AppLayout() {
           name="aircraft"
           options={{
             title: 'Aircraft',
+            // The one screen whose header action is not the settings menu:
+            // adding an aeroplane is what somebody came to this tab to do,
+            // and it is gated rather than always present.
+            headerRight: () => <AddAircraftButton />,
             tabBarIcon: ({ color: tint, size }) => (
               <Feather name="send" size={size} color={tint} />
             ),
@@ -127,6 +131,14 @@ export default function AppLayout() {
           belongs in that corner.
         */}
         <Tabs.Screen name="charges" options={{ href: null, title: 'Charges', headerLeft: Back }} />
+        <Tabs.Screen
+          name="aircraft-detail"
+          options={{ href: null, title: 'Aircraft', headerLeft: Back }}
+        />
+        <Tabs.Screen
+          name="add-aircraft"
+          options={{ href: null, title: 'Add aircraft', headerLeft: Back }}
+        />
         <Tabs.Screen name="flight" options={{ href: null, title: 'Flight', headerLeft: Back }} />
         <Tabs.Screen
           name="reservation"
@@ -147,6 +159,60 @@ export default function AppLayout() {
         <Tabs.Screen name="menu" options={{ href: null, title: 'More', headerLeft: Back }} />
       </Tabs>
     </EntitlementsProvider>
+  );
+}
+
+/**
+ * "+ Add", and the two questions that decide whether it exists.
+ *
+ * **Permission and quota, never the plan's name.** §1.3 forbids branching on
+ * tenant identity and §4.3 makes a tier rows in `plans` — so
+ * `plan_code === 'pro'` would both break the invariant and stop working the
+ * day a middle tier is inserted. The two questions the product actually asks
+ * are §1.5's (does this member hold `aircraft: write`) and §4.2's (is there
+ * room under the stock quota), and both are resolved data the client is
+ * handed (§8.1).
+ *
+ * Hiding it is cosmetics either way: the endpoint checks permission itself
+ * and `assert_quota` takes a row lock before the insert (§4.5). This only
+ * keeps somebody from walking into a 403 or a 402 they could not have known
+ * about — and on a screen where §8.3 forbids pointing at the remedy, not
+ * offering the door is the kinder half of that.
+ */
+function AddAircraftButton() {
+  const permission = usePermission('aircraft');
+  const quota = useQuota('aircraft.active');
+
+  if (permission !== 'write') return null;
+  // Absent until the entitlements arrive: §8.1's "not yet known" is not
+  // "not entitled", but it is also not a reason to offer something that may
+  // be refused a second later.
+  if (!quota) return null;
+  const room = quota.limit === 'unlimited' || (quota.current ?? 0) < quota.limit;
+  if (!room) return null;
+
+  return (
+    <Pressable
+      onPress={() => router.push('/(app)/add-aircraft')}
+      accessibilityRole="button"
+      accessibilityLabel="Add aircraft"
+      hitSlop={space.sm}
+      style={({ pressed }) => [
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: space.xs,
+          height: 40,
+          paddingHorizontal: space.md,
+          marginRight: space.sm,
+          borderRadius: radius.control,
+          backgroundColor: pressed ? color.navyHover : color.navy,
+        },
+      ]}
+    >
+      <Feather name="plus" size={18} color={color.onDark} />
+      <Text style={{ ...type.button, color: color.onDark }}>Add</Text>
+    </Pressable>
   );
 }
 

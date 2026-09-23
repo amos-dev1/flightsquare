@@ -38,6 +38,29 @@ export const color = {
   control: '#718493',
 } as const;
 
+/**
+ * Status colour, which is not brand colour.
+ *
+ * §11 §11 is explicit about this: "Brand accent colors are not substitutes
+ * for semantic status rules", and functional error, warning and success
+ * colours are kept where they communicate necessary meaning. Teal is
+ * interaction and selection, and never a "safe" or "airworthy" signal — so
+ * these live in their own object rather than among the brand tokens, and
+ * nothing decorative may reach for them.
+ *
+ * Every one is paired with a word and an icon wherever it appears. Colour
+ * alone carries nothing (§11 §13).
+ */
+export const statusColor = {
+  good: { surface: '#E4F3EB', ink: '#176442' },
+  /** Not a state of the aeroplane — a state of the calendar. */
+  neutral: { surface: '#EAF1F5', ink: '#152B3C' },
+  bad: { surface: '#FDEBEC', ink: '#B42318' },
+  warn: { surface: '#FFF3DC', ink: '#8A4B08' },
+  /** Nothing has told us. Said out loud rather than guessed at. */
+  unknown: { surface: '#F3F7F9', ink: '#526675' },
+} as const;
+
 /** The §11 scale: 4, 8, 12, 16, 24, 32, 48. */
 export const space = { xs: 4, sm: 8, md: 12, base: 16, lg: 24, xl: 32, xxl: 48 } as const;
 
