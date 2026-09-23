@@ -191,6 +191,35 @@ describe('scheduling', () => {
     // record — a club arguing about a Saturday needs it to still be there.
     const after = await app.inject({ method: 'GET', url: '/reservations' });
     expect(after.json().some((r: { id: string }) => r.id === morning.id)).toBe(false);
+
+    // And still readable one at a time, which is the difference between a
+    // calendar and a record. Somebody following a link to the booking they
+    // were emailed about should see it, with its status, not a 404.
+    const one = await app.inject({ method: 'GET', url: `/reservations/${morning.id}` });
+    expect(one.statusCode).toBe(200);
+    expect(one.json().status).toBe('cancelled');
+  });
+
+  it('returns one booking in full, and 404s the ones that are not yours', async () => {
+    asAdmin();
+    const calendar = await app.inject({ method: 'GET', url: '/reservations' });
+    const wanted = calendar.json()[0];
+
+    const one = await app.inject({ method: 'GET', url: `/reservations/${wanted.id}` });
+    expect(one.statusCode).toBe(200);
+    // The same projection as the calendar, so a detail screen and a row can
+    // never disagree about who has the aeroplane or when.
+    expect(one.json()).toEqual(wanted);
+
+    // §6: errors do not leak cross-tenant existence, and a malformed id is
+    // the same answer rather than a 500 from the driver.
+    const absent = await app.inject({
+      method: 'GET',
+      url: '/reservations/01920000-0000-7000-8000-00000000dead',
+    });
+    expect(absent.statusCode).toBe(404);
+    const malformed = await app.inject({ method: 'GET', url: '/reservations/not-a-uuid' });
+    expect(malformed.statusCode).toBe(404);
   });
 
   it('holds the hours for an annual, and will not schedule one over a booking', async () => {

@@ -248,6 +248,13 @@ export function createClient(options: ClientOptions) {
      * against a calendar the phone has not seen. The exclusion constraint is
      * what decides, and it can only decide online.
      */
+    /**
+     * One booking — the same projection the calendar returns, so a detail
+     * screen and a row can never disagree. Cancelled ones are readable here
+     * even though the calendar leaves them out.
+     */
+    getReservation: (id: string) =>
+      request<ReservationResponse>('GET', `/reservations/${id}`),
     createReservation: (input: CreateReservationRequest) =>
       request<ReservationResponse>('POST', '/reservations', input),
     cancelReservation: (id: string) =>

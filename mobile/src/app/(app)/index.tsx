@@ -350,15 +350,31 @@ export default function Dashboard() {
             {upcoming.map((reservation, index) => (
               <View key={reservation.id}>
                 {index > 0 ? <View style={styles.rule} /> : null}
-                <View style={styles.listRow}>
+                <Pressable
+                  onPress={() =>
+                    router.push({ pathname: '/reservation', params: { id: reservation.id } })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`Booking, ${reservation.aircraft_registration}, ${when(
+                    reservation.starts_at,
+                  )}`}
+                  style={({ pressed }) => [styles.listRow, pressed && styles.pressed]}
+                >
                   <View style={styles.listMain}>
                     <Text style={styles.rowTitle}>{reservation.aircraft_registration}</Text>
                     <Text style={styles.rowMeta}>
                       {when(reservation.starts_at)} – {clock(reservation.ends_at)}
                       {reservation.purpose ? ` · ${reservation.purpose}` : ''}
                     </Text>
+                    {reservation.needs_review ? (
+                      /* §3.3: the club flagged this one for somebody to ring.
+                         Said here rather than only inside, because the point
+                         of a flag is being seen without opening anything. */
+                      <Text style={styles.rowMeta}>Needs review</Text>
+                    ) : null}
                   </View>
-                </View>
+                  <Feather name="chevron-right" size={18} color={color.secondary} />
+                </Pressable>
               </View>
             ))}
           </View>

@@ -249,6 +249,34 @@ export async function schedulingRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * One booking, in full.
+   *
+   * The same projection the calendar returns, narrowed to an id, so a detail
+   * screen and a row in the list cannot disagree about who has the aeroplane
+   * or when.
+   *
+   * **Cancelled bookings are readable here**, unlike in the list. The list is
+   * a calendar and a cancelled slot is not on it; this is a record somebody
+   * has followed a link to, and answering 404 for a booking they were emailed
+   * about last week would be a worse answer than showing it with its status.
+   *
+   * §6: a booking in another tenant is a 404 rather than a 403, and RLS has
+   * already made it invisible — there is nothing here to get wrong.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/reservations/:id',
+    { config: { requiresTenant: true, permission: ['reservations', 'read'] } },
+    async (request) => {
+      const viewer = await viewerFor(request);
+      const row = await request.withTenant((trx) =>
+        selectReservations(trx).where('r.id', '=', request.params.id).executeTakeFirst(),
+      );
+      if (!row) throw new NotFoundError();
+      return toReservation(row, viewer);
+    },
+  );
+
   app.post<{ Body: CreateReservationRequest }>(
     '/reservations',
     {

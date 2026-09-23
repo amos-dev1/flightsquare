@@ -129,6 +129,10 @@ export default function AppLayout() {
         <Tabs.Screen name="charges" options={{ href: null, title: 'Charges', headerLeft: Back }} />
         <Tabs.Screen name="flight" options={{ href: null, title: 'Flight', headerLeft: Back }} />
         <Tabs.Screen
+          name="reservation"
+          options={{ href: null, title: 'Booking', headerLeft: Back }}
+        />
+        <Tabs.Screen
           name="log-flight"
           options={{ href: null, title: 'Log flight', headerLeft: Back }}
         />
