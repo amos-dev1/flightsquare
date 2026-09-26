@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import type {
@@ -42,6 +42,12 @@ export default function Schedule() {
   const { aircraft: preselected } = useLocalSearchParams<{ aircraft?: string }>();
 
   const [zone, setZone] = useState('UTC');
+  /**
+   * The same value, reachable from `load` without putting it in the
+   * dependency list — which would change `load`'s identity the first time
+   * the zone arrived and send the focus effect round a second time.
+   */
+  const zoneRef = useRef('UTC');
   const [anchor, setAnchor] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [aircraftId, setAircraftId] = useState<string | null>(null);
@@ -69,11 +75,20 @@ export default function Schedule() {
   const load = useCallback(
     async (forAnchor: string | null) => {
       try {
-        // The club's zone decides the whole window, so it is fetched before
-        // the rest rather than beside it — a week measured in the wrong zone
-        // is the wrong week.
-        const club = await withAuth(() => api.tenant());
-        const clubZone = club.timezone || 'UTC';
+        /**
+         * The club's zone decides the whole window, so it is fetched before
+         * the rest rather than beside it — a week measured in the wrong zone
+         * is the wrong week.
+         *
+         * It is allowed to fail on its own, though. The zone is how the week
+         * is *rendered*; the bookings are what the screen is for, and one
+         * unlucky call should not blank a calendar that four other calls
+         * would have filled. Whatever was known last stays, which on a
+         * second load is the club's real zone and on a first is UTC.
+         */
+        const club = await withAuth(() => api.tenant()).catch(() => null);
+        const clubZone = club?.timezone || zoneRef.current;
+        zoneRef.current = clubZone;
         setZone(clubZone);
 
         const today = todayIn(clubZone);
