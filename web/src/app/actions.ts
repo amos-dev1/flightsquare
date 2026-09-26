@@ -6,7 +6,7 @@ import { revalidatePath } from 'next/cache';
 import { ApiError, apiFetch, messageFor } from '@/lib/api';
 import { clearSession, readSession, writeSession } from '@/lib/session';
 import { parseMoney } from '@/lib/money';
-import { zonedToInstant } from '@/lib/time';
+import { zonedToInstant } from '@flightsquare/shared/time';
 import type {
   AircraftResponse,
   BillingRedirectResponse,

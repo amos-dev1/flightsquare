@@ -182,6 +182,10 @@ function FleetTabs() {
         options={{ href: null, title: "Booking", headerLeft: Back }}
       />
       <Tabs.Screen
+        name="book"
+        options={{ href: null, title: "Book an aircraft", headerLeft: Back }}
+      />
+      <Tabs.Screen
         name="log-flight"
         options={{ href: null, title: "Log flight", headerLeft: Back }}
       />

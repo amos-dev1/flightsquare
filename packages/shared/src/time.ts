@@ -1,6 +1,11 @@
 /**
  * Wall-clock time in the club's zone, and the instant it means.
  *
+ * Shared, because both clients have to agree about which day a booking is
+ * on. They did not: the web bucketed by the club's zone and the phone by
+ * whatever the phone was set to, which is invisible in a list of the next
+ * seven days and wrong the moment either one draws a calendar.
+ *
  * Every timestamp is stored as `timestamptz` (§6) — an instant, with no zone
  * of its own. What a club types and reads is a wall clock at their field:
  * "Saturday, nine in the morning". Those are different things, and the
@@ -86,10 +91,17 @@ export function timeIn(instant: Date | string, zone: string): string {
   }).format(date);
 }
 
-/** "Sat 5 Jun", for a column heading. */
-export function dayLabel(day: string, zone: string): string {
+/**
+ * "Sat 5 Jun", for a column heading.
+ *
+ * `day` is already a plain calendar date — it has no zone and needs none, so
+ * this formats the noon anchor as UTC rather than as the club. Rendering it
+ * in the club's zone was wrong east of UTC+12: noon UTC is past midnight in
+ * Auckland, so every heading named the following day.
+ */
+export function dayLabel(day: string): string {
   return new Intl.DateTimeFormat('en-GB', {
-    timeZone: zone,
+    timeZone: 'UTC',
     weekday: 'short',
     day: 'numeric',
     month: 'short',

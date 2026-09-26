@@ -3,7 +3,14 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
 import { Card, Empty, PageTitle, SectionHeading, Status } from '@/components/ui';
-import { addDays, dayIn, dayLabel, startOfWeek, timeIn, todayIn } from '@/lib/time';
+import {
+  addDays,
+  dayIn,
+  dayLabel,
+  startOfWeek,
+  timeIn,
+  todayIn,
+} from '@flightsquare/shared/time';
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
@@ -106,8 +113,8 @@ export default async function SchedulePage({
         <div>
           <PageTitle>Schedule</PageTitle>
           <p className="mt-1 text-sm text-secondary">
-            {dayLabel(first, zone)}
-            {view === 'week' ? ` – ${dayLabel(addDays(first, 6), zone)}` : ''} ·{' '}
+            {dayLabel(first)}
+            {view === 'week' ? ` – ${dayLabel(addDays(first, 6))}` : ''} ·{' '}
             {/* §11: name the zone where it matters. A club that books at its
                 own field should never wonder which clock a time is on. */}
             times shown in {zone.replace(/_/g, ' ')}
@@ -195,7 +202,7 @@ export default async function SchedulePage({
                 <p className="text-base font-semibold">
                   {reservation.aircraft_registration} ·{' '}
                   <time dateTime={reservation.starts_at} className="tabular">
-                    {dayLabel(dayIn(reservation.starts_at, zone), zone)}{' '}
+                    {dayLabel(dayIn(reservation.starts_at, zone))}{' '}
                     {timeIn(reservation.starts_at, zone)}
                   </time>
                 </p>
@@ -222,7 +229,7 @@ export default async function SchedulePage({
                 <span className="text-sm">
                   <span className="font-semibold">{reservation.aircraft_registration}</span>{' '}
                   <span className="tabular">
-                    {dayLabel(dayIn(reservation.starts_at, zone), zone)}{' '}
+                    {dayLabel(dayIn(reservation.starts_at, zone))}{' '}
                     {timeIn(reservation.starts_at, zone)}–{timeIn(reservation.ends_at, zone)}
                   </span>
                   {reservation.purpose ? ` · ${reservation.purpose}` : ''}
@@ -289,8 +296,8 @@ export default async function SchedulePage({
                     <span className="font-semibold">{blackout.aircraft_registration}</span>{' '}
                     {blackout.reason}{' '}
                     <span className="tabular text-secondary">
-                      {dayLabel(dayIn(blackout.starts_at, zone), zone)} –{' '}
-                      {dayLabel(dayIn(blackout.ends_at, zone), zone)}
+                      {dayLabel(dayIn(blackout.starts_at, zone))} –{' '}
+                      {dayLabel(dayIn(blackout.ends_at, zone))}
                     </span>
                   </span>
                   <RemoveBlackout blackout={blackout} />
@@ -343,7 +350,7 @@ function Day({
   return (
     <Card className={`p-3 ${today ? 'border-navy' : ''}`}>
       <p className="flex items-baseline gap-2 text-sm font-semibold">
-        {dayLabel(day, zone)}
+        {dayLabel(day)}
         {/* Today marked by weight and a border as well as the accent, so it
             survives being read without colour (§11). */}
         {today ? <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-teal" /> : null}

@@ -12,6 +12,10 @@
     "./uuidv7": {
       "types": "./src/uuidv7.ts",
       "import": "./src/uuidv7.ts"
+    },
+    "./time": {
+      "types": "./src/time.ts",
+      "import": "./src/time.ts"
     }
   },
   "types": "./src/index.ts",
