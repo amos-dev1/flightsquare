@@ -860,6 +860,16 @@ export interface SquawkResponse {
   resolution_note: string | null;
   work_order_id: string | null;
   deferrals: SquawkDeferralResponse[];
+  /**
+   * Photographs of the defect, with their read URLs already signed.
+   *
+   * Inline rather than behind a second call because signing is local
+   * arithmetic and a request per thumbnail is not: a mechanic opening the
+   * squawk list on the hangar wifi should get the pictures with the list.
+   * Empty for every squawk filed before this existed, and for most of them
+   * after — a sentence is still the usual way a defect gets reported.
+   */
+  attachments: AttachmentResponse[];
 }
 
 export interface SquawkDeferralResponse {
@@ -872,6 +882,13 @@ export interface SquawkDeferralResponse {
 }
 
 export interface CreateSquawkRequest {
+  /**
+   * The squawk's own id, minted on the device — same reason as
+   * `CreateFlightRequest.id` and one step further along. A photograph queued
+   * at the tiedown has to name the squawk it belongs to, and neither has
+   * reached the server yet (§8.2).
+   */
+  id?: string;
   aircraft_id: string;
   summary: string;
   details?: string;
@@ -881,6 +898,46 @@ export interface CreateSquawkRequest {
   found_on_flight_id?: string;
   /** §8.2: when it was noticed, which is not when the phone found signal. */
   reported_at?: string;
+}
+
+/**
+ * An attachment (§3.8) — a photograph of a defect, to begin with.
+ *
+ * **The bytes never go through the API.** A create returns `upload_url`, a
+ * short-lived signed PUT the device uses directly, and a read returns `url`,
+ * a short-lived signed GET. Neither is worth storing: they are bearer
+ * credentials for one object, and one kept in a row outlives every permission
+ * change after it.
+ *
+ * `uploaded` is the difference between a row and a file. Until the upload
+ * completes the row is a declaration of intent, and `storage.bytes` counts
+ * only what actually arrived.
+ */
+export interface AttachmentResponse {
+  id: string;
+  squawk_id: string | null;
+  content_type: string;
+  byte_size: number;
+  uploaded: boolean;
+  /** Present on create: PUT the file here, once, soon. */
+  upload_url?: string;
+  /** Present on read, once uploaded: GET the file here, soon. */
+  url?: string;
+}
+
+export interface CreateAttachmentRequest {
+  /** §8.2 again: the device names it, so the queue can refer to it. */
+  id?: string;
+  /** Optional because §3.2's aircraft documents land on the same table. */
+  squawk_id?: string;
+  content_type: string;
+  /**
+   * What the device is about to send. The quota is asserted against this
+   * before anything is uploaded — refusing after a phone has spent five
+   * minutes on one bar is a cruel way to enforce a limit — and re-counted
+   * from what storage actually received on completion.
+   */
+  byte_size: number;
 }
 
 /**

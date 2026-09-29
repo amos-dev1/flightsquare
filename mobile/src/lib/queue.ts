@@ -3,6 +3,7 @@ import type {
   CreateFlightRequest,
   CreateSquawkRequest,
   QueueStore,
+  QueuedAttachment,
   QueuedWrite,
 } from '@flightsquare/shared';
 
@@ -83,9 +84,13 @@ function toEntry(row: Row): QueuedWrite {
 
   // Anything this build does not recognise is read back as a flight, which
   // is what every row written before this column existed actually is.
-  return row.kind === 'squawk'
-    ? { ...shared, kind: 'squawk', payload: payload as CreateSquawkRequest }
-    : { ...shared, kind: 'flight', payload: payload as CreateFlightRequest };
+  if (row.kind === 'squawk') {
+    return { ...shared, kind: 'squawk', payload: payload as CreateSquawkRequest };
+  }
+  if (row.kind === 'attachment') {
+    return { ...shared, kind: 'attachment', payload: payload as QueuedAttachment['payload'] };
+  }
+  return { ...shared, kind: 'flight', payload: payload as CreateFlightRequest };
 }
 
 export const sqliteQueueStore: QueueStore = {

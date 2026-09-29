@@ -3,8 +3,10 @@ import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
   AircraftTypeResponse,
+  AttachmentResponse,
   BlackoutResponse,
   CreateAircraftRequest,
+  CreateAttachmentRequest,
   CreateComplianceRecordRequest,
   CreateFlightRequest,
   CreateMeterReadingRequest,
@@ -215,6 +217,29 @@ export function createClient(options: ClientOptions) {
      */
     createSquawk: (input: CreateSquawkRequest, idempotencyKey: string) =>
       request<SquawkResponse>('POST', '/squawks', input, { idempotencyKey }),
+
+    // ---- attachments (§3.8) ---------------------------------------------
+    /**
+     * Three calls, and the middle one does not come through here.
+     *
+     * `createAttachment` returns a short-lived signed PUT; the caller sends
+     * the bytes to it directly and then calls `completeAttachment`, which is
+     * what makes the row an attachment rather than a declaration. The API
+     * never handles the file, which is why there is no multipart anything in
+     * this client.
+     *
+     * No idempotency key: a create that is retried makes a second row and a
+     * second signed URL, which costs a wasted row rather than a duplicated
+     * record, and a completion is idempotent by nature — it reads the same
+     * object and writes the same size.
+     */
+    createAttachment: (input: CreateAttachmentRequest) =>
+      request<AttachmentResponse>('POST', '/attachments', input),
+    completeAttachment: (id: string) =>
+      request<AttachmentResponse>('POST', `/attachments/${id}/complete`),
+    getAttachment: (id: string) => request<AttachmentResponse>('GET', `/attachments/${id}`),
+    listSquawkAttachments: (squawkId: string) =>
+      request<AttachmentResponse[]>('GET', `/squawks/${squawkId}/attachments`),
 
     // ---- scheduling (§3.3) ----------------------------------------------
     /**

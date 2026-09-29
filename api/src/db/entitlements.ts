@@ -94,31 +94,43 @@ export async function assertQuota(
   trx: Tx,
   key: QuotaKey,
   quota: QuotaValue,
-  /**
-   * What to tell the client the limit is, when that differs from what is
-   * being locked against.
-   *
-   * The invite path is the case: it subtracts outstanding invitations from
-   * the limit, because five pending invites on a limit of five would all
-   * pass and the sixth member would arrive through a door already checked.
-   * That is the right thing to enforce and the wrong thing to report — "your
-   * plan allows 0 members" is not true of any plan, and §1.6 puts these
-   * numbers in the body precisely so a screen can say something accurate.
-   */
-  reported?: number,
+  options: {
+    /**
+     * What to tell the client the limit is, when that differs from what is
+     * being locked against.
+     *
+     * The invite path is the case: it subtracts outstanding invitations from
+     * the limit, because five pending invites on a limit of five would all
+     * pass and the sixth member would arrive through a door already checked.
+     * That is the right thing to enforce and the wrong thing to report — "your
+     * plan allows 0 members" is not true of any plan, and §1.6 puts these
+     * numbers in the body precisely so a screen can say something accurate.
+     */
+    reported?: number;
+    /**
+     * How much of the quota this write consumes. One, for everything that is
+     * a count of things — an aircraft, a member. `storage.bytes` passes the
+     * size of the file, because a ten megabyte photograph is ten million
+     * units of it and a tenant one byte under the limit would otherwise
+     * sail straight past (0021).
+     */
+    amount?: number;
+  } = {},
 ): Promise<void> {
   const limit = limitForDatabase(quota);
   if (limit === null) return; // Unlimited: nothing to lock, nothing to compare.
 
+  const amount = options.amount ?? 1;
+
   try {
-    await sql`SELECT public.assert_quota(${key}, ${limit})`.execute(trx);
+    await sql`SELECT public.assert_quota(${key}, ${limit}, ${amount})`.execute(trx);
   } catch (error) {
     const code = (error as { code?: unknown }).code;
     if (code === PG_QUOTA_EXCEEDED) {
       const detail = Number((error as { detail?: unknown }).detail);
       throw new QuotaExceededError(
         key,
-        reported ?? limit,
+        options.reported ?? limit,
         Number.isFinite(detail) ? detail : limit,
         // §5's remediation paths: upgrade, or choose what to archive.
         ['upgrade', 'archive'],

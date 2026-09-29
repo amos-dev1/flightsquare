@@ -19,6 +19,7 @@ import { billingWebhookRoutes } from './routes/billing-webhook.js';
 import { authRoutes } from './routes/auth.js';
 import { billingRoutes } from './routes/billing.js';
 import { aircraftRoutes } from './routes/aircraft.js';
+import { attachmentRoutes } from './routes/attachments.js';
 import { entitlementsRoutes } from './routes/entitlements.js';
 import { flightRoutes } from './routes/flights.js';
 import { healthRoutes } from './routes/health.js';
@@ -202,6 +203,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(tenantRoutes);
   void app.register(entitlementsRoutes);
   void app.register(aircraftRoutes);
+  void app.register(attachmentRoutes);
   void app.register(billingRoutes);
   void app.register(flightRoutes);
   void app.register(maintenanceRoutes);

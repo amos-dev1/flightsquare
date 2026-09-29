@@ -1,6 +1,7 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -9,12 +10,13 @@ import {
   Text,
   View,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import Feather from '@expo/vector-icons/Feather';
 import type { AerodromeResponse, AircraftResponse, FlightCategory } from '@flightsquare/shared';
 
 import { Body, Button, Card, Choice, Field, Input, Notice, SectionHeading } from '@/components/ui';
 import { api, messageFor, withAuth } from '@/lib/api';
-import { saveFlight, saveSquawk } from '@/lib/sync';
+import { saveAttachment, saveFlight, saveSquawk } from '@/lib/sync';
 import { color, radius, space, type } from '@/theme';
 
 /**
@@ -98,6 +100,43 @@ interface SquawkDraft {
   summary: string;
   details: string;
   grounds: boolean;
+  photos: PhotoDraft[];
+}
+
+/**
+ * A photograph the picker has handed back, still in its cache.
+ *
+ * It is not copied anywhere or uploaded until the flight is saved: the
+ * ordinary outcome of opening this screen is saving it, but the outcome of
+ * tapping a photo and then backing out should not be a file left in the
+ * app's documents forever.
+ */
+interface PhotoDraft {
+  key: string;
+  uri: string;
+  contentType: string;
+}
+
+/**
+ * A photograph of the defect, taken at the aeroplane.
+ *
+ * Quality is turned down hard on purpose. A modern phone camera produces
+ * eight megabytes a frame, `storage.bytes` is a real quota on every plan, and
+ * nothing about a cracked bracket or a weeping fitting needs more resolution
+ * than this — the picture exists so a mechanic knows what they are walking out
+ * to, not so it can be printed.
+ */
+const PHOTO_OPTIONS: ImagePicker.ImagePickerOptions = {
+  mediaTypes: ['images'],
+  quality: 0.6,
+  allowsMultipleSelection: false,
+};
+
+function contentTypeOf(asset: ImagePicker.ImagePickerAsset): string {
+  if (asset.mimeType) return asset.mimeType;
+  // The picker usually says. When it does not, JPEG is what a phone camera
+  // produced and what the API accepts.
+  return /\.png$/i.test(asset.uri) ? 'image/png' : 'image/jpeg';
 }
 
 const CATEGORIES: { value: FlightCategory; label: string }[] = [
@@ -244,14 +283,29 @@ export default function LogFlight() {
        */
       for (const draft of squawks) {
         if (!draft.summary.trim()) continue;
-        await saveSquawk({
+        const reportedAt = new Date().toISOString();
+        const squawkId = await saveSquawk({
           aircraft_id: aircraftId,
           summary: draft.summary.trim(),
           ...(draft.details.trim() ? { details: draft.details.trim() } : {}),
           // The pilot's judgement, not inferred from the words they used.
           ...(draft.grounds ? { severity: 'grounding' as const, grounding: true } : {}),
           found_on_flight_id: flightId,
+          reported_at: reportedAt,
         });
+
+        // Each photograph is its own queue entry, ordered just behind the
+        // squawk it belongs to — `after` is what puts it there, and the queue
+        // sends in that order so the squawk exists by the time the upload
+        // names it (§8.2).
+        for (const photo of draft.photos) {
+          await saveAttachment({
+            squawkId,
+            uri: photo.uri,
+            contentType: photo.contentType,
+            after: reportedAt,
+          });
+        }
       }
 
       router.back();
@@ -267,6 +321,58 @@ export default function LogFlight() {
 
   const edit = (key: string, patch: Partial<SquawkDraft>) =>
     setSquawks((all) => all.map((one) => (one.key === key ? { ...one, ...patch } : one)));
+
+  /**
+   * Add one, from the camera or from what is already on the phone.
+   *
+   * Permission is asked for at the tap rather than on mount: a pilot who
+   * never photographs anything should never see the prompt, and one who does
+   * sees it at the moment it is obvious why.
+   */
+  async function addPhoto(draftKey: string, from: 'camera' | 'library') {
+    const permission =
+      from === 'camera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError(
+        from === 'camera'
+          ? 'FlightSquare needs camera access to photograph a defect. Settings › FlightSquare.'
+          : 'FlightSquare needs photo access to attach a picture. Settings › FlightSquare.',
+      );
+      return;
+    }
+
+    const result =
+      from === 'camera'
+        ? await ImagePicker.launchCameraAsync(PHOTO_OPTIONS)
+        : await ImagePicker.launchImageLibraryAsync(PHOTO_OPTIONS);
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    if (!asset) return;
+
+    setError(null);
+    edit(draftKey, {
+      photos: [
+        ...(squawks.find((one) => one.key === draftKey)?.photos ?? []),
+        {
+          key: `${Date.now()}-${asset.uri}`,
+          uri: asset.uri,
+          contentType: contentTypeOf(asset),
+        },
+      ],
+    });
+  }
+
+  const removePhoto = (draftKey: string, photoKey: string) =>
+    setSquawks((all) =>
+      all.map((one) =>
+        one.key === draftKey
+          ? { ...one, photos: one.photos.filter((photo) => photo.key !== photoKey) }
+          : one,
+      ),
+    );
 
   return (
     <KeyboardAvoidingView
@@ -501,6 +607,51 @@ export default function LogFlight() {
                 resolves or defers it.
               </Notice>
             ) : null}
+
+            {/*
+              Photographs. A mechanic reading a squawk a week later gets far
+              more from one picture of the bracket than from any sentence a
+              pilot standing in the wind is going to type.
+            */}
+            {draft.photos.length > 0 ? (
+              <View style={styles.photos}>
+                {draft.photos.map((photo) => (
+                  <View key={photo.key} style={styles.thumbWrap}>
+                    <Image source={{ uri: photo.uri }} style={styles.thumb} />
+                    <Pressable
+                      onPress={() => removePhoto(draft.key, photo.key)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove this photo"
+                      hitSlop={space.sm}
+                      style={({ pressed }) => [styles.thumbRemove, pressed && styles.pressed]}
+                    >
+                      <Feather name="x" size={14} color={color.onDark} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            <View style={styles.pair}>
+              <Pressable
+                onPress={() => void addPhoto(draft.key, 'camera')}
+                accessibilityRole="button"
+                accessibilityLabel="Take a photo of this defect"
+                style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}
+              >
+                <Feather name="camera" size={18} color={color.navy} />
+                <Text style={styles.photoLabel}>Take photo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void addPhoto(draft.key, 'library')}
+                accessibilityRole="button"
+                accessibilityLabel="Choose a photo of this defect"
+                style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}
+              >
+                <Feather name="image" size={18} color={color.navy} />
+                <Text style={styles.photoLabel}>Choose photo</Text>
+              </Pressable>
+            </View>
           </Card>
         ))}
 
@@ -508,7 +659,7 @@ export default function LogFlight() {
           onPress={() =>
             setSquawks((all) => [
               ...all,
-              { key: `${Date.now()}-${all.length}`, summary: '', details: '', grounds: false },
+              { key: `${Date.now()}-${all.length}`, summary: '', details: '', grounds: false, photos: [] },
             ])
           }
           accessibilityRole="button"
@@ -581,6 +732,43 @@ const styles = StyleSheet.create({
   addSquawkLabel: { ...type.button },
   remove: { paddingVertical: space.sm },
   removeLabel: { ...type.button, color: color.secondary },
+
+  photos: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  thumbWrap: { position: 'relative' },
+  thumb: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.control,
+    // A photograph of an engine bay is dark and a photograph of a wing in
+    // sunlight is nearly white; a border is what keeps both visible on mist.
+    borderWidth: 1,
+    borderColor: color.line,
+    backgroundColor: color.mist,
+  },
+  thumbRemove: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.navy,
+  },
+  photoButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    height: 44,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: color.control,
+    backgroundColor: color.surface,
+  },
+  photoLabel: { ...type.button },
 
   check: {
     flexDirection: 'row',

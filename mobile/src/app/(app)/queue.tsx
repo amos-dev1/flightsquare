@@ -141,19 +141,13 @@ function Summary({ entry }: { entry: QueuedWrite }) {
   return (
     <>
       <View style={styles.headline}>
-        <Text style={styles.kind}>
-          {entry.kind === 'flight' ? 'Flight' : 'Defect report'}
-        </Text>
+        <Text style={styles.kind}>{KIND[entry.kind]}</Text>
         {entry.attempts > 0 ? (
           <Status label={`${entry.attempts} ${entry.attempts === 1 ? 'try' : 'tries'}`} />
         ) : null}
       </View>
 
-      <Text style={styles.detail}>
-        {entry.kind === 'flight'
-          ? describeFlight(entry.payload)
-          : entry.payload.summary}
-      </Text>
+      <Text style={styles.detail}>{describe(entry)}</Text>
       <Text style={styles.meta}>
         {/* Recorded-at, not queued-at. §8.2: they are frequently different,
             sometimes by days, and the first is the one that happened. */}
@@ -161,6 +155,21 @@ function Summary({ entry }: { entry: QueuedWrite }) {
       </Text>
     </>
   );
+}
+
+const KIND: Record<QueuedWrite['kind'], string> = {
+  flight: 'Flight',
+  squawk: 'Defect report',
+  attachment: 'Photo',
+};
+
+function describe(entry: QueuedWrite): string {
+  if (entry.kind === 'flight') return describeFlight(entry.payload);
+  if (entry.kind === 'squawk') return entry.payload.summary;
+  // Nothing about the photograph is worth reading here — it is the defect it
+  // belongs to that a person is looking for, and the summary is on the row
+  // above it in the list.
+  return `${(entry.payload.byteSize / 1024).toFixed(0)} KB, attached to a defect report`;
 }
 
 function describeFlight(payload: { flight_date: string; hobbs_start?: string; hobbs_end?: string }): string {

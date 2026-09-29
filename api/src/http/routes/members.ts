@@ -235,7 +235,7 @@ export async function memberRoutes(app: FastifyInstance): Promise<void> {
             trx,
             'members.active',
             { kind: 'limit', value: Math.max(room, 0) },
-            limit,
+            { reported: limit },
           );
         }
 

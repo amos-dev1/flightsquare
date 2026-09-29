@@ -47,7 +47,39 @@ export interface QueuedSquawk extends QueuedWriteBase {
   payload: CreateSquawkRequest;
 }
 
-export type QueuedWrite = QueuedFlight | QueuedSquawk;
+/**
+ * A photograph of the defect, queued behind the defect.
+ *
+ * The only queue entry whose payload is not a request body: the bytes are on
+ * the device's own filesystem, and the three-step upload (create a row, PUT
+ * the file, record what arrived) belongs to the submitter rather than to the
+ * queue. What is stored here is where to find the file and what to say about
+ * it.
+ *
+ * `squawkId` is the squawk's client-generated id, which is the whole reason
+ * `CreateSquawkRequest` grew one. Both writes are made on the same walk back
+ * from the aeroplane and neither has reached the server; without a device-side
+ * id the photograph would have nothing to point at until the squawk synced.
+ *
+ * Ordering does the rest. `flushQueue` sends oldest-recorded first and stops
+ * at the first transient failure, so the squawk is created before the
+ * photograph that names it — and if the squawk is permanently refused, the
+ * attachment's 404 parks it beside the write it belonged to instead of
+ * uploading a picture of nothing.
+ */
+export interface QueuedAttachment extends QueuedWriteBase {
+  kind: 'attachment';
+  payload: {
+    /** The squawk this belongs to, named on the device (§8.2). */
+    squawkId: string;
+    /** A file:// URI in the app's own document directory, not the picker cache. */
+    localUri: string;
+    contentType: string;
+    byteSize: number;
+  };
+}
+
+export type QueuedWrite = QueuedFlight | QueuedSquawk | QueuedAttachment;
 
 export interface QueueStore {
   all(): Promise<QueuedWrite[]>;

@@ -58,3 +58,23 @@ require_db() {
     sleep 1
   done
 }
+
+# Object storage, for §3.8's attachments. Warns rather than exits: a photograph
+# of a defect failing to upload should not stop the API, the web app and the
+# mail sender from starting.
+require_storage() {
+  if ! dc ps --status running --services 2>/dev/null | grep -qx storage; then
+    echo "object storage is not running — start it with: docker compose up -d" >&2
+    echo "(attachments will fail; everything else works)" >&2
+    return 0
+  fi
+  local i=0
+  until curl -fsS -o /dev/null "http://127.0.0.1:9000/minio/health/live" 2>/dev/null; do
+    i=$((i + 1))
+    if [ "$i" -ge 30 ]; then
+      echo "object storage did not become ready — attachments will fail" >&2
+      return 0
+    fi
+    sleep 1
+  done
+}

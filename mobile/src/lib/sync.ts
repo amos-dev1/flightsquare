@@ -1,3 +1,4 @@
+import { Directory, File, Paths } from 'expo-file-system';
 import {
   discardFailed,
   flushQueue,
@@ -6,6 +7,7 @@ import {
   type CreateFlightRequest,
   type CreateSquawkRequest,
   type FlushResult,
+  type QueuedAttachment,
   type QueuedWrite,
 } from '@flightsquare/shared';
 
@@ -67,7 +69,9 @@ export async function saveSquawk(payload: CreateSquawkRequest): Promise<string> 
     kind: 'squawk',
     id,
     idempotencyKey: id,
-    payload: { ...payload, reported_at: payload.reported_at ?? now },
+    // The squawk carries the id too, so a photograph queued in the same
+    // minute has something to point at. Neither has reached the server.
+    payload: { ...payload, id, reported_at: payload.reported_at ?? now },
     recordedAt: payload.reported_at ?? now,
     queuedAt: now,
     attempts: 0,
@@ -78,13 +82,119 @@ export async function saveSquawk(payload: CreateSquawkRequest): Promise<string> 
   return id;
 }
 
+/**
+ * A photograph of the defect.
+ *
+ * The file is copied out of the picker's cache into the app's own document
+ * directory first, because the cache is exactly what iOS reclaims when it
+ * wants space — and a queue entry pointing at a file the system has deleted
+ * is a squawk that arrives without the picture somebody took specifically so
+ * it would arrive.
+ *
+ * `recordedAt` is nudged one millisecond past the squawk's, which is what
+ * keeps the ordering honest: `flushQueue` sorts by recorded-at, and a
+ * photograph that sorts ahead of its own squawk would be sent to a squawk id
+ * the server has never seen.
+ */
+export async function saveAttachment(input: {
+  squawkId: string;
+  /** Where the picker left it. Copied, not referenced. */
+  uri: string;
+  contentType: string;
+  /** The squawk's recorded-at, so this sorts immediately behind it. */
+  after: string;
+}): Promise<string> {
+  const id = uuidv7();
+  const now = new Date().toISOString();
+
+  const source = new File(input.uri);
+  const kept = new File(attachmentDirectory(), `${id}.${extensionFor(input.contentType)}`);
+  source.copy(kept);
+
+  await sqliteQueueStore.put({
+    kind: 'attachment',
+    id,
+    idempotencyKey: id,
+    payload: {
+      squawkId: input.squawkId,
+      localUri: kept.uri,
+      contentType: input.contentType,
+      byteSize: kept.size ?? 0,
+    },
+    recordedAt: new Date(new Date(input.after).getTime() + 1).toISOString(),
+    queuedAt: now,
+    attempts: 0,
+    state: 'pending',
+  });
+
+  void sync();
+  return id;
+}
+
+function attachmentDirectory(): Directory {
+  const directory = new Directory(Paths.document, 'attachments');
+  if (!directory.exists) directory.create({ intermediates: true });
+  return directory;
+}
+
+function extensionFor(contentType: string): string {
+  return contentType === 'image/png' ? 'png' : contentType === 'image/heic' ? 'heic' : 'jpg';
+}
+
 /** Which endpoint a queued write belongs to. The queue does not decide it. */
 function submit(entry: QueuedWrite): Promise<unknown> {
+  if (entry.kind === 'attachment') return uploadAttachment(entry);
   return withAuth<unknown>(() =>
     entry.kind === 'squawk'
       ? api.createSquawk(entry.payload, entry.idempotencyKey)
       : api.createFlight(entry.payload, entry.idempotencyKey),
   );
+}
+
+/**
+ * Three steps, and only the first and third are ours.
+ *
+ * The bytes go straight to object storage through a signed URL the API
+ * returned, which is the arrangement that keeps a photograph off the API's
+ * body parser entirely. The completion is what turns the row from a
+ * declaration into an attachment, and until it happens `storage.bytes` does
+ * not count it.
+ *
+ * Every failure here propagates, which is the point: a 402 because the club
+ * is out of storage is permanent and parks the entry for a person to see,
+ * while a dropped connection is transient and the whole thing is retried from
+ * the beginning. Retrying the beginning costs one abandoned row.
+ */
+async function uploadAttachment(entry: QueuedAttachment): Promise<unknown> {
+  const created = await withAuth(() =>
+    api.createAttachment({
+      squawk_id: entry.payload.squawkId,
+      content_type: entry.payload.contentType,
+      byte_size: entry.payload.byteSize,
+    }),
+  );
+
+  const file = new File(entry.payload.localUri);
+  const response = await fetch(created.upload_url!, {
+    method: 'PUT',
+    headers: { 'Content-Type': entry.payload.contentType },
+    body: await file.bytes(),
+  });
+  if (!response.ok) {
+    throw new Error(`the upload was refused (${response.status})`);
+  }
+
+  const completed = await withAuth(() => api.completeAttachment(created.id));
+
+  // The local copy existed to survive the queue, and the queue is done with
+  // it. Leaving it behind fills the device with photographs of defects that
+  // were fixed months ago.
+  try {
+    file.delete();
+  } catch {
+    // Not worth failing a sent attachment over.
+  }
+  return completed;
 }
 
 export async function sync(): Promise<FlushResult> {

@@ -122,6 +122,34 @@ function SquawkCard({ squawk, canClose }: { squawk: SquawkResponse; canClose: bo
 
       {squawk.details ? <p className="mt-3 text-sm">{squawk.details}</p> : null}
 
+      {/*
+        What the pilot photographed at the aircraft. Filed from the phone
+        (§8.2) and read here, because the person deciding whether it grounds
+        the aeroplane is usually the one sitting at a desk.
+
+        Full size on click rather than a lightbox: the URL is signed and
+        short-lived, so a new tab is the whole of what a bigger view needs.
+      */}
+      {squawk.attachments.length > 0 ? (
+        <ul className="mt-3 flex flex-wrap gap-2">
+          {squawk.attachments.map((photo) => (
+            <li key={photo.id}>
+              <a href={photo.url} target="_blank" rel="noreferrer">
+                {/* Not next/image: the host is object storage, the URL is
+                    signed and expires, and neither is something to configure
+                    a remote-image loader around. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photo.url}
+                  alt={`Photograph of: ${squawk.summary}`}
+                  className="h-20 w-20 rounded-lg border border-line bg-subtle object-cover"
+                />
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {squawk.resolution_note ? (
         <p className="mt-3 text-sm text-secondary">Resolution: {squawk.resolution_note}</p>
       ) : null}

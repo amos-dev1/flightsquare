@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
   AircraftResponse,
   MaintenanceItemResponse,
@@ -150,6 +150,24 @@ export default function Maintenance() {
           <Text style={styles.summary}>{squawk.summary}</Text>
           {squawk.details ? <Body muted>{squawk.details}</Body> : null}
 
+          {/*
+            What the pilot photographed. One picture of the bracket tells a
+            mechanic more than any sentence typed standing in the wind, which
+            is the whole reason attachments exist (§3.8).
+          */}
+          {squawk.attachments.length > 0 ? (
+            <View style={styles.photos}>
+              {squawk.attachments.map((photo) => (
+                <Image
+                  key={photo.id}
+                  source={{ uri: photo.url }}
+                  style={styles.thumb}
+                  accessibilityLabel={`Photo of ${squawk.summary}`}
+                />
+              ))}
+            </View>
+          ) : null}
+
           <Text style={styles.meta}>
             {squawk.reported_by_email ?? 'a member'} · {squawk.reported_at.slice(0, 10)}
           </Text>
@@ -228,6 +246,18 @@ const styles = StyleSheet.create({
   headline: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
   registration: { ...type.cardHeading, flex: 1 },
   summary: { ...type.body, marginTop: space.xs },
+
+  photos: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
+  thumb: {
+    width: 72,
+    height: 72,
+    borderRadius: 8,
+    // A dark engine bay and a wing in sunlight both need an edge to be
+    // visible against a white card (§11 §13).
+    borderWidth: 1,
+    borderColor: color.line,
+    backgroundColor: color.mist,
+  },
   meta: { ...type.supporting, color: color.secondary, marginTop: space.xs },
   action: { marginTop: space.sm },
 });

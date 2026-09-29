@@ -4,8 +4,9 @@
 #   ./scripts/dev.sh            # bind to the LAN, print what to point a phone at
 #   ./scripts/dev.sh --local    # 127.0.0.1 only, as before
 #
-# Five processes: the database (compose), the API, the web app, the mail
-# sender and the maintenance sweep. Stopping this stops all of them.
+# Five processes plus two containers: the database and object storage
+# (compose), then the API, the web app, the mail sender and the maintenance
+# sweep. Stopping this stops all of them.
 #
 # The reason it exists is the reason M9 is not the next milestone: almost
 # everything in this product can be exercised at home, including Stripe (test
@@ -52,6 +53,9 @@ export FS_WEB_URL="http://$HOST:3001"
 export EXPO_PUBLIC_API_URL="http://$HOST:3000"
 
 require_db
+# The API creates the bucket itself on boot; this only waits for something to
+# create it in.
+require_storage
 
 pids=()
 stop() {
@@ -83,6 +87,8 @@ cat <<BANNER
   the app with
 
     EXPO_PUBLIC_API_URL=http://$HOST:3000 npx expo start   (from mobile/)
+
+  Photographs go to MinIO on :9000, console on :9001.
 
   Mail is logged, not sent — ./scripts/outbox.sh reads it. Set
   FS_MAIL_API_KEY to send for real. Stripe runs on the stub unless

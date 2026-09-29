@@ -34,7 +34,7 @@ The §9 entry points, which is what you should use:
 
 ```sh
 npm install
-npm run db:up             # start Postgres (creates the three roles on first run)
+npm run db:up             # start Postgres and MinIO (Postgres creates the roles on first run)
 npm run migrate           # apply pending migrations, as the owner role
 npm test                  # database suite, then the API suite
 npm run dev               # the API on http://127.0.0.1:3000
@@ -208,6 +208,14 @@ db/                             not an npm workspace — SQL and psql only
                                 back from it
     0017_scheduled_sweep.sql    the one role that may ask which tenants exist,
                                 and the column that stops a digest repeating
+    0018_flight_detail.sql      what the post-flight form asks for: category,
+                                fuel before as well as after, price per gallon
+    0019_aerodrome_search.sql   pg_trgm and the indexes that make seventy
+                                thousand aerodromes searchable
+    0020_attachments.sql        §3.8's pointers into object storage, and the
+                                trigger that makes storage.bytes real
+    0021_quota_amount.sql       assert_quota learns bigint and an amount — a
+                                byte quota is not consumed one at a time
   tests/
     000_fixtures.sql            loaded as superuser (see below)
     010_tenant_isolation_select.sql        §6.1 item 5
@@ -229,6 +237,8 @@ db/                             not an npm workspace — SQL and psql only
                                            who may book what
     140_member_billing.sql                 February keeps February's price
     150_platform_billing.sql               the plan change the app cannot make
+    160_attachments.sql                    a quota counted in bytes, and a
+                                           pointer the app cannot move
 api/
   src/
     config.ts                   env, client version floors, rate limits
@@ -246,6 +256,8 @@ api/
       registry.ts               every key, with a global default
       resolver.ts               §1.4's chain: override -> plan -> default
       values.ts                 Unlimited | Limit(n), never a sentinel
+    storage/                    S3 in production, MinIO on a laptop, and one
+                                rule: the bytes never come through the API
     db/
       schema.ts                 Kysely types for every table and both views
       pool.ts                   pg pool, Kysely, and the boot-time role check
@@ -263,7 +275,8 @@ api/
       routes/                   health, signup, auth, account, me, tenant,
                                 entitlements, members, aircraft, flights,
                                 maintenance, squawks, scheduling, billing,
-                                subscription, billing-webhook, reference
+                                subscription, billing-webhook, reference,
+                                attachments
   test/                         Vitest, against the real database
 packages/shared/                the API contract — types only, no build step
 infra/                          AWS CDK. Empty: §9 defers hosting.
@@ -476,8 +489,10 @@ is left:
   period-aware counting, and `tenant_usage` is a plain counter. §4.2 already
   says the mechanism exists and nothing important uses it.
 - **`aircraft_documents` is absent** (§3.2). It is a table of pointers into
-  object storage, and there is no object storage; it arrives with
-  `attachments`.
+  object storage, and `attachments` (0020) is now that table — the airworthiness
+  certificate, registration, insurance and W&B land on it with a null
+  `squawk_id`, which is why it is not called `squawk_photos`. What is missing
+  is the screen, not the storage.
 - **The aerodrome and type tables are seeded thinly, and only one of them
   refuses anything.** Twenty fields and thirty-four types; the real lists are
   an import job (§2.2), not a migration anyone has to read. `home_base` is

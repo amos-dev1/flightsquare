@@ -183,7 +183,7 @@ describe('the §1.6 gates', () => {
     const ctx = { tenantId: tenant.tenant_id, userId: tenant.user_id };
     try {
       await withTenant(ctx, (trx) =>
-        assertQuota(trx, 'members.active', limitOf(0), 1),
+        assertQuota(trx, 'members.active', limitOf(0), { reported: 1 }),
       );
       throw new Error('the quota did not refuse');
     } catch (error) {

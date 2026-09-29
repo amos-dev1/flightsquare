@@ -73,6 +73,34 @@ export const config = {
   clients: {
     minimumVersions: parseMinimumVersions(process.env.FS_MIN_CLIENT_VERSIONS),
   },
+  /**
+   * Object storage for §3.8's attachments.
+   *
+   * One interface in development and in production: MinIO speaks S3, so
+   * deploying is a change of endpoint and credentials rather than a change of
+   * code, and §9's deferred hosting decision stays deferred.
+   *
+   * `forcePathStyle` is what MinIO needs — bucket-in-the-hostname requires DNS
+   * that a container on loopback does not have. Real S3 accepts it too.
+   */
+  storage: {
+    endpoint: process.env.FS_STORAGE_ENDPOINT ?? 'http://127.0.0.1:9000',
+    region: process.env.FS_STORAGE_REGION ?? 'us-east-1',
+    bucket: process.env.FS_STORAGE_BUCKET ?? 'flightsquare',
+    accessKeyId: process.env.FS_STORAGE_KEY ?? 'flightsquare',
+    secretAccessKey: process.env.FS_STORAGE_SECRET ?? 'storage_dev_password',
+    forcePathStyle: (process.env.FS_STORAGE_PATH_STYLE ?? 'true') === 'true',
+    /**
+     * How long a signed URL lives.
+     *
+     * Short, because it is a bearer credential for one object: anybody
+     * holding the link can use it until it expires, which is exactly why the
+     * API hands one out per request rather than storing a public URL.
+     */
+    urlTtlSeconds: int('FS_STORAGE_URL_TTL', 300),
+    /** §8.2: a phone photograph, not a video. Refused before it is signed. */
+    maxUploadBytes: int('FS_STORAGE_MAX_UPLOAD', 15 * 1024 * 1024),
+  },
   web: {
     /**
      * Where the links in emails point. The API is not a place a person

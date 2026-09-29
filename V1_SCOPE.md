@@ -164,10 +164,15 @@ Works on free tier — a solo owner tracking their own annual is a real use case
 - A grounding squawk immediately makes the aircraft unavailable for new bookings.
 - Admin resolves with a note. Append-only.
 - Open squawks are visible to all members on the aircraft detail view — the next pilot needs to know.
+- Photographs on a squawk, taken at the aircraft and queued offline with it. One picture of the
+  bracket tells a mechanic more than any sentence a pilot types standing in the wind.
 
-**Out:** parts inventory, work orders with labor and cost, AD/SB tracking as a distinct entity, A&P/IA signature capture, photo attachments on squawks, MEL deferrals, type-specific preset libraries, maintenance cost reporting.
+**Out:** parts inventory, work orders with labor and cost, AD/SB tracking as a distinct entity, A&P/IA signature capture, MEL deferrals, type-specific preset libraries, maintenance cost reporting.
 
-Squawk photos are the highest-value item on that out-list and the first thing I would add after v1.
+Photos were on that out-list, described as "the highest-value item on it and the first thing I
+would add after v1". They came in early because `storage.bytes` had been a priced quota since
+0005 with nothing counting it, and the honest options were to build the thing it prices or stop
+pricing it. Resizing, thumbnails, EXIF stripping and deleting an attachment are still out.
 
 ---
 

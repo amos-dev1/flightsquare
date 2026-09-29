@@ -20,6 +20,13 @@
       "expo-secure-store",
       "expo-sqlite",
       "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FlightSquare uses your photos so you can attach a picture of a defect to a squawk.",
+          "cameraPermission": "FlightSquare uses the camera so you can photograph a defect while you are at the aircraft."
+        }
+      ],
       "@react-native-community/datetimepicker"
     ],
     "experiments": {

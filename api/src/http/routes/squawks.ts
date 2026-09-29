@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type {
+  AttachmentResponse,
   CreateSquawkDeferralRequest,
   CreateSquawkRequest,
   SquawkDeferralResponse,
@@ -12,6 +13,7 @@ import { ownMembership } from '../../db/membership.js';
 import { squawkFiledEmail } from '../../email.js';
 import { queueAll, recipientsWith } from '../../mail/notify.js';
 import { NotFoundError } from '../errors.js';
+import { signDownload } from '../../storage/index.js';
 import type { Tx } from '../../db/context.js';
 
 /**
@@ -43,6 +45,9 @@ const createSchema = {
     required: ['aircraft_id', 'summary'],
     additionalProperties: false,
     properties: {
+      // §8.2: the device names it, so a photograph queued at the tiedown can
+      // refer to a squawk the server has not heard of yet.
+      id: idSchema,
       aircraft_id: idSchema,
       summary: { type: 'string', minLength: 1, maxLength: 200 },
       details: { type: 'string', maxLength: 4000 },
@@ -114,8 +119,48 @@ function selectSquawks(trx: Tx) {
 
 type SquawkRow = Awaited<ReturnType<ReturnType<typeof selectSquawks>['execute']>>[number];
 
+/**
+ * Fill in what hangs off each squawk: its deferral history and its
+ * photographs.
+ *
+ * Both in one pass over the ids rather than per row, because the list is what
+ * a mechanic actually opens and N+1 on a club's whole squawk log is the
+ * difference between a screen and a wait.
+ */
 async function withDeferrals(trx: Tx, rows: SquawkRow[]): Promise<SquawkResponse[]> {
   if (rows.length === 0) return [];
+
+  const attachments = await trx
+    .selectFrom('attachments')
+    .select(['id', 'squawk_id', 'storage_key', 'content_type', 'byte_size', 'uploaded_at'])
+    .where(
+      'squawk_id',
+      'in',
+      rows.map((r) => r.id),
+    )
+    // Only what actually arrived. A row whose upload was signed and never
+    // completed names no object, and a thumbnail of nothing is worse than no
+    // thumbnail (§3.8).
+    .where('uploaded_at', 'is not', null)
+    .orderBy('created_at')
+    .execute();
+
+  const photosBySquawk = new Map<string, AttachmentResponse[]>();
+  for (const row of attachments) {
+    const list = photosBySquawk.get(row.squawk_id!) ?? [];
+    list.push({
+      id: row.id,
+      squawk_id: row.squawk_id,
+      content_type: row.content_type,
+      byte_size: Number(row.byte_size),
+      uploaded: true,
+      // Signed per response, never stored: the link is a bearer credential
+      // for one object, and one kept in a row outlives every permission
+      // change after it.
+      url: await signDownload(row.storage_key),
+    });
+    photosBySquawk.set(row.squawk_id!, list);
+  }
 
   const deferrals = await trx
     .selectFrom('squawk_deferrals')
@@ -149,6 +194,7 @@ async function withDeferrals(trx: Tx, rows: SquawkRow[]): Promise<SquawkResponse
     // The whole history, not just the current one. §7.2 names deferral
     // history among what gets read back after an accident.
     deferrals: bySquawk.get(row.id) ?? [],
+    attachments: photosBySquawk.get(row.id) ?? [],
   }));
 }
 
@@ -222,6 +268,7 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
           const created = await trx
             .insertInto('squawks')
             .values({
+              ...(body.id ? { id: body.id } : {}),
               tenant_id: ctx.tenantId,
               aircraft_id: body.aircraft_id,
               summary: body.summary,

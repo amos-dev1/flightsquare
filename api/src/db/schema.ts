@@ -803,6 +803,20 @@ export interface FlightFuelTable {
   created_at: Timestamp;
 }
 
+/** §3.8: a pointer into object storage. The bytes are never in the database. */
+export interface AttachmentsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  squawk_id: string | null;
+  storage_key: string;
+  content_type: string;
+  /** Declared before upload, replaced by what storage received. */
+  byte_size: ColumnType<string, number | string, number | string>;
+  uploaded_by: string | null;
+  uploaded_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+}
+
 export interface IdempotencyKeysTable {
   tenant_id: string;
   key: string;
@@ -835,6 +849,7 @@ export interface Database {
   compliance_records: ComplianceRecordsTable;
   flights: FlightsTable;
   flight_meters: FlightMetersTable;
+  attachments: AttachmentsTable;
   flight_fuel: FlightFuelTable;
   idempotency_keys: IdempotencyKeysTable;
   aircraft: AircraftTable;

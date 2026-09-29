@@ -156,6 +156,7 @@ BEGIN
      IS DISTINCT FROM ARRAY['aircraft.tenant_isolation',
                             'aircraft_config.tenant_isolation',
                             'aircraft_rates.tenant_isolation',
+                            'attachments.tenant_isolation',
                             'audit_log.tenant_isolation',
                             'billing_events.tenant_isolation',
                             'blackouts.tenant_isolation',
@@ -362,6 +363,12 @@ BEGIN
                                   'credit_fuel_for_flight',
                                   'refresh_aircraft_active_usage',
                                   'refresh_aircraft_meter_totals',
+                                  -- 0020: the third of the refresh_*_usage
+                                  -- family, which §2.3 calls "an instance of
+                                  -- a decision already taken rather than a
+                                  -- new one". It sums bytes where its two
+                                  -- siblings count rows.
+                                  'refresh_attachments_usage',
                                   'refresh_members_active_usage',
                                   'set_billing_customer',
                                   'sync_blackout_resource_window',

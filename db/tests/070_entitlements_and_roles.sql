@@ -194,6 +194,64 @@ $t$;
 ROLLBACK;
 
 -- ---------------------------------------------------------------------------
+-- 0021: a quota measured in bytes, which is where the original signature
+-- turned out to be two sizes too small.
+--
+-- `p_limit int` could not hold the Pro storage limit 0005 has priced since
+-- the beginning — 26,843,545,600 is twelve times int4 — and a call did not
+-- enforce the wrong number, it raised `integer out of range`, which is a 500
+-- where §1.6 requires a 402. And `v_current >= p_limit` asks whether there is
+-- room for one more, which is exactly right for aircraft and members and
+-- wrong for a ten megabyte photograph.
+-- ---------------------------------------------------------------------------
+BEGIN;
+SET LOCAL app.tenant_id = '01920000-0000-7000-8000-00000000000a';
+DO $t$
+DECLARE v_current bigint;
+BEGIN
+  -- The limit the plan actually holds, which used to be a 500.
+  v_current := public.assert_quota('storage.bytes', 26843545600, 15728640);
+  IF v_current <> 0 THEN RAISE EXCEPTION 'expected 0 bytes used, got %', v_current; END IF;
+
+  -- A file larger than the whole allowance is refused on its size, even
+  -- though the count of attachments is zero and "room for one more" holds.
+  BEGIN
+    PERFORM public.assert_quota('storage.bytes', 1000, 15728640);
+    RAISE EXCEPTION 'a 15 MiB upload passed a 1000 byte limit';
+  EXCEPTION WHEN SQLSTATE 'FS402' THEN
+    RAISE NOTICE '   ok: a byte quota is consumed by size, not by one per call';
+  END;
+
+  -- Exactly filling it is allowed; one byte more is not. The boundary is
+  -- worth pinning down, because off-by-one here is a limit nobody can explain.
+  PERFORM public.assert_quota('storage.bytes', 1000, 1000);
+  BEGIN
+    PERFORM public.assert_quota('storage.bytes', 1000, 1001);
+    RAISE EXCEPTION 'one byte over the limit was allowed';
+  EXCEPTION WHEN SQLSTATE 'FS402' THEN
+    RAISE NOTICE '   ok: the limit is inclusive and the byte after it is not';
+  END;
+
+  -- The default is what every existing caller relies on: `current + 1 > limit`
+  -- is `current >= limit` over integers, so counting quotas did not change.
+  BEGIN
+    PERFORM public.assert_quota('members.active', 2);
+    RAISE EXCEPTION 'the two-argument form stopped enforcing';
+  EXCEPTION WHEN SQLSTATE 'FS402' THEN
+    RAISE NOTICE '   ok: p_amount defaults to 1, so counting quotas are unchanged';
+  END;
+
+  BEGIN
+    PERFORM public.assert_quota('storage.bytes', 1000, -1);
+    RAISE EXCEPTION 'a negative amount was accepted';
+  EXCEPTION WHEN invalid_parameter_value THEN
+    RAISE NOTICE '   ok: an amount cannot be negative';
+  END;
+END
+$t$;
+ROLLBACK;
+
+-- ---------------------------------------------------------------------------
 -- §2.3 rule 1: it requires tenant context and fails closed without it.
 -- ---------------------------------------------------------------------------
 DO $t$

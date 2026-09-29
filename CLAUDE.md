@@ -501,7 +501,7 @@ Representation: the resolved value is a typed `Unlimited | Limit(n)`. Do not enc
 Counting belongs in the database, for the same reason isolation does: it is the only place that sees every write.
 
 - A `tenant_usage` table holds one row per `(tenant_id, quota_key)`, maintained by triggers on the counted tables.
-- The creation path calls `assert_quota(p_key text, p_limit int)`, which takes `SELECT … FOR UPDATE` on that usage row inside the caller's transaction and raises if the limit would be exceeded. The lock closes the check-then-insert race that lets two concurrent requests both slip past a limit of one.
+- The creation path calls `assert_quota(p_key text, p_limit bigint, p_amount bigint DEFAULT 1)`, which takes `SELECT … FOR UPDATE` on that usage row inside the caller's transaction and raises if the limit would be exceeded. The lock closes the check-then-insert race that lets two concurrent requests both slip past a limit of one. `p_amount` is how much this write consumes — one for a count of things, the size of the file for `storage.bytes`, because a quota measured in bytes is not consumed one at a time. `bigint` because `int` could not hold the storage limits the plans have always carried.
 - The app resolves the limit (that needs plan config) and passes it in; the database does the counting and locking.
 - Archived and soft-deleted rows do not count toward stock quotas. Decrementing on archive is the trigger's job, not the caller's.
 - Window quotas are applied in the query layer as a date floor, never by deleting rows.

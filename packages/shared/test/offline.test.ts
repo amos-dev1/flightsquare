@@ -6,6 +6,7 @@ import {
   discardFailed,
   flushQueue,
   retryFailed,
+  type QueuedAttachment,
   type QueuedFlight,
   type QueuedSquawk,
 } from '../src/offline.js';
@@ -96,6 +97,100 @@ describe('flushQueue', () => {
     expect(result).toEqual({ sent: 2, failed: 0, deferred: 0 });
     expect(submit.mock.calls.map((call) => call[0].kind)).toEqual(['flight', 'squawk']);
     expect(await store.all()).toEqual([]);
+  });
+
+  it('sends the flight, then the defect, then the photograph of it', async () => {
+    // Three writes made within a minute of each other at the same tiedown,
+    // and the order is not cosmetic: the squawk names the flight and the
+    // photograph names the squawk, both by ids minted on the device before
+    // any of them has reached the server (§8.2).
+    const squawk: QueuedSquawk = {
+      kind: 'squawk',
+      id: 'squawk-1',
+      idempotencyKey: 'sq-1',
+      payload: { id: 'squawk-1', aircraft_id: 'a1', summary: 'Cracked fairing' },
+      recordedAt: '2026-09-20T18:10:00.000Z',
+      queuedAt: '2026-09-20T18:10:05.000Z',
+      attempts: 0,
+      state: 'pending',
+    };
+    const photo: QueuedAttachment = {
+      kind: 'attachment',
+      id: 'photo-1',
+      idempotencyKey: 'ph-1',
+      payload: {
+        squawkId: 'squawk-1',
+        localUri: 'file:///documents/attachments/photo-1.jpg',
+        contentType: 'image/jpeg',
+        byteSize: 482_133,
+      },
+      // One millisecond behind the squawk, which is the whole mechanism.
+      recordedAt: '2026-09-20T18:10:00.001Z',
+      queuedAt: '2026-09-20T18:10:06.000Z',
+      attempts: 0,
+      state: 'pending',
+    };
+
+    // Queued in the wrong order on purpose: the store is a set, and the
+    // ordering is the algorithm's job rather than the insert order's.
+    const store = createMemoryQueueStore([photo, squawk, entry()]);
+    const submit = vi.fn().mockResolvedValue({});
+
+    const result = await flushQueue(store, submit);
+
+    expect(result).toEqual({ sent: 3, failed: 0, deferred: 0 });
+    expect(submit.mock.calls.map((call) => call[0].kind)).toEqual([
+      'flight',
+      'squawk',
+      'attachment',
+    ]);
+  });
+
+  it('holds a photograph back when its own squawk has not gone yet', async () => {
+    // The case this is really protecting: no signal, and the squawk defers.
+    // A photograph sent anyway would be uploaded against a squawk id the
+    // server has never heard of, and 404 is permanent — it would be parked
+    // for a person while the squawk it belonged to sent perfectly well on the
+    // next pass.
+    const squawk: QueuedSquawk = {
+      kind: 'squawk',
+      id: 'squawk-2',
+      idempotencyKey: 'sq-2',
+      payload: { id: 'squawk-2', aircraft_id: 'a1', summary: 'Nav light out' },
+      recordedAt: '2026-09-20T19:00:00.000Z',
+      queuedAt: '2026-09-20T19:00:01.000Z',
+      attempts: 0,
+      state: 'pending',
+    };
+    const photo: QueuedAttachment = {
+      kind: 'attachment',
+      id: 'photo-2',
+      idempotencyKey: 'ph-2',
+      payload: {
+        squawkId: 'squawk-2',
+        localUri: 'file:///documents/attachments/photo-2.jpg',
+        contentType: 'image/jpeg',
+        byteSize: 1024,
+      },
+      recordedAt: '2026-09-20T19:00:00.001Z',
+      queuedAt: '2026-09-20T19:00:02.000Z',
+      attempts: 0,
+      state: 'pending',
+    };
+
+    const store = createMemoryQueueStore([squawk, photo]);
+    const submit = vi.fn().mockRejectedValue(new Error('network down'));
+
+    const result = await flushQueue(store, submit);
+
+    expect(result).toEqual({ sent: 0, failed: 0, deferred: 2 });
+    // One attempt, on the squawk. The photograph was never tried.
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(submit.mock.calls[0]![0].kind).toBe('squawk');
+
+    const after = await store.all();
+    expect(after.find((row) => row.id === 'photo-2')!.attempts).toBe(0);
+    expect(after.every((row) => row.state === 'pending')).toBe(true);
   });
 
   it('leaves a transient failure pending, and stops trying the rest', async () => {

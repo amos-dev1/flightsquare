@@ -127,6 +127,32 @@ export async function setPlan(tenantId: string, planCode: string): Promise<void>
 }
 
 /**
+ * The §1.4 chain's left-hand layer, written the way the control plane writes
+ * it — out of band, because a tenant that could grant itself an override
+ * would make the chain meaningless (0005 revokes the grant for exactly that).
+ *
+ * Used where the real limit is too large to exercise honestly: nobody is
+ * going to upload a gibibyte to prove `storage.bytes` refuses at one.
+ */
+export async function setQuotaOverride(
+  tenantId: string,
+  key: string,
+  value: number | 'unlimited',
+): Promise<void> {
+  const pool = privilegedPool();
+  try {
+    await pool.query(
+      `INSERT INTO tenant_entitlement_overrides (tenant_id, key, value)
+       VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value`,
+      [tenantId, key, JSON.stringify(value)],
+    );
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
  * Put a second person in a club, out of band.
  *
  * Needed because §4.4 is now enforced by a trigger: a tenant keeps one
@@ -232,6 +258,11 @@ export async function cleanupTestTenants(): Promise<void> {
     // could not do any of this — compliance_records holds SELECT and INSERT
     // and nothing else — which is the design working rather than a gap.
     await adminPool.query(`DELETE FROM compliance_records WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    // attachments point at squawks, and app_role holds no DELETE on them by
+    // design (0020: a row naming an object somebody has to go and clean up).
+    await adminPool.query(`DELETE FROM attachments WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
     await adminPool.query(`DELETE FROM squawk_deferrals WHERE tenant_id IN (${tenants})`, [
