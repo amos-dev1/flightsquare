@@ -229,8 +229,35 @@ describe('fleet', () => {
     expect(types.statusCode).toBe(200);
     expect(types.json().some((t: { code: string }) => t.code === 'C172')).toBe(true);
 
-    const fields = await app.inject({ method: 'GET', url: '/reference/aerodromes?q=KPA' });
+    // Ranked, not alphabetical. The table holds seventy thousand rows since
+    // the import, so "KPA" also matches Kirkpatrick, Akpaka and Brakpan on
+    // their names — and "8IL2" sorts above "KPAO". What was typed comes
+    // first: exact identifier, then identifier prefix, then the rest.
+    const fields = await app.inject({ method: 'GET', url: '/reference/aerodromes?q=KPAO' });
     expect(fields.json()[0].ident).toBe('KPAO');
+
+    const prefix = await app.inject({ method: 'GET', url: '/reference/aerodromes?q=KPA' });
+    const idents = prefix.json().map((a: { ident: string }) => a.ident);
+    expect(idents).toContain('KPAO');
+    // Every identifier match ranks above the first name-only match.
+    expect(idents.indexOf('KPAO')).toBeLessThan(idents.indexOf('8IL2'));
+  });
+
+  it('looks one aerodrome up by identifier, and 404s the ones it has never heard of', async () => {
+    // The search can answer this, but by returning up to a hundred rows that
+    // begin with the same letters. Since the import the table holds seventy
+    // thousand, and a form that has just had an identifier typed into it
+    // wants that row or nothing.
+    const found = await app.inject({ method: 'GET', url: '/reference/aerodromes/kpao' });
+    expect(found.statusCode).toBe(200);
+    expect(found.json().ident).toBe('KPAO');
+    expect(found.json().name).toMatch(/Palo Alto/i);
+
+    // Not an error the caller should show. 0014 dropped the foreign key
+    // because "a list that incomplete refuses almost every true answer", so
+    // an identifier this does not know is still a good place to have flown.
+    const unknown = await app.inject({ method: 'GET', url: '/reference/aerodromes/ZZZZ9' });
+    expect(unknown.statusCode).toBe(404);
   });
 
   /**

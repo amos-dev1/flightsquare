@@ -1,6 +1,6 @@
 import { apiFetch } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
-import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shared';
+import type { AircraftTypeResponse } from '@flightsquare/shared';
 
 import { NewAircraftForm } from './form';
 
@@ -11,17 +11,20 @@ import { NewAircraftForm } from './form';
  * anything the form needs to offer has to arrive with the page.
  */
 export default async function NewAircraftPage() {
-  // Global reference data (§2.2): the same for every tenant, and small
-  // enough at present to send whole rather than search as you type.
-  const [types, aerodromes] = await Promise.all([
-    apiFetch<AircraftTypeResponse[]>('/reference/aircraft-types'),
-    apiFetch<AerodromeResponse[]>('/reference/aerodromes'),
-  ]);
+  /**
+   * Types come whole — thirty-four rows, and the field is a foreign key, so
+   * the complete list is both small and the actual set of valid answers.
+   *
+   * Aerodromes no longer do. The import job took that table to seventy
+   * thousand rows and the endpoint caps at a hundred, so the form searches as
+   * you type instead (see `searchAerodromes`).
+   */
+  const types = await apiFetch<AircraftTypeResponse[]>('/reference/aircraft-types');
 
   return (
     <div className="space-y-6">
       <PageTitle>Add aircraft</PageTitle>
-      <NewAircraftForm types={types} aerodromes={aerodromes} />
+      <NewAircraftForm types={types} />
     </div>
   );
 }

@@ -297,6 +297,13 @@ export function createClient(options: ClientOptions) {
         'GET',
         q ? `/reference/aircraft-types?q=${encodeURIComponent(q)}` : '/reference/aircraft-types',
       ),
+    /**
+     * One aerodrome by identifier, for a form that has just had one typed
+     * into it. A 404 is an ordinary answer — the table suggests and does not
+     * refuse (0014), so an unknown identifier is still a real place.
+     */
+    aerodrome: (ident: string) =>
+      request<AerodromeResponse>('GET', `/reference/aerodromes/${encodeURIComponent(ident)}`),
     aerodromes: (q?: string) =>
       request<AerodromeResponse[]>(
         'GET',

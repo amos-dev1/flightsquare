@@ -8,6 +8,7 @@ import { clearSession, readSession, writeSession } from '@/lib/session';
 import { parseMoney } from '@/lib/money';
 import { zonedToInstant } from '@flightsquare/shared/time';
 import type {
+  AerodromeResponse,
   AircraftResponse,
   BillingRedirectResponse,
   CheckoutRequest,
@@ -119,6 +120,32 @@ export async function logout(): Promise<void> {
   }
   await clearSession();
   redirect('/login');
+}
+
+/**
+ * Aerodromes matching what somebody has typed.
+ *
+ * The page used to send the whole table into a datalist, on the stated
+ * grounds that it was "small enough at present". The import job made it
+ * seventy thousand rows, and `/reference/aerodromes` caps at a hundred — so
+ * the form would have silently offered the first hundred identifiers
+ * alphabetically and looked, to anybody typing a K, broken.
+ *
+ * A server action rather than a fetch from the browser: the token lives in an
+ * httpOnly cookie only this server can read.
+ */
+export async function searchAerodromes(q: string): Promise<AerodromeResponse[]> {
+  const query = q.trim();
+  if (query.length < 2) return [];
+  try {
+    return await apiFetch<AerodromeResponse[]>(
+      `/reference/aerodromes?q=${encodeURIComponent(query)}`,
+    );
+  } catch {
+    // A suggestion list that cannot be fetched is an empty suggestion list.
+    // The field is free text either way (0011).
+    return [];
+  }
 }
 
 export async function createAircraft(_state: FormState, form: FormData): Promise<FormState> {

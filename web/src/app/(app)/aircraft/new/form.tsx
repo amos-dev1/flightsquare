@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState } from 'react';
+import { useActionState, useEffect, useState } from 'react';
 
-import { createAircraft, type FormState } from '@/app/actions';
+import { createAircraft, searchAerodromes, type FormState } from '@/app/actions';
 import { Alert, Button, Card, Field, Input, Select } from '@/components/ui';
 import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shared';
 
@@ -21,14 +21,45 @@ import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shar
  * So the list suggests in both cases; it only refuses in the one where being
  * wrong would silently cost somebody an oil change.
  */
-export function NewAircraftForm({
-  types,
-  aerodromes,
-}: {
-  types: AircraftTypeResponse[];
-  aerodromes: AerodromeResponse[];
-}) {
+export function NewAircraftForm({ types }: { types: AircraftTypeResponse[] }) {
+  /**
+   * Searched, not sent whole.
+   *
+   * Seventy thousand aerodromes will not fit in a datalist, and the endpoint
+   * caps at a hundred — so this asks for the ones matching what has been
+   * typed. Debounced because it runs on a keystroke and each call is a server
+   * round trip.
+   */
+  // Seeded from the returned state, not `defaultValue`: a controlled input
+  // ignores that, and §11 §8 asks for entered values to survive a validation
+  // error rather than being quietly cleared.
+  const [base, setBase] = useState('');
+  const [matches, setMatches] = useState<AerodromeResponse[]>([]);
+
+  useEffect(() => {
+    if (base.trim().length < 2) {
+      setMatches([]);
+      return;
+    }
+    let live = true;
+    const timer = setTimeout(() => {
+      void searchAerodromes(base).then((rows) => live && setMatches(rows));
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [base]);
+
   const [state, action, pending] = useActionState<FormState, FormData>(createAircraft, {});
+
+  // Re-seeded from what the action handed back: a controlled input ignores
+  // `defaultValue`, and §11 §8 asks for entered values to survive a
+  // validation error rather than being quietly cleared.
+  const returned = state.values?.home_base;
+  useEffect(() => {
+    if (returned) setBase(returned);
+  }, [returned]);
 
   return (
     <Card className="p-6">
@@ -62,16 +93,17 @@ export function NewAircraftForm({
             </datalist>
           </Field>
 
-          <Field label="Home base" hint="Identifier. Start typing to see the list.">
+          <Field label="Home base" hint="Identifier, or the name of the field.">
             <Input
               name="home_base"
               list="aerodromes"
               placeholder="KPAO"
               className="uppercase"
-              defaultValue={state.values?.home_base}
+              value={base}
+              onChange={(event) => setBase(event.target.value)}
             />
             <datalist id="aerodromes">
-              {aerodromes.map((aerodrome) => (
+              {matches.map((aerodrome) => (
                 <option key={aerodrome.ident} value={aerodrome.ident}>
                   {aerodrome.name}
                   {aerodrome.municipality ? ` — ${aerodrome.municipality}` : ''}

@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
-import type { AircraftResponse, FlightCategory } from '@flightsquare/shared';
+import type { AerodromeResponse, AircraftResponse, FlightCategory } from '@flightsquare/shared';
 
 import { Body, Button, Card, Choice, Field, Input, Notice, SectionHeading } from '@/components/ui';
 import { api, messageFor, withAuth } from '@/lib/api';
@@ -46,6 +46,59 @@ function hoursBetween(start: string, end: string): string | null {
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * The airport behind an identifier, if the table knows it.
+ *
+ * Decoration, deliberately. §8.2 keeps this form working with no signal, so
+ * a lookup that cannot be made simply shows nothing — and an identifier the
+ * table has never heard of shows nothing either, because 0014 dropped the
+ * foreign key on the grounds that "a list that incomplete refuses almost
+ * every true answer". A grass strip with a name rather than a code is a true
+ * answer and stays loggable.
+ *
+ * Debounced, because it runs on a keystroke, and cancelled on the way out so
+ * a slow answer to "KL" cannot land after "KLOT" has been typed.
+ */
+function useAerodrome(ident: string): AerodromeResponse | null {
+  const [found, setFound] = useState<AerodromeResponse | null>(null);
+
+  useEffect(() => {
+    const code = ident.trim();
+    if (code.length < 3) {
+      setFound(null);
+      return;
+    }
+
+    let live = true;
+    const timer = setTimeout(() => {
+      void withAuth(() => api.aerodrome(code))
+        .then((row) => live && setFound(row))
+        .catch(() => live && setFound(null));
+    }, 300);
+
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [ident]);
+
+  return found;
+}
+
+/** "Lewis University Airport · Chicago/Romeoville, IL" */
+function describe(aerodrome: AerodromeResponse): string {
+  const place = [aerodrome.municipality, aerodrome.region].filter(Boolean).join(', ');
+  return place ? `${aerodrome.name} · ${place}` : aerodrome.name;
+}
+
+/** One defect, before it is a record. `key` is for React, not the server. */
+interface SquawkDraft {
+  key: string;
+  summary: string;
+  details: string;
+  grounds: boolean;
+}
 
 const CATEGORIES: { value: FlightCategory; label: string }[] = [
   { value: 'personal', label: 'Personal' },
@@ -86,10 +139,15 @@ export default function LogFlight() {
   const [category, setCategory] = useState<FlightCategory>('personal');
   const [remarks, setRemarks] = useState('');
 
-  const [squawking, setSquawking] = useState(false);
-  const [squawkSummary, setSquawkSummary] = useState('');
-  const [squawkDetails, setSquawkDetails] = useState('');
-  const [squawkGrounds, setSquawkGrounds] = useState(false);
+  /**
+   * However many are wrong.
+   *
+   * A walk-around finds what it finds, and §3.6 keeps each defect its own
+   * record — separate severity, separate grounding judgement, separately
+   * deferred or signed off. One form field could only ever have produced one
+   * squawk holding a list, which is not the same thing at all.
+   */
+  const [squawks, setSquawks] = useState<SquawkDraft[]>([]);
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -105,12 +163,11 @@ export default function LogFlight() {
           hobbs_start: current.hobbs_start || (found.hobbs ?? ''),
           tach_start: current.tach_start || (found.tach ?? ''),
         }));
-        // Where it last landed is where this flight starts from.
+        // Where it last landed is where this flight starts from. Where it
+        // is going is not something the aeroplane knows, so **To** stays
+        // empty rather than suggesting the pilot is coming straight back.
         const here = found.last_location ?? found.home_base;
-        if (here) {
-          setDepartedFrom((current) => current || here);
-          setArrivedAt((current) => current || here);
-        }
+        if (here) setDepartedFrom((current) => current || here);
         // §3.4: fuel is state, latest reading wins. Suggested, not asserted —
         // where the pilot corrects it, the difference is fuel somebody added
         // without logging it, which is information rather than an error.
@@ -120,6 +177,9 @@ export default function LogFlight() {
       })
       .catch(() => undefined);
   }, [aircraftId]);
+
+  const from = useAerodrome(departedFrom);
+  const to = useAerodrome(arrivedAt);
 
   const hobbsHours = hoursBetween(meters.hobbs_start, meters.hobbs_end);
   const tachHours = hoursBetween(meters.tach_start, meters.tach_end);
@@ -142,8 +202,8 @@ export default function LogFlight() {
       setError('Enter the fuel remaining at shutdown — the next pilot reads it.');
       return;
     }
-    if (squawking && !squawkSummary.trim()) {
-      setError('Say what is wrong, or remove the squawk.');
+    if (squawks.some((one) => !one.summary.trim())) {
+      setError('Say what is wrong, or remove the empty squawk.');
       return;
     }
 
@@ -172,22 +232,24 @@ export default function LogFlight() {
         ...(remarks.trim() ? { remarks: remarks.trim() } : {}),
       });
 
-      if (squawking && squawkSummary.trim()) {
-        /**
-         * Queued separately and named against the flight it was found on.
-         *
-         * Two writes rather than one because they are two records with
-         * different lives — §3.6 makes the squawk log something read back
-         * after an accident, and it must not depend on the flight's write
-         * succeeding. The id is the device's (§8.2), so the link holds even
-         * when neither has reached the server.
-         */
+      /**
+       * Each squawk queued separately, and named against the flight it was
+       * found on.
+       *
+       * Separate writes rather than one because they are separate records
+       * with separate lives — §3.6 makes the squawk log something read back
+       * after an accident, and none of them must depend on the flight's write
+       * succeeding. The flight id is the device's (§8.2), so every link holds
+       * even when nothing has reached the server.
+       */
+      for (const draft of squawks) {
+        if (!draft.summary.trim()) continue;
         await saveSquawk({
           aircraft_id: aircraftId,
-          summary: squawkSummary.trim(),
-          ...(squawkDetails.trim() ? { details: squawkDetails.trim() } : {}),
+          summary: draft.summary.trim(),
+          ...(draft.details.trim() ? { details: draft.details.trim() } : {}),
           // The pilot's judgement, not inferred from the words they used.
-          ...(squawkGrounds ? { severity: 'grounding' as const, grounding: true } : {}),
+          ...(draft.grounds ? { severity: 'grounding' as const, grounding: true } : {}),
           found_on_flight_id: flightId,
         });
       }
@@ -202,6 +264,9 @@ export default function LogFlight() {
 
   const set = (key: keyof typeof meters) => (value: string) =>
     setMeters((current) => ({ ...current, [key]: value }));
+
+  const edit = (key: string, patch: Partial<SquawkDraft>) =>
+    setSquawks((all) => all.map((one) => (one.key === key ? { ...one, ...patch } : one)));
 
   return (
     <KeyboardAvoidingView
@@ -288,6 +353,7 @@ export default function LogFlight() {
                   maxLength={16}
                 />
               </Field>
+              {from ? <Text style={styles.place}>{describe(from)}</Text> : null}
             </View>
             <View style={styles.half}>
               <Field label="To">
@@ -300,6 +366,7 @@ export default function LogFlight() {
                   maxLength={16}
                 />
               </Field>
+              {to ? <Text style={styles.place}>{describe(to)}</Text> : null}
             </View>
           </View>
         </Card>
@@ -368,100 +435,99 @@ export default function LogFlight() {
           ) : null}
         </Card>
 
-        {/* Anything wrong ---------------------------------------------- */}
-        <Card style={styles.group}>
-          <View style={styles.squawkHead}>
-            <SectionHeading>Anything wrong?</SectionHeading>
-            {!squawking ? (
+        {/* Squawks ----------------------------------------------------- */}
+        {squawks.map((draft, index) => (
+          <Card key={draft.key} style={styles.group}>
+            <View style={styles.squawkHead}>
+              <SectionHeading>Squawk {squawks.length > 1 ? index + 1 : ''}</SectionHeading>
               <Pressable
-                onPress={() => setSquawking(true)}
+                onPress={() => setSquawks((all) => all.filter((one) => one.key !== draft.key))}
                 accessibilityRole="button"
-                accessibilityLabel="Add a squawk"
-                hitSlop={space.sm}
-                style={({ pressed }) => [styles.add, pressed && styles.pressed]}
-              >
-                <Feather name="plus" size={16} color={color.navy} />
-                <Text style={styles.addLabel}>Add squawk</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          {squawking ? (
-            <>
-              <Field label="What is wrong" required>
-                <Input
-                  value={squawkSummary}
-                  onChangeText={setSquawkSummary}
-                  placeholder="Left brake soft"
-                  maxLength={200}
-                />
-              </Field>
-              <Field label="Details" hint="What you saw, heard or felt.">
-                <Input
-                  value={squawkDetails}
-                  onChangeText={setSquawkDetails}
-                  placeholder="Pedal travels most of the way before it bites."
-                  multiline
-                  maxLength={4000}
-                  style={styles.details}
-                />
-              </Field>
-
-              {/*
-                §3.6: `grounding` is a separate judgement from severity — an
-                inspection can ground something reported as minor — and it is
-                the boolean §3.3 reads to stop the aeroplane being booked. So
-                it is the pilot's call, made explicitly.
-              */}
-              <Pressable
-                onPress={() => setSquawkGrounds((on) => !on)}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: squawkGrounds }}
-                style={({ pressed }) => [
-                  styles.check,
-                  squawkGrounds && styles.checkOn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <View style={[styles.box, squawkGrounds && styles.boxOn]}>
-                  {squawkGrounds ? <Feather name="check" size={14} color={color.onDark} /> : null}
-                </View>
-                <Text style={styles.checkLabel}>This grounds the aircraft</Text>
-              </Pressable>
-
-              {squawkGrounds ? (
-                <Notice tone="error">
-                  This stops the aircraft being booked until somebody with maintenance access
-                  resolves or defers it.
-                </Notice>
-              ) : null}
-
-              <Pressable
-                onPress={() => {
-                  setSquawking(false);
-                  setSquawkSummary('');
-                  setSquawkDetails('');
-                  setSquawkGrounds(false);
-                }}
-                accessibilityRole="button"
+                accessibilityLabel={`Remove squawk ${index + 1}`}
                 hitSlop={space.sm}
                 style={({ pressed }) => [styles.remove, pressed && styles.pressed]}
               >
-                <Text style={styles.removeLabel}>Remove squawk</Text>
+                <Text style={styles.removeLabel}>Remove</Text>
               </Pressable>
+            </View>
 
-              {/* §3.6: the squawk log is read back after an accident, so it is
-                  not something anyone edits later. Said before the tap. */}
-              <Body muted>What you report stays as written. Anything further is a new squawk.</Body>
-            </>
-          ) : (
-            <Body muted>Nothing to report. Add a squawk if something needs looking at.</Body>
-          )}
-        </Card>
+            <Field label="What is wrong" required>
+              <Input
+                value={draft.summary}
+                onChangeText={(text) => edit(draft.key, { summary: text })}
+                placeholder="Left brake soft"
+                maxLength={200}
+                autoFocus={draft.summary === '' && draft.details === ''}
+              />
+            </Field>
+
+            <Field label="Details">
+              <Input
+                value={draft.details}
+                onChangeText={(text) => edit(draft.key, { details: text })}
+                placeholder="Pedal travels most of the way before it bites."
+                multiline
+                maxLength={4000}
+                style={styles.details}
+              />
+            </Field>
+
+            {/*
+              §3.6: `grounding` is a separate judgement from severity — an
+              inspection can ground something reported as minor — and it is
+              the boolean §3.3 reads to stop the aeroplane being booked. So it
+              is the pilot's call, made explicitly.
+            */}
+            <Pressable
+              onPress={() => edit(draft.key, { grounds: !draft.grounds })}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: draft.grounds }}
+              style={({ pressed }) => [
+                styles.check,
+                draft.grounds && styles.checkOn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <View style={[styles.box, draft.grounds && styles.boxOn]}>
+                {draft.grounds ? <Feather name="check" size={14} color={color.onDark} /> : null}
+              </View>
+              <Text style={styles.checkLabel}>This grounds the aircraft</Text>
+            </Pressable>
+
+            {draft.grounds ? (
+              // Not a description of the field — what happens because of it.
+              <Notice tone="error">
+                This stops the aircraft being booked until somebody with maintenance access
+                resolves or defers it.
+              </Notice>
+            ) : null}
+          </Card>
+        ))}
+
+        <Pressable
+          onPress={() =>
+            setSquawks((all) => [
+              ...all,
+              { key: `${Date.now()}-${all.length}`, summary: '', details: '', grounds: false },
+            ])
+          }
+          accessibilityRole="button"
+          accessibilityLabel="Add a squawk"
+          style={({ pressed }) => [styles.addSquawk, pressed && styles.pressed]}
+        >
+          <Feather name="plus" size={18} color={color.navy} />
+          <Text style={styles.addSquawkLabel}>Add squawk</Text>
+        </Pressable>
+
+        {squawks.length > 0 ? (
+          // §3.6: the squawk log is read back after an accident, so it is not
+          // something anyone edits later. Said before the tap, not after.
+          <Body muted>What you report stays as written. Anything further is a new squawk.</Body>
+        ) : null}
 
         {/* Remarks ------------------------------------------------------ */}
         <Card style={styles.group}>
-          <Field label="Remarks" hint="Anything worth the next pilot knowing. Optional.">
+          <Field label="Remarks">
             <Input
               value={remarks}
               onChangeText={setRemarks}
@@ -493,13 +559,27 @@ const styles = StyleSheet.create({
   group: { gap: space.base },
   pair: { flexDirection: 'row', gap: space.md },
   half: { flex: 1 },
+  place: { ...type.supporting, color: color.secondary, marginTop: space.xs },
   details: { height: 96, paddingTop: space.sm, textAlignVertical: 'top' },
   pressed: { opacity: 0.7 },
 
   squawkHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  add: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingVertical: space.xs },
-  addLabel: { ...type.button },
-  remove: { alignSelf: 'flex-start', paddingVertical: space.sm },
+  // Secondary, not primary: "Save flight" is the one dominant action on this
+  // screen (§11 §6), and adding a squawk is a step towards it rather than a
+  // second way of finishing.
+  addSquawk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    height: 48,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: color.control,
+    backgroundColor: color.surface,
+  },
+  addSquawkLabel: { ...type.button },
+  remove: { paddingVertical: space.sm },
   removeLabel: { ...type.button, color: color.secondary },
 
   check: {
