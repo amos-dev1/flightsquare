@@ -1,4 +1,5 @@
 import { router, useFocusEffect } from 'expo-router';
+import Feather from '@expo/vector-icons/Feather';
 import { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type {
@@ -7,11 +8,13 @@ import type {
   FlightSummaryResponse,
 } from '@flightsquare/shared';
 
+import { AircraftThumbnail } from '@/components/aircraft';
 import { Body, Card, Choice, Notice, SectionHeading } from '@/components/ui';
+import { Sheet } from '@/components/sheet';
 import { api, withAuth } from '@/lib/api';
 import { routeOf } from '@/lib/format';
 import { usePermission } from '@/lib/entitlements';
-import { color, space, type } from '@/theme';
+import { color, radius, space, type } from '@/theme';
 
 /**
  * Flight logs, by aeroplane.
@@ -34,6 +37,12 @@ export default function Logs() {
   const [summary, setSummary] = useState<FlightSummaryResponse | null>(null);
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [picking, setPicking] = useState(false);
+
+  // Everyone holds `flights: write` (§4.4) — a club's flights are shared on
+  // purpose — so this is about where the button points, not whether it is
+  // there. The endpoint checks it either way (§8.1).
+  const canLog = usePermission('flights') === 'write';
 
   // The same test scheduling already calls `administers`.
   const administers = usePermission('aircraft') === 'write';
@@ -89,6 +98,39 @@ export default function Logs() {
       }
     >
       {offline ? <Notice>Offline. Showing the logs loaded last.</Notice> : null}
+
+      {/*
+        Logging starts here as well as from an aeroplane's own screen.
+        §3.4 calls the post-flight entry the most important screen in the
+        product, and a pilot who has just walked in opens the logs — making
+        them go and find the aircraft first is the friction that turns into
+        stale meters.
+      */}
+      {canLog && active.length > 0 ? (
+        <Pressable
+          onPress={() => {
+            // One aeroplane is not a choice. More than one is, and asking is
+            // better than guessing at a record that advances the meters.
+            if (active.length === 1) {
+              router.push({ pathname: '/log-flight', params: { aircraft: active[0]!.id } });
+            } else {
+              setPicking(true);
+            }
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={
+            active.length === 1
+              ? `Log a flight in ${active[0]!.registration}`
+              : 'Log a flight, choose an aircraft'
+          }
+          style={({ pressed }) => [styles.log, pressed && styles.logPressed]}
+        >
+          <Feather name="plus" size={18} color={color.onDark} />
+          <Text style={styles.logLabel}>
+            Log flight{active.length === 1 ? ` · ${active[0]!.registration}` : ''}
+          </Text>
+        </Pressable>
+      ) : null}
 
       {active.length > 1 ? (
         <Choice
@@ -170,6 +212,29 @@ export default function Logs() {
           </Pressable>
         ))
       )}
+
+      {/* Which aeroplane was flown. The same picker the calendar uses. */}
+      <Sheet visible={picking} title="Log a flight in" onClose={() => setPicking(false)}>
+        {active.map((one) => (
+          <Pressable
+            key={one.id}
+            onPress={() => {
+              setPicking(false);
+              router.push({ pathname: '/log-flight', params: { aircraft: one.id } });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Log a flight in ${one.registration}`}
+            style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+          >
+            <AircraftThumbnail size="small" />
+            <View style={styles.optionText}>
+              <Text style={styles.optionLabel}>{one.registration}</Text>
+              <Text style={styles.optionType}>{one.type_code ?? 'Type not recorded'}</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color={color.secondary} />
+          </Pressable>
+        ))}
+      </Sheet>
     </ScrollView>
   );
 }
@@ -205,5 +270,31 @@ const styles = StyleSheet.create({
   meta: { ...type.supporting, color: color.secondary, marginTop: space.xs },
   meters: { ...type.bodySmall, marginTop: space.xs, fontVariant: ['tabular-nums'] },
   pressed: { opacity: 0.7 },
+
+  log: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.sm,
+    height: 48,
+    borderRadius: radius.control,
+    backgroundColor: color.navy,
+  },
+  logPressed: { backgroundColor: color.navyHover },
+  logLabel: { ...type.button, color: color.onDark },
+
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: radius.card,
+    minHeight: 64,
+  },
+  optionText: { flex: 1, gap: 2 },
+  optionLabel: { ...type.cardHeading, textTransform: 'uppercase' },
+  optionType: { ...type.supporting, color: color.secondary },
   review: { ...type.supporting, marginTop: space.xs },
 });

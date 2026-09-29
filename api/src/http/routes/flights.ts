@@ -19,12 +19,17 @@ const createSchema = {
     required: ['aircraft_id', 'flight_date'],
     additionalProperties: false,
     properties: {
+      // §8.2: the client generates ids, so an offline write can reference
+      // itself before the server has heard of it. RLS still scopes the
+      // insert, and the idempotency key still catches the retries.
+      id: { type: 'string', format: 'uuid' },
       aircraft_id: { type: 'string', format: 'uuid' },
       flight_date: { type: 'string', format: 'date' },
       flown_by: { type: 'string', format: 'uuid' },
       departed_from: { type: 'string', maxLength: 16 },
       arrived_at: { type: 'string', maxLength: 16 },
       remarks: { type: 'string', maxLength: 2000 },
+      category: { type: 'string', enum: ['personal', 'business', 'maintenance'] },
 
       // Decimal strings, not numbers. A tach reading is `numeric`, and a
       // float round-trip is how a maintenance countdown quietly drifts.
@@ -33,9 +38,12 @@ const createSchema = {
       tach_start: decimal,
       tach_end: decimal,
 
+      fuel_remaining_before: decimal,
       fuel_remaining_after: decimal,
       fuel_added_qty: decimal,
-      // §3.7 rule 3: integer minor units. Never a float, not even here.
+      // §3.7 rule 3: integer minor units. Never a float, not even here —
+      // and a price is money as much as a total is.
+      fuel_price_cents: { type: 'integer', minimum: 0 },
       fuel_added_cost_cents: { type: 'integer', minimum: 0 },
       receipt_reference: { type: 'string', maxLength: 200 },
 
@@ -62,6 +70,7 @@ function selectFlights(trx: Tx) {
       'flights.departed_from',
       'flights.arrived_at',
       'flights.remarks',
+      'flights.category',
       'flights.needs_review',
       'flights.review_reason',
       'flights.recorded_at',
@@ -71,9 +80,11 @@ function selectFlights(trx: Tx) {
       'flight_meters.tach_start',
       'flight_meters.tach_end',
       'flight_meters.tach_hours',
+      'flight_fuel.fuel_remaining_before',
       'flight_fuel.fuel_remaining_after',
       'flight_fuel.fuel_added_qty',
       'flight_fuel.fuel_added_cost_cents',
+      'flight_fuel.fuel_price_cents',
       'flight_fuel.currency',
     ]);
 }
@@ -81,7 +92,30 @@ function selectFlights(trx: Tx) {
 type FlightRow = Awaited<ReturnType<ReturnType<typeof selectFlights>['execute']>>[number];
 
 function toResponse(row: FlightRow): FlightResponse {
-  return { ...row, recorded_at: row.recorded_at.toISOString() };
+  return {
+    ...row,
+    // The column is a CHECK-constrained text, so the database has already
+    // refused anything outside the set.
+    category: row.category as FlightResponse['category'],
+    recorded_at: row.recorded_at.toISOString(),
+  };
+}
+
+/**
+ * What the fuel cost, in total.
+ *
+ * A pilot reads a price off the pump and a quantity off the truck; the total
+ * is arithmetic, and §8.2 keeps a client out of arithmetic that turns into
+ * money. A total sent directly still wins — somebody copying a receipt knows
+ * the number better than a multiplication does — and a price with nothing to
+ * multiply by buys nothing, so it stays null.
+ */
+function fuelCostCents(body: CreateFlightRequest): number | null {
+  if (body.fuel_added_cost_cents !== undefined) return body.fuel_added_cost_cents;
+  if (body.fuel_price_cents === undefined || body.fuel_added_qty === undefined) return null;
+  const quantity = Number(body.fuel_added_qty);
+  if (!Number.isFinite(quantity)) return null;
+  return Math.round(body.fuel_price_cents * quantity);
 }
 
 export async function flightRoutes(app: FastifyInstance): Promise<void> {
@@ -276,6 +310,7 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           const flight = await trx
             .insertInto('flights')
             .values({
+              ...(body.id ? { id: body.id } : {}),
               tenant_id: ctx.tenantId,
               aircraft_id: body.aircraft_id,
               flown_by: body.flown_by ?? (await ownMembership(trx, ctx.userId)),
@@ -283,6 +318,7 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
               departed_from: body.departed_from ?? null,
               arrived_at: body.arrived_at ?? null,
               remarks: body.remarks ?? null,
+              category: body.category ?? null,
               // §8.2: the client says when the flight ended; the server
               // records when it heard about it. They differ, sometimes by days.
               recorded_at: body.recorded_at ? new Date(body.recorded_at) : new Date(),
@@ -306,10 +342,13 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
             })
             .execute();
 
+          const cost = fuelCostCents(body);
           const hasFuel =
+            body.fuel_remaining_before !== undefined ||
             body.fuel_remaining_after !== undefined ||
             body.fuel_added_qty !== undefined ||
-            body.fuel_added_cost_cents !== undefined;
+            body.fuel_price_cents !== undefined ||
+            cost !== null;
 
           if (hasFuel) {
             await trx
@@ -317,9 +356,11 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
               .values({
                 flight_id: flight.id,
                 tenant_id: ctx.tenantId,
+                fuel_remaining_before: body.fuel_remaining_before ?? null,
                 fuel_remaining_after: body.fuel_remaining_after ?? null,
                 fuel_added_qty: body.fuel_added_qty ?? null,
-                fuel_added_cost_cents: body.fuel_added_cost_cents ?? null,
+                fuel_price_cents: body.fuel_price_cents ?? null,
+                fuel_added_cost_cents: cost,
                 receipt_reference: body.receipt_reference ?? null,
               })
               .execute();

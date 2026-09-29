@@ -760,6 +760,8 @@ export interface FlightsTable {
   departed_from: string | null;
   arrived_at: string | null;
   remarks: string | null;
+  /** What the aeroplane was doing. Descriptive; nothing computes on it. */
+  category: string | null;
   /** §8.2: a meter gap is flagged for an admin, never rejected. */
   needs_review: Generated<boolean>;
   review_reason: string | null;
@@ -788,10 +790,14 @@ export interface FlightFuelTable {
   tenant_id: string;
   /** State: latest wins, never summed across flights (§3.4). */
   fuel_remaining_after: string | null;
+  /** The same, at start-up. A disagreement with the last one is an uplift. */
+  fuel_remaining_before: string | null;
   /** Transaction: an immutable record of what someone spent. */
   fuel_added_qty: string | null;
   /** §3.7 rule 3: integer minor units, never a float. */
   fuel_added_cost_cents: number | null;
+  /** Price per unit, in minor units. The total above is derived from it. */
+  fuel_price_cents: number | null;
   currency: Generated<string>;
   receipt_reference: string | null;
   created_at: Timestamp;

@@ -35,7 +35,10 @@ export async function saveFlight(payload: CreateFlightRequest): Promise<string> 
     // presents the same one, which is what stops a dropped connection from
     // turning one flight into two.
     idempotencyKey: id,
-    payload: { ...payload, recorded_at: payload.recorded_at ?? now },
+    // The flight carries the same id. §8.2 mints it here so a squawk filed
+    // on the same walk back can name the flight it was found on, whether or
+    // not either has reached the server yet.
+    payload: { ...payload, id, recorded_at: payload.recorded_at ?? now },
     recordedAt: payload.recorded_at ?? now,
     queuedAt: now,
     attempts: 0,

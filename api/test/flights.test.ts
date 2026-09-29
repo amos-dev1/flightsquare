@@ -334,6 +334,91 @@ describe('flight logging', () => {
     expect(malformed.statusCode).toBe(404);
   });
 
+  it('works the fuel total out from the pump price, because a client must not', async () => {
+    // §8.2: the client never computes anything that matters, and §3.7 rule 3
+    // keeps money in integer minor units. A pilot reads a price off the pump
+    // and a quantity off the truck; multiplying them is the server's job
+    // because the answer is a charge.
+    const response = await logFlight({
+      hobbs_start: '9100.0',
+      hobbs_end: '9101.0',
+      fuel_added_qty: '18.4',
+      fuel_price_cents: 689,
+    });
+
+    expect(response.statusCode).toBe(201);
+    // 689 x 18.4 = 12677.6, to the nearest cent.
+    expect(response.json().fuel_added_cost_cents).toBe(12678);
+    expect(response.json().fuel_price_cents).toBe(689);
+  });
+
+  it('lets a receipt beat the arithmetic', async () => {
+    // Somebody copying a total off a receipt knows it better than a
+    // multiplication does — rounding, a discount, a call-out fee.
+    const response = await logFlight({
+      hobbs_start: '9200.0',
+      hobbs_end: '9201.0',
+      fuel_added_qty: '20.0',
+      fuel_price_cents: 700,
+      fuel_added_cost_cents: 13500,
+    });
+
+    expect(response.json().fuel_added_cost_cents).toBe(13500);
+  });
+
+  it('records what was in the tanks at start-up, and what the flight was for', async () => {
+    const response = await logFlight({
+      hobbs_start: '9300.0',
+      hobbs_end: '9301.5',
+      fuel_remaining_before: '41.0',
+      fuel_remaining_after: '32.5',
+      category: 'maintenance',
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().fuel_remaining_before).toBe('41.0');
+    expect(response.json().fuel_remaining_after).toBe('32.5');
+    expect(response.json().category).toBe('maintenance');
+
+    // Descriptive only. §3.7 keeps charges append-only and snapshotting their
+    // rate, so a category that quietly suppressed one would be a billing rule
+    // arriving through a dropdown. Categorising a flight changes nothing about
+    // what it cost.
+    const list = await app.inject({ method: 'GET', url: '/flights' });
+    const logged = list.json().find((f: { id: string }) => f.id === response.json().id);
+    expect(logged.category).toBe('maintenance');
+  });
+
+  it('refuses a category it has never heard of', async () => {
+    const response = await logFlight({
+      hobbs_start: '9400.0',
+      hobbs_end: '9401.0',
+      category: 'ferry',
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('takes the id the device minted, so an offline squawk can name it', async () => {
+    // §8.2: "the client generates ids". The phone files a flight and a squawk
+    // on the same walk back from the aeroplane, and the squawk has to name a
+    // flight neither of them has sent yet.
+    const id = '01a0d000-0000-7000-8000-00000000f11d';
+    const response = await logFlight({ id, hobbs_start: '9500.0', hobbs_end: '9501.0' });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().id).toBe(id);
+
+    const squawk = await app.inject({
+      method: 'POST',
+      url: '/squawks',
+      headers: { 'idempotency-key': nextKey() },
+      payload: { aircraft_id: aircraftId, summary: 'Left brake soft', found_on_flight_id: id },
+    });
+    expect(squawk.statusCode).toBe(201);
+    expect(squawk.json().found_on_flight_id).toBe(id);
+  });
+
   it('accepts a field the reference table has never heard of', async () => {
     // `aerodromes` holds twenty rows; there are twenty thousand airfields in
     // the United States. A key against a list that incomplete refuses almost

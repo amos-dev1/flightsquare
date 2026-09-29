@@ -3,22 +3,39 @@ import { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import type { AircraftResponse } from '@flightsquare/shared';
+import Feather from '@expo/vector-icons/Feather';
+import type { AircraftResponse, FlightCategory } from '@flightsquare/shared';
 
-import { Body, Button, Card, Field, Input, Notice, SectionHeading } from '@/components/ui';
+import { Body, Button, Card, Choice, Field, Input, Notice, SectionHeading } from '@/components/ui';
 import { api, messageFor, withAuth } from '@/lib/api';
-import { saveFlight } from '@/lib/sync';
-import { color, space, type } from '@/theme';
+import { saveFlight, saveSquawk } from '@/lib/sync';
+import { color, radius, space, type } from '@/theme';
 
 /**
- * Display only. §8.2: the client never computes anything that matters — the
- * stored hours are a generated column on the server, and nothing here is
- * ever sent.
+ * The post-flight entry.
+ *
+ * §3.4 calls this the most important screen in the product and says to
+ * optimise it over everything else: "if it takes more than a minute, people
+ * skip it, the meters go stale, and every number in the app quietly becomes
+ * wrong." Everything below is either prefilled from what the aeroplane
+ * already knows or is one tap.
+ *
+ * What it asks for that it did not: where the flight went, what was in the
+ * tanks before as well as after, what the fuel cost per gallon, whether
+ * anything is wrong with the aeroplane, what the flight was for, and any
+ * remarks. Fuel is no longer behind a button — an aeroplane is handed on with
+ * a fuel state whether or not somebody bought any, and the next pilot reads
+ * that number before they read anything else here.
+ *
+ * §8.2: nothing is computed here that matters. The hours are a generated
+ * column, the fuel total is multiplied on the server, and the meter gap is
+ * the server's to flag.
  */
 function hoursBetween(start: string, end: string): string | null {
   if (!start || !end) return null;
@@ -30,6 +47,12 @@ function hoursBetween(start: string, end: string): string | null {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+const CATEGORIES: { value: FlightCategory; label: string }[] = [
+  { value: 'personal', label: 'Personal' },
+  { value: 'business', label: 'Business' },
+  { value: 'maintenance', label: 'Maintenance' },
+];
+
 export default function LogFlight() {
   const { aircraft: aircraftId } = useLocalSearchParams<{ aircraft: string }>();
 
@@ -40,27 +63,40 @@ export default function LogFlight() {
     tach_start: '',
     tach_end: '',
   });
+
   /**
-   * Both prefilled from the aeroplane's home base, because most flights start
-   * and finish there. Free text either way — the pilot overwrites the leg
-   * that was not local, which is one field rather than two.
+   * Both prefilled from where the aeroplane last arrived, because that is
+   * where it is now. The pilot overwrites the leg that was not local, which
+   * is one field rather than two.
+   *
+   * Free text and not capped: 0014 dropped the aerodrome key precisely
+   * because "a list that incomplete refuses almost every true answer", and a
+   * grass strip with a name rather than an identifier is a true answer.
+   * Uppercased, because an identifier is (§11 reserves uppercase for exactly
+   * this).
    */
   const [departedFrom, setDepartedFrom] = useState('');
   const [arrivedAt, setArrivedAt] = useState('');
-  const [fuelRemaining, setFuelRemaining] = useState('');
+
+  const [fuelBefore, setFuelBefore] = useState('');
+  const [fuelAfter, setFuelAfter] = useState('');
   const [fuelAdded, setFuelAdded] = useState('');
-  const [fuelCost, setFuelCost] = useState('');
-  const [showFuel, setShowFuel] = useState(false);
+  const [fuelPrice, setFuelPrice] = useState('');
+
+  const [category, setCategory] = useState<FlightCategory>('personal');
+  const [remarks, setRemarks] = useState('');
+
+  const [squawking, setSquawking] = useState(false);
+  const [squawkSummary, setSquawkSummary] = useState('');
+  const [squawkDetails, setSquawkDetails] = useState('');
+  const [squawkGrounds, setSquawkGrounds] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // Prefill the "out" readings from what the aircraft is showing. Half the
-    // numbers on this form are ones the pilot should not have to read off the
-    // panel twice (§3.4: if it takes more than a minute, it does not happen).
-    //
-    // If there is no signal the fields simply start empty — the form still
-    // works, which is the whole point of it being offline-first.
+    // Prefill from what the aeroplane is showing. Half the numbers on this
+    // form are ones the pilot should not have to read off the panel twice.
     void withAuth(() => api.getAircraft(aircraftId))
       .then((found) => {
         setAircraft(found);
@@ -69,9 +105,17 @@ export default function LogFlight() {
           hobbs_start: current.hobbs_start || (found.hobbs ?? ''),
           tach_start: current.tach_start || (found.tach ?? ''),
         }));
-        if (found.home_base) {
-          setDepartedFrom((current) => current || found.home_base!);
-          setArrivedAt((current) => current || found.home_base!);
+        // Where it last landed is where this flight starts from.
+        const here = found.last_location ?? found.home_base;
+        if (here) {
+          setDepartedFrom((current) => current || here);
+          setArrivedAt((current) => current || here);
+        }
+        // §3.4: fuel is state, latest reading wins. Suggested, not asserted —
+        // where the pilot corrects it, the difference is fuel somebody added
+        // without logging it, which is information rather than an error.
+        if (found.fuel_remaining) {
+          setFuelBefore((current) => current || found.fuel_remaining!);
         }
       })
       .catch(() => undefined);
@@ -79,10 +123,11 @@ export default function LogFlight() {
 
   const hobbsHours = hoursBetween(meters.hobbs_start, meters.hobbs_end);
   const tachHours = hoursBetween(meters.tach_start, meters.tach_end);
+  const unit = aircraft?.fuel_units === 'litres' ? 'L' : 'gal';
 
   // §8.2: a start that does not meet the last reading is flagged for an
-  // admin, never rejected. Say so plainly rather than letting it look like an
-  // error the pilot has to resolve before saving.
+  // admin, never rejected. Said plainly rather than looking like an error the
+  // pilot has to resolve before saving.
   const hobbsGap =
     aircraft?.hobbs != null &&
     meters.hobbs_start !== '' &&
@@ -93,29 +138,63 @@ export default function LogFlight() {
       setError('Enter the Hobbs or tach reading at shutdown.');
       return;
     }
+    if (!fuelAfter.trim()) {
+      setError('Enter the fuel remaining at shutdown — the next pilot reads it.');
+      return;
+    }
+    if (squawking && !squawkSummary.trim()) {
+      setError('Say what is wrong, or remove the squawk.');
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
-      await saveFlight({
+      const flightId = await saveFlight({
         aircraft_id: aircraftId,
         flight_date: todayIso(),
+        category,
         ...(meters.hobbs_start ? { hobbs_start: meters.hobbs_start } : {}),
         ...(meters.hobbs_end ? { hobbs_end: meters.hobbs_end } : {}),
         ...(meters.tach_start ? { tach_start: meters.tach_start } : {}),
         ...(meters.tach_end ? { tach_end: meters.tach_end } : {}),
         ...(departedFrom.trim() ? { departed_from: departedFrom.trim() } : {}),
         ...(arrivedAt.trim() ? { arrived_at: arrivedAt.trim() } : {}),
-        ...(fuelRemaining ? { fuel_remaining_after: fuelRemaining } : {}),
-        ...(fuelAdded ? { fuel_added_qty: fuelAdded } : {}),
-        // §3.7 rule 3: money is integer minor units. The form takes the
-        // amount on the receipt; the conversion happens once, here.
-        ...(fuelCost ? { fuel_added_cost_cents: Math.round(Number(fuelCost) * 100) } : {}),
+        ...(fuelBefore.trim() ? { fuel_remaining_before: fuelBefore.trim() } : {}),
+        fuel_remaining_after: fuelAfter.trim(),
+        ...(fuelAdded.trim() ? { fuel_added_qty: fuelAdded.trim() } : {}),
+        // §3.7 rule 3: integer minor units. The form takes the price on the
+        // pump; the server multiplies it by the quantity, because a total is
+        // money and §8.2 keeps that off the client.
+        ...(fuelPrice.trim()
+          ? { fuel_price_cents: Math.round(Number(fuelPrice) * 100) }
+          : {}),
+        ...(remarks.trim() ? { remarks: remarks.trim() } : {}),
       });
+
+      if (squawking && squawkSummary.trim()) {
+        /**
+         * Queued separately and named against the flight it was found on.
+         *
+         * Two writes rather than one because they are two records with
+         * different lives — §3.6 makes the squawk log something read back
+         * after an accident, and it must not depend on the flight's write
+         * succeeding. The id is the device's (§8.2), so the link holds even
+         * when neither has reached the server.
+         */
+        await saveSquawk({
+          aircraft_id: aircraftId,
+          summary: squawkSummary.trim(),
+          ...(squawkDetails.trim() ? { details: squawkDetails.trim() } : {}),
+          // The pilot's judgement, not inferred from the words they used.
+          ...(squawkGrounds ? { severity: 'grounding' as const, grounding: true } : {}),
+          found_on_flight_id: flightId,
+        });
+      }
+
       router.back();
-    } catch (error) {
-      // The server's own words where it has them — a plan limit in
-      // particular, which this app states and never offers to fix (§8.3).
-      setError(messageFor(error));
+    } catch (caught) {
+      setError(messageFor(caught));
     } finally {
       setBusy(false);
     }
@@ -132,11 +211,12 @@ export default function LogFlight() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {aircraft ? <Text style={styles.registration}>{aircraft.registration}</Text> : null}
 
+        {/* Meters ------------------------------------------------------ */}
         <Card style={styles.group}>
           {/*
-            §11: Hobbs and tach are distinguished explicitly. They run at
-            different rates by design, and the difference between them is real
-            data about how the aircraft was flown.
+            §11 and §3.4: Hobbs and tach are distinguished explicitly. They
+            run at different rates by design, and the difference between them
+            is real data about how the aircraft was flown.
           */}
           <SectionHeading>Hobbs</SectionHeading>
           <View style={styles.pair}>
@@ -193,13 +273,7 @@ export default function LogFlight() {
           ) : null}
         </Card>
 
-        {/*
-          Where it went.
-          Two fields, optional, and free text since 0014 dropped the keys into
-          `aerodromes` — that table holds twenty fields out of twenty thousand,
-          and a list that incomplete refuses almost every true answer. "Q22"
-          and "the strip behind the barn" are both acceptable.
-        */}
+        {/* Route ------------------------------------------------------- */}
         <Card style={styles.group}>
           <SectionHeading>Route</SectionHeading>
           <View style={styles.pair}>
@@ -207,8 +281,8 @@ export default function LogFlight() {
               <Field label="From">
                 <Input
                   value={departedFrom}
-                  onChangeText={setDepartedFrom}
-                  placeholder={aircraft?.home_base ?? 'KPAO'}
+                  onChangeText={(text) => setDepartedFrom(text.toUpperCase())}
+                  placeholder="KPAO"
                   autoCapitalize="characters"
                   autoCorrect={false}
                   maxLength={16}
@@ -219,8 +293,8 @@ export default function LogFlight() {
               <Field label="To">
                 <Input
                   value={arrivedAt}
-                  onChangeText={setArrivedAt}
-                  placeholder={aircraft?.home_base ?? 'KHAF'}
+                  onChangeText={(text) => setArrivedAt(text.toUpperCase())}
+                  placeholder="KHAF"
                   autoCapitalize="characters"
                   autoCorrect={false}
                   maxLength={16}
@@ -230,43 +304,178 @@ export default function LogFlight() {
           </View>
         </Card>
 
-        {/* Fuel behind one tap: most flights buy none. */}
+        {/* Fuel -------------------------------------------------------- */}
         <Card style={styles.group}>
-          {showFuel ? (
-            <>
-              <SectionHeading>Fuel</SectionHeading>
-              <Field label="Remaining at shutdown" hint="What the next pilot walks out to.">
+          <SectionHeading>Fuel</SectionHeading>
+          {/*
+            §3.4: two different things, and they must not be one field.
+            Remaining is aircraft *state* — the next pilot walks out to it.
+            Added is a *transaction*, and on a wet rate it credits the pilot
+            back (§3.7).
+          */}
+          <View style={styles.pair}>
+            <View style={styles.half}>
+              <Field label="Before" hint={`${unit} at start-up`}>
                 <Input
-                  value={fuelRemaining}
-                  onChangeText={setFuelRemaining}
+                  value={fuelBefore}
+                  onChangeText={setFuelBefore}
                   keyboardType="decimal-pad"
                 />
               </Field>
-              <View style={styles.pair}>
-                <View style={styles.half}>
-                  <Field label="Added" hint="Gallons">
-                    <Input
-                      value={fuelAdded}
-                      onChangeText={setFuelAdded}
-                      keyboardType="decimal-pad"
-                    />
-                  </Field>
+            </View>
+            <View style={styles.half}>
+              <Field label="After" required hint={`${unit} at shutdown`}>
+                <Input
+                  value={fuelAfter}
+                  onChangeText={setFuelAfter}
+                  keyboardType="decimal-pad"
+                />
+              </Field>
+            </View>
+          </View>
+
+          <View style={styles.pair}>
+            <View style={styles.half}>
+              <Field label="Added" hint={unit}>
+                <Input
+                  value={fuelAdded}
+                  onChangeText={setFuelAdded}
+                  keyboardType="decimal-pad"
+                />
+              </Field>
+            </View>
+            <View style={styles.half}>
+              <Field label="Price" hint={`per ${unit}`}>
+                <Input
+                  value={fuelPrice}
+                  onChangeText={setFuelPrice}
+                  keyboardType="decimal-pad"
+                  placeholder="6.89"
+                />
+              </Field>
+            </View>
+          </View>
+        </Card>
+
+        {/* What it was for --------------------------------------------- */}
+        <Card style={styles.group}>
+          <SectionHeading>What this flight was</SectionHeading>
+          <Choice options={CATEGORIES} value={category} onChange={setCategory} />
+          {category === 'maintenance' ? (
+            // Said out loud, because a club might reasonably expect otherwise
+            // and §3.7 makes a charge append-only once it exists.
+            <Body muted>Recorded on the flight. It does not change what this costs.</Body>
+          ) : null}
+        </Card>
+
+        {/* Anything wrong ---------------------------------------------- */}
+        <Card style={styles.group}>
+          <View style={styles.squawkHead}>
+            <SectionHeading>Anything wrong?</SectionHeading>
+            {!squawking ? (
+              <Pressable
+                onPress={() => setSquawking(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Add a squawk"
+                hitSlop={space.sm}
+                style={({ pressed }) => [styles.add, pressed && styles.pressed]}
+              >
+                <Feather name="plus" size={16} color={color.navy} />
+                <Text style={styles.addLabel}>Add squawk</Text>
+              </Pressable>
+            ) : null}
+          </View>
+
+          {squawking ? (
+            <>
+              <Field label="What is wrong" required>
+                <Input
+                  value={squawkSummary}
+                  onChangeText={setSquawkSummary}
+                  placeholder="Left brake soft"
+                  maxLength={200}
+                />
+              </Field>
+              <Field label="Details" hint="What you saw, heard or felt.">
+                <Input
+                  value={squawkDetails}
+                  onChangeText={setSquawkDetails}
+                  placeholder="Pedal travels most of the way before it bites."
+                  multiline
+                  maxLength={4000}
+                  style={styles.details}
+                />
+              </Field>
+
+              {/*
+                §3.6: `grounding` is a separate judgement from severity — an
+                inspection can ground something reported as minor — and it is
+                the boolean §3.3 reads to stop the aeroplane being booked. So
+                it is the pilot's call, made explicitly.
+              */}
+              <Pressable
+                onPress={() => setSquawkGrounds((on) => !on)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: squawkGrounds }}
+                style={({ pressed }) => [
+                  styles.check,
+                  squawkGrounds && styles.checkOn,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <View style={[styles.box, squawkGrounds && styles.boxOn]}>
+                  {squawkGrounds ? <Feather name="check" size={14} color={color.onDark} /> : null}
                 </View>
-                <View style={styles.half}>
-                  <Field label="Cost" hint="USD">
-                    <Input value={fuelCost} onChangeText={setFuelCost} keyboardType="decimal-pad" />
-                  </Field>
-                </View>
-              </View>
+                <Text style={styles.checkLabel}>This grounds the aircraft</Text>
+              </Pressable>
+
+              {squawkGrounds ? (
+                <Notice tone="error">
+                  This stops the aircraft being booked until somebody with maintenance access
+                  resolves or defers it.
+                </Notice>
+              ) : null}
+
+              <Pressable
+                onPress={() => {
+                  setSquawking(false);
+                  setSquawkSummary('');
+                  setSquawkDetails('');
+                  setSquawkGrounds(false);
+                }}
+                accessibilityRole="button"
+                hitSlop={space.sm}
+                style={({ pressed }) => [styles.remove, pressed && styles.pressed]}
+              >
+                <Text style={styles.removeLabel}>Remove squawk</Text>
+              </Pressable>
+
+              {/* §3.6: the squawk log is read back after an accident, so it is
+                  not something anyone edits later. Said before the tap. */}
+              <Body muted>What you report stays as written. Anything further is a new squawk.</Body>
             </>
           ) : (
-            <Button label="Add fuel" variant="secondary" onPress={() => setShowFuel(true)} />
+            <Body muted>Nothing to report. Add a squawk if something needs looking at.</Body>
           )}
+        </Card>
+
+        {/* Remarks ------------------------------------------------------ */}
+        <Card style={styles.group}>
+          <Field label="Remarks" hint="Anything worth the next pilot knowing. Optional.">
+            <Input
+              value={remarks}
+              onChangeText={setRemarks}
+              placeholder="Landing light intermittent on taxi."
+              multiline
+              maxLength={2000}
+              style={styles.details}
+            />
+          </Field>
         </Card>
 
         {error ? <Notice tone="error">{error}</Notice> : null}
 
-        <Button label="Save flight" onPress={submit} busy={busy} />
+        <Button label="Save flight" onPress={() => void submit()} busy={busy} />
         {/*
           Saying so plainly matters: §8.2 makes this work with no signal, and
           a pilot who does not believe it was saved will type it again later.
@@ -279,9 +488,41 @@ export default function LogFlight() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: color.mist },
-  container: { padding: space.base, gap: space.base },
-  registration: { ...type.pageTitle, color: color.navy },
-  group: { gap: space.md },
+  container: { padding: space.base, gap: space.base, paddingBottom: space.xxl },
+  registration: { ...type.pageTitle, color: color.navy, textTransform: 'uppercase' },
+  group: { gap: space.base },
   pair: { flexDirection: 'row', gap: space.md },
   half: { flex: 1 },
+  details: { height: 96, paddingTop: space.sm, textAlignVertical: 'top' },
+  pressed: { opacity: 0.7 },
+
+  squawkHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  add: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingVertical: space.xs },
+  addLabel: { ...type.button },
+  remove: { alignSelf: 'flex-start', paddingVertical: space.sm },
+  removeLabel: { ...type.button, color: color.secondary },
+
+  check: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 48,
+    paddingHorizontal: space.md,
+    borderWidth: 1,
+    borderColor: color.control,
+    borderRadius: radius.control,
+  },
+  checkOn: { borderColor: color.teal, borderWidth: 2 },
+  box: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: color.control,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Fill as well as tick, so the state is never the tick alone (§11 §13).
+  boxOn: { backgroundColor: color.navy, borderColor: color.navy },
+  checkLabel: { ...type.body, flex: 1 },
 });

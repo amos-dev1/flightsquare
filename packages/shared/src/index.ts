@@ -563,6 +563,17 @@ export interface AerodromeResponse {
 // own.
 // ---------------------------------------------------------------------------
 
+/**
+ * What the aeroplane was doing.
+ *
+ * Descriptive, and deliberately not wired to anything: §3.7 keeps charges
+ * append-only and snapshotting their rate, so suppressing one because of a
+ * dropdown is a member-billing decision rather than a screen's to make. It is
+ * also not a pilot-logbook field (§3.4) — it describes the aircraft's outing,
+ * which is why "maintenance" is the member of the set that earns it.
+ */
+export type FlightCategory = 'personal' | 'business' | 'maintenance';
+
 export interface FlightResponse {
   id: string;
   aircraft_id: string;
@@ -573,6 +584,7 @@ export interface FlightResponse {
   departed_from: string | null;
   arrived_at: string | null;
   remarks: string | null;
+  category: FlightCategory | null;
   /** §8.2: a meter gap is flagged for an admin, never a reason to refuse. */
   needs_review: boolean;
   review_reason: string | null;
@@ -586,11 +598,15 @@ export interface FlightResponse {
   tach_end: string | null;
   tach_hours: string | null;
 
+  /** Aircraft state at start-up. See `fuel_remaining_before` on the request. */
+  fuel_remaining_before: string | null;
   /** Aircraft state: what the next pilot is walking out to. */
   fuel_remaining_after: string | null;
   /** A transaction: what someone spent, in integer minor units. */
   fuel_added_qty: string | null;
   fuel_added_cost_cents: number | null;
+  /** Price per unit, minor units. The total above is derived from it. */
+  fuel_price_cents: number | null;
   currency: string | null;
 }
 
@@ -629,6 +645,15 @@ export interface FlightSummaryResponse {
 }
 
 export interface CreateFlightRequest {
+  /**
+   * The flight's own id, minted on the device.
+   *
+   * §8.2: "the client generates ids. UUIDv7 (§6) already permits this; it is
+   * why the choice matters." Optional, because the web has a server in front
+   * of it and no reason to — but a phone that files a squawk against the
+   * flight it was found on has to know the id before the flight has synced.
+   */
+  id?: string;
   aircraft_id: string;
   flight_date: string;
   /** A membership id. Defaults to the caller's own. */
@@ -636,14 +661,27 @@ export interface CreateFlightRequest {
   departed_from?: string;
   arrived_at?: string;
   remarks?: string;
+  category?: FlightCategory;
 
   hobbs_start?: string;
   hobbs_end?: string;
   tach_start?: string;
   tach_end?: string;
 
+  /** What the tanks read at start-up. State, never summed (§3.4). */
+  fuel_remaining_before?: string;
   fuel_remaining_after?: string;
   fuel_added_qty?: string;
+  /**
+   * Price per unit, in minor units.
+   *
+   * Send this *or* `fuel_added_cost_cents`, not both — the API multiplies the
+   * price by the quantity to get the total, because §8.2 keeps a client out
+   * of computing anything that matters and a charge is money. A total sent
+   * directly still wins, for a receipt somebody is copying rather than a
+   * pump price they read.
+   */
+  fuel_price_cents?: number;
   fuel_added_cost_cents?: number;
   receipt_reference?: string;
 
