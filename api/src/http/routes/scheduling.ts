@@ -195,8 +195,11 @@ function rethrowSchedulingError(error: unknown): never {
   const code = (error as { code?: unknown }).code;
 
   if (code === PG_EXCLUSION_VIOLATION) {
+    // Coded, because this is the one refusal a calendar can answer: the slot
+    // is held by somebody, and the next free one is a screen away.
     throw new ConflictError(
       'that aircraft is already booked for part of that time — pick another slot',
+      'slot_taken',
     );
   }
 

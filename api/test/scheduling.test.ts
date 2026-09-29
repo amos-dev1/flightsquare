@@ -106,6 +106,12 @@ describe('scheduling', () => {
     expect(clash.statusCode).toBe(409);
     expect(clash.json().reason).toMatch(/already booked/i);
 
+    // Coded, so a client can offer the one remediation that fits — the
+    // calendar, which shows the slots this one is not in. §1.6 asks 402
+    // bodies to be machine-readable for exactly this reason; a 409 that
+    // covers three different refusals needs it just as much.
+    expect(clash.json().code).toBe('slot_taken');
+
     // Back to back is not a clash: the range is half-open.
     expect((await book(12, 15)).statusCode).toBe(201);
   });
@@ -116,6 +122,11 @@ describe('scheduling', () => {
 
     expect(refused.statusCode).toBe(409);
     expect(refused.json().reason).toMatch(/not signed off/i);
+
+    // And *not* coded: a calendar cannot answer this one. Sending somebody to
+    // look for a free slot they still would not be allowed to take is worse
+    // than telling them plainly.
+    expect(refused.json().code).toBeUndefined();
   });
 
   it('lets them book once an admin signs them off', async () => {

@@ -3,7 +3,12 @@ import { useEffect, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import type { AircraftAvailabilityResponse, AircraftResponse } from '@flightsquare/shared';
+import {
+  ApiError,
+  type AircraftAvailabilityResponse,
+  type AircraftResponse,
+  type ConflictBody,
+} from '@flightsquare/shared';
 import { dayLabel, timeIn, zonedToInstant } from '@flightsquare/shared/time';
 
 import { AircraftThumbnail } from '@/components/aircraft';
@@ -57,6 +62,14 @@ export default function Book() {
 
   const [purpose, setPurpose] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Whether the refusal was somebody else holding the slot.
+   *
+   * Only that one, from the server's own `code` rather than from reading its
+   * sentence: a grounded aeroplane and a missing checkout arrive as the same
+   * status and would send somebody to a calendar that cannot help them.
+   */
+  const [slotTaken, setSlotTaken] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -91,6 +104,7 @@ export default function Book() {
     if (!aircraftId || !day) return;
     setBusy(true);
     setError(null);
+    setSlotTaken(false);
     try {
       await withAuth(() =>
         api.createReservation({
@@ -105,6 +119,8 @@ export default function Book() {
       router.back();
     } catch (caught) {
       setError(messageFor(caught));
+      const body = caught instanceof ApiError ? (caught.body as ConflictBody | null) : null;
+      setSlotTaken(body?.code === 'slot_taken');
     } finally {
       setBusy(false);
     }
@@ -219,7 +235,40 @@ export default function Book() {
           </Field>
         </Card>
 
-        {error ? <Notice tone="error">{error}</Notice> : null}
+        {error && slotTaken ? (
+          /*
+            The refusal, and the way out of it. Somebody else has the
+            aeroplane for part of that window, and the only thing that
+            answers that is seeing which parts they do not — so the message
+            opens the calendar on the day that was refused, with this
+            aeroplane already filtered.
+          */
+          <Pressable
+            onPress={() =>
+              router.replace({
+                pathname: '/schedule',
+                params: { date: day, ...(aircraftId ? { aircraft: aircraftId } : {}) },
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel={`${error} See the calendar for ${
+              chosen?.registration ?? 'this aircraft'
+            } on ${day ? dayLabel(day) : 'that day'}.`}
+            style={({ pressed }) => [styles.conflict, pressed && styles.pressed]}
+          >
+            <Text style={styles.conflictText}>{error}</Text>
+            <View style={styles.conflictAction}>
+              <Feather name="calendar" size={16} color={color.tealText} />
+              {/* Says where it goes, so the tap is not a guess. */}
+              <Text style={styles.conflictLink}>
+                See {chosen?.registration ?? 'the calendar'} on {day ? dayLabel(day) : 'that day'}
+              </Text>
+              <Feather name="chevron-right" size={16} color={color.tealText} />
+            </View>
+          </Pressable>
+        ) : error ? (
+          <Notice tone="error">{error}</Notice>
+        ) : null}
 
         <Button
           label="Book it"
@@ -360,6 +409,19 @@ const styles = StyleSheet.create({
 
   pair: { flexDirection: 'row', gap: space.md },
   half: { flex: 1 },
+
+  // The same shape as a Notice, because it is one — with somewhere to go.
+  conflict: {
+    borderWidth: 1,
+    borderColor: color.navy,
+    backgroundColor: color.subtle,
+    borderRadius: radius.control,
+    padding: space.md,
+    gap: space.sm,
+  },
+  conflictText: { ...type.bodySmall },
+  conflictAction: { flexDirection: 'row', alignItems: 'center', gap: space.xs },
+  conflictLink: { ...type.button, color: color.tealText, flex: 1 },
 
   option: {
     flexDirection: 'row',

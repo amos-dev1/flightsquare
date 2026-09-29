@@ -84,9 +84,24 @@ export interface TenantRequiredBody {
   error: 'tenant_required';
 }
 
+/**
+ * Why a conflict was a conflict, where the UI can do something about it.
+ *
+ * §1.6 makes 402 bodies machine-readable "so the UI can offer the right
+ * remediation"; the same reasoning applies here. A 409 covers several
+ * refusals that read alike and are answered very differently — a slot
+ * somebody else holds can be worked around by looking at the calendar, while
+ * a grounded aeroplane or a missing checkout cannot. The code says which.
+ *
+ * Absent on every other conflict, so a client that does not know a code
+ * simply shows `reason`, which is what every client did before this existed.
+ */
+export type ConflictCode = 'slot_taken';
+
 export interface ConflictBody {
   error: 'conflict';
   reason: string;
+  code?: ConflictCode;
 }
 
 export interface InvalidRequestBody {

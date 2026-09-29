@@ -1,6 +1,7 @@
 import type {
   ClientTooOldBody,
   ConflictBody,
+  ConflictCode,
   ForbiddenBody,
   InvalidRequestBody,
   NotFoundBody,
@@ -157,11 +158,15 @@ export class ClientTooOldError extends ApiError {
  */
 export class ConflictError extends ApiError {
   readonly statusCode = 409;
-  constructor(readonly reason: string) {
+  constructor(
+    readonly reason: string,
+    /** Only where the UI can act on it; see `ConflictCode`. */
+    readonly code?: ConflictCode,
+  ) {
     super(reason);
   }
   toBody(): ConflictBody {
-    return { error: 'conflict', reason: this.reason };
+    return { error: 'conflict', reason: this.reason, ...(this.code ? { code: this.code } : {}) };
   }
 }
 

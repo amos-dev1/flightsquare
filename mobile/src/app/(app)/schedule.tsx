@@ -1,5 +1,5 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import type {
@@ -38,8 +38,18 @@ import { color, radius, space, type } from '@/theme';
  * constraint decides that, inside the transaction that does the insert.
  */
 export default function Schedule() {
-  /** The dashboard and an aircraft's screen both send one. */
-  const { aircraft: preselected } = useLocalSearchParams<{ aircraft?: string }>();
+  /**
+   * Where to open.
+   *
+   * The dashboard and an aircraft's screen send an aeroplane; a booking that
+   * lost its slot sends both, so the calendar opens on the day that was
+   * refused with that aeroplane already filtered — which is the whole point
+   * of following the refusal here rather than just saying no.
+   */
+  const { aircraft: preselected, date: requested } = useLocalSearchParams<{
+    aircraft?: string;
+    date?: string;
+  }>();
 
   const [zone, setZone] = useState('UTC');
   /**
@@ -71,6 +81,27 @@ export default function Schedule() {
     const first = startOfWeek(anchor);
     return { first, days: Array.from({ length: 7 }, (_, i) => addDays(first, i)) };
   }, [anchor]);
+
+  /**
+   * Apply the route's parameters when they change, and only then.
+   *
+   * This screen is a tab and stays mounted, so its state outlives any single
+   * navigation — arriving a second time with a different aeroplane has to win
+   * over the filter left from the first, while an ordinary re-focus must not
+   * reset what somebody has since chosen. The key is what distinguishes the
+   * two.
+   */
+  const applied = useRef('');
+  useEffect(() => {
+    const key = `${requested ?? ''}|${preselected ?? ''}`;
+    if (key === applied.current) return;
+    applied.current = key;
+    if (requested) {
+      setAnchor(requested);
+      setSelected(requested);
+    }
+    if (preselected) setAircraftId(preselected);
+  }, [requested, preselected]);
 
   const load = useCallback(
     async (forAnchor: string | null) => {
@@ -139,13 +170,14 @@ export default function Schedule() {
           // Today when it is in the week being shown, its Monday otherwise.
           return today >= first && today <= addDays(first, 6) ? today : first;
         });
-        setAircraftId((current) => {
-          if (current) return current;
-          if (preselected && aircraft.some((a) => a.id === preselected && a.status === 'active')) {
-            return preselected;
-          }
-          return null;
-        });
+        // A filter pointing at an aeroplane that has been archived, or that
+        // a parameter named wrongly, would narrow every query to nothing and
+        // show an empty week that is not empty. Correct it to all aircraft.
+        setAircraftId((current) =>
+          current && aircraft.some((a) => a.id === current && a.status === 'active')
+            ? current
+            : null,
+        );
       } catch {
         // No signal. Whatever loaded last stays — this is a field app, and an
         // empty week would read as a free one.
@@ -154,7 +186,7 @@ export default function Schedule() {
         setLoaded(true);
       }
     },
-    [aircraftId, showing, preselected],
+    [aircraftId, showing],
   );
 
   useFocusEffect(
