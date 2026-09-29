@@ -89,6 +89,7 @@ export function messageFor(error: unknown): string {
     quota?: string;
     limit?: number;
     detail?: string;
+    reason?: string;
   } | null;
 
   switch (body?.error) {
@@ -100,6 +101,19 @@ export function messageFor(error: unknown): string {
         ? `This club's plan allows ${body.limit} ${noun}.`
         : `This club's plan limits ${noun}.`;
     }
+
+    /**
+     * A refusal the server has already put into words.
+     *
+     * Every booking that cannot be made arrives this way — the slot is taken,
+     * the aeroplane is grounded, the member is not signed off in it — and the
+     * sentence comes from whichever rule refused: the exclusion constraint,
+     * or the trigger that knows which reason and why. §8.2 keeps the client
+     * out of deciding any of that, and it should stay out of the wording too;
+     * "That did not work" was this screen throwing the answer away.
+     */
+    case 'conflict':
+      return body.reason ? sentence(body.reason) : 'That conflicts with something already booked.';
 
     case 'forbidden':
       return 'You do not have permission to do that.';
@@ -118,6 +132,13 @@ export function messageFor(error: unknown): string {
         ? 'FlightSquare had a problem. Your entry is saved here and will go again.'
         : 'That did not work.';
   }
+}
+
+/** The server writes fragments; a person reads sentences. */
+function sentence(text: string): string {
+  const trimmed = text.trim();
+  const capitalised = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  return /[.!?]$/.test(capitalised) ? capitalised : `${capitalised}.`;
 }
 
 /** Labels, not plan data. */
