@@ -31,7 +31,8 @@
     "test": "npm run test:db && vitest run",
     "test:db": "./scripts/test.sh",
     "test:api": "vitest run --project api",
-    "seed": "./scripts/seed-demo.sh"
+    "seed": "./scripts/seed-demo.sh",
+    "seed:club": "tsx scripts/seed-club.ts"
   },
   "devDependencies": {
     "vitest": "^5.0.1"

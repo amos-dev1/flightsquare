@@ -39,6 +39,7 @@ npm run migrate           # apply pending migrations, as the owner role
 npm test                  # database suite, then the API suite
 npm run dev               # the API on http://127.0.0.1:3000
 npm run seed              # create an account to sign in with
+npm run seed:club         # ... and fill it with a club's worth of data
 npm run dev:web           # the web app on http://127.0.0.1:3001
 npm run dev:mobile        # the iOS app, in the Simulator
 npm run db:reset          # destroy the database and start clean
@@ -64,6 +65,43 @@ curl -s -X POST localhost:3000/auth/signup -H 'content-type: application/json' \
   -d '{"slug":"my-club","name":"My Club","email":"me@example.test",
        "password":"correct horse battery staple","archetype":"solo"}'
 ```
+
+`npm run seed:club` is the other half, and the one you want for judging a
+screen. Clicking through is how you find out whether one aeroplane and one
+pilot work; it is not how you find out whether a **fleet** works, and most of
+this product only shows its real shape with a fleet in it — a calendar with a
+popular aeroplane on a Saturday, a maintenance list where something is actually
+coming due, a statement with four months of flying on it.
+
+It tops up whichever club you point it at rather than creating one, so it is
+safe to run against the account you are already testing with:
+
+```sh
+npm run seed:club                         # demo@flightsquare.local
+npm run seed:club -- me@you.test my-club
+npm run seed:club -- --fresh              # clear this club's data and redo it
+```
+
+Four aeroplanes (one a §3.2 leaseback on a dry rate), six members, about 150
+flights over four months with the meters continuous and one deliberate gap for
+§8.2's flag to point at, compliance recorded so the intervals are staggered
+rather than all "not recorded", a grounding squawk and a deferred one, two
+weeks of bookings, and payments recorded against the ledger.
+
+**Everything that can go through the API does**, because that is the only way
+the data comes out consistent — logging a flight is what advances the meters,
+ticks the maintenance items down and writes the charge (§3.4's core loop).
+Inserting rows directly would produce a database that looks full and is wrong
+in every derived number, which is a worse place to judge a screen from than an
+empty one. Three things cannot and are the control plane rather than a
+shortcut: the plan (§2.3 keeps `plan_code` out of the application's reach),
+reading an invitation token out of the outbox (`app_role` cannot read it at
+all), and `--fresh` (compliance records and charges are append-only to the
+application by design).
+
+The club lands on **enterprise**, because §4.3's Pro tier is one aircraft and
+open decision 1 already notes that a club with three has nowhere to land in
+between. That is a pricing gap, not a seeding one.
 
 `archetype` matters more than it looks: it gives the user exactly one
 membership, and the mobile sign-in screen has no tenant picker — it refuses
@@ -307,6 +345,7 @@ scripts/
   dev.sh                        everything at once, reachable from a phone
   outbox.sh                     what is queued, and what the sender did with it
   seed-demo.sh                  an account to sign in with, until signup exists
+  seed-club.ts                  and a club's worth of data in it, through the API
 ```
 
 Migrations are forward-only. Each one runs once inside a single transaction
