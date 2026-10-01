@@ -12,7 +12,7 @@ import {
 import { dayLabel, timeIn, zonedToInstant } from '@flightsquare/shared/time';
 
 import { AircraftThumbnail } from '@/components/aircraft';
-import { Body, Button, Card, Field, Input, Notice, SectionHeading } from '@/components/ui';
+import { Body, Button, Card, Field, Input, Notice, Picker, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
 import { api, messageFor, withAuth } from '@/lib/api';
 import { usePermission } from '@/lib/entitlements';
@@ -143,25 +143,24 @@ export default function Book() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         {/* Which aeroplane -------------------------------------------- */}
         <Card style={styles.group}>
-          <SectionHeading>Aircraft</SectionHeading>
-          <Pressable
-            onPress={() => setPicking(true)}
-            disabled={active.length <= 1}
-            accessibilityRole={active.length > 1 ? 'button' : undefined}
-            accessibilityLabel={
-              chosen ? `${chosen.registration}. Change aircraft` : 'Choose an aircraft'
-            }
-            style={({ pressed }) => [styles.chooser, pressed && styles.pressed]}
-          >
-            <AircraftThumbnail size="small" />
-            <View style={styles.chooserText}>
-              <Text style={styles.registration}>{chosen?.registration ?? 'Choose one'}</Text>
-              <Text style={styles.meta}>{chosen?.type_code ?? 'Type not recorded'}</Text>
-            </View>
-            {active.length > 1 ? (
-              <Feather name="chevron-down" size={20} color={color.navy} />
-            ) : null}
-          </Pressable>
+          {/*
+            A labelled control rather than a heading over a bare row: the
+            heading said what the section was about and nothing said the row
+            under it could be changed (§11 §8).
+          */}
+          <Field label="Aircraft">
+            <Picker
+              onPress={() => setPicking(true)}
+              disabled={active.length <= 1}
+              label={chosen ? `${chosen.registration}. Change aircraft` : 'Choose an aircraft'}
+            >
+              <AircraftThumbnail size="small" />
+              <View style={styles.chooserText}>
+                <Text style={styles.registration}>{chosen?.registration ?? 'Choose one'}</Text>
+                <Text style={styles.meta}>{chosen?.type_code ?? 'Type not recorded'}</Text>
+              </View>
+            </Picker>
+          </Field>
 
           {/*
             §3.3: dispatch state is the server's one resolved view, and the
@@ -386,7 +385,6 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.7 },
   group: { gap: space.base },
 
-  chooser: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 56 },
   chooserText: { flex: 1, gap: 2 },
   registration: { ...type.cardHeading, textTransform: 'uppercase' },
   meta: { ...type.supporting, color: color.secondary },

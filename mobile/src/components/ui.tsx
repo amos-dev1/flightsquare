@@ -8,6 +8,7 @@ import {
   View,
   type TextInputProps,
 } from 'react-native';
+import Feather from '@expo/vector-icons/Feather';
 
 // Relative, not via `@/`, which maps to src/ — the artwork lives beside it.
 import LogoSymbol from '../../assets/flightsquare-icon.svg';
@@ -144,6 +145,75 @@ export function Status({ label, emphatic }: { label: string; emphatic?: boolean 
 }
 
 /**
+ * The thing you tap to change which aeroplane you are looking at.
+ *
+ * A trigger, not a menu: it opens a `Sheet` the caller owns. What it has to do
+ * is say, without being read, that it *can* be tapped — which is precisely
+ * what the three hand-rolled versions before it did not. Two had no boundary
+ * at all and were indistinguishable from the content beside them; the third
+ * drew one in `color.line`, the decorative divider.
+ *
+ * So it borrows the vocabulary §11 §8 already defines for a field, because a
+ * control that looks like every other control on the platform needs no
+ * explaining: white surface, a `color.control` boundary — the token whose own
+ * comment says "where a boundary has to say where a control is; the divider
+ * will not" — and a chevron large enough to read at arm's length.
+ *
+ * **No teal.** §11 §3 keeps it under 5% of a screen and warns off saturated
+ * teal backgrounds, and the pale `selected` surface is already spoken for: it
+ * marks the chosen row *inside* the sheet this opens. Using it here as well
+ * would say "selected" and "changeable" in the same colour.
+ *
+ * `disabled` is for a club with one aeroplane, and it renders as a plain row —
+ * no boundary, no chevron, no press state. A box that looks like a control and
+ * does nothing is worse than no box.
+ */
+export function Picker({
+  children,
+  onPress,
+  label,
+  compact,
+  disabled,
+}: {
+  /** Whatever identifies the choice: a thumbnail and two lines, or one word. */
+  children: ReactNode;
+  onPress: () => void;
+  /** What a screen reader says. "N4521G. Change aircraft", not "Picker". */
+  label: string;
+  /** For a dense filter row, where a full-height labelled control would not fit. */
+  compact?: boolean;
+  /** Nothing to pick. */
+  disabled?: boolean;
+}) {
+  if (disabled) {
+    return (
+      <View style={[styles.pickerPlain, compact && styles.pickerCompactPlain]}>{children}</View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={({ pressed }) => [
+        styles.picker,
+        compact && styles.pickerCompact,
+        // A fill change rather than the whole control fading, for the reason
+        // the buttons already give: opacity drops the label's contrast with
+        // the surface it is sitting on.
+        pressed && styles.pickerPressed,
+      ]}
+    >
+      <View style={[styles.pickerBody, compact && styles.pickerBodyCompact]}>{children}</View>
+      {/* 24, and the same on every screen it appears on. The three it replaced
+          were 22, 20 and 16, which is how a shared affordance stops being one. */}
+      <Feather name="chevron-down" size={compact ? 20 : 24} color={color.navy} />
+    </Pressable>
+  );
+}
+
+/**
  * A segmented choice, because a picker wheel for four options is four taps
  * and a scroll on a phone held in one hand at a tiedown.
  *
@@ -219,6 +289,42 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.5 },
   buttonLabel: { ...type.button, color: color.navy },
   buttonLabelPrimary: { color: color.onDark },
+
+  /**
+   * The picker trigger. `minHeight` rather than `height`, because the full
+   * form holds a thumbnail and two lines and a long registration must be
+   * allowed to wrap rather than clip.
+   */
+  picker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 56,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.control,
+    borderRadius: radius.control,
+  },
+  // §11 §13 asks for 44 even where the control is dense.
+  pickerCompact: { minHeight: 44, gap: space.sm, paddingHorizontal: space.sm },
+  pickerPressed: { backgroundColor: color.subtle },
+  // `flex: 1` so the chevron is pushed to the far edge of a full-width control,
+  // and `flexShrink` so it keeps its place when the registration is long.
+  pickerBody: { flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.md },
+  // A chip hugs its content instead: it sits in a row beside other controls,
+  // so growing to fill would make it as wide as the screen.
+  pickerBodyCompact: { flexGrow: 0, gap: space.sm },
+  // Nothing to pick: content, not a control.
+  pickerPlain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 56,
+    paddingVertical: space.sm,
+  },
+  pickerCompactPlain: { minHeight: 44, gap: space.sm },
 
   field: { gap: space.sm },
   label: { ...type.label, color: color.navy },

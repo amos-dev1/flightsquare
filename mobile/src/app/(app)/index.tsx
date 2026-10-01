@@ -15,7 +15,7 @@ import type {
   TenantResponse,
 } from '@flightsquare/shared';
 
-import { Body, Button, SectionHeading } from '@/components/ui';
+import { Body, Button, Field, Picker, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
 import { api, withAuth } from '@/lib/api';
 import { readSession } from '@/lib/auth';
@@ -227,26 +227,27 @@ export default function Dashboard() {
 
         {selected ? (
           <View style={styles.card}>
-            {/* Identity row — tapping it opens the picker, when there is
-                more than one thing to pick. */}
-            <Pressable
-              onPress={usable.length > 1 ? () => setPicking(true) : undefined}
-              disabled={usable.length <= 1}
-              accessibilityRole={usable.length > 1 ? 'button' : undefined}
-              accessibilityLabel={
-                usable.length > 1 ? `${selected.registration}. Change aircraft` : undefined
-              }
-              style={({ pressed }) => [styles.identity, pressed && styles.pressed]}
-            >
-              <Thumbnail />
-              <View style={styles.identityText}>
-                <Text style={styles.registration}>{selected.registration}</Text>
-                <Text style={styles.model}>{modelOf(selected)}</Text>
-              </View>
-              {usable.length > 1 ? (
-                <Feather name="chevron-down" size={22} color={color.navy} />
-              ) : null}
-            </Pressable>
+            {/*
+              Which aeroplane, and the fact that it can be another one.
+              Labelled and bordered like any other control (§11 §8) — before
+              this it was an unbordered row, indistinguishable from the
+              readings below it, and nothing said it was tappable at all.
+            */}
+            <View style={styles.identity}>
+              <Field label="Aircraft">
+                <Picker
+                  onPress={() => setPicking(true)}
+                  disabled={usable.length <= 1}
+                  label={`${selected.registration}. Change aircraft`}
+                >
+                  <Thumbnail />
+                  <View style={styles.identityText}>
+                    <Text style={styles.registration}>{selected.registration}</Text>
+                    <Text style={styles.model}>{modelOf(selected)}</Text>
+                  </View>
+                </Picker>
+              </Field>
+            </View>
 
             <View style={styles.rule} />
 
@@ -951,7 +952,9 @@ const styles = StyleSheet.create({
   sectionAction: { flexDirection: 'row', alignItems: 'center', gap: space.xs, paddingVertical: space.xs },
 
   // 5 — aircraft card
-  identity: { flexDirection: 'row', alignItems: 'center', gap: space.md, padding: space.base },
+  // Just the card's inset now — the row itself is a Picker, which carries its
+  // own height, border and gap.
+  identity: { padding: space.base },
   identityText: { flex: 1, gap: 2, flexShrink: 1 },
   registration: { ...type.sectionHeading, textTransform: 'uppercase' },
   model: { ...type.body, color: color.secondary },

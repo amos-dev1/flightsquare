@@ -11,7 +11,7 @@ import type {
 import { addDays, dayIn, dayLabel, startOfWeek, timeIn, todayIn } from '@flightsquare/shared/time';
 
 import { AircraftThumbnail } from '@/components/aircraft';
-import { Body, Notice, SectionHeading } from '@/components/ui';
+import { Body, Notice, Picker, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
 import { WeekStrip, type DayMarks } from '@/components/week';
 import { api, withAuth } from '@/lib/api';
@@ -296,20 +296,27 @@ export default function Schedule() {
             ))}
 
             {active.length > 1 ? (
-              <Pressable
+              /*
+                Compact, because it shares a row with the everyone/mine toggle
+                and a full-height labelled control would unbalance it — but the
+                same control boundary and the same chevron as the Dashboard and
+                Book pickers (§11 §8). It names what it changes, so the chip
+                reads as a control rather than as a statement of what is shown.
+              */
+              <Picker
+                compact
                 onPress={() => setPicking(true)}
-                accessibilityRole="button"
-                accessibilityLabel={
+                label={
                   chosen ? `Showing ${chosen.registration}. Change aircraft` : 'Filter by aircraft'
                 }
-                hitSlop={space.sm}
-                style={({ pressed }) => [styles.aircraftFilter, pressed && styles.pressed]}
               >
-                <Text style={styles.aircraftFilterLabel}>
-                  {chosen ? chosen.registration : 'All aircraft'}
-                </Text>
-                <Feather name="chevron-down" size={16} color={color.navy} />
-              </Pressable>
+                <View style={styles.aircraftFilterText}>
+                  <Text style={styles.aircraftFilterPrefix}>Aircraft</Text>
+                  <Text style={styles.aircraftFilterLabel} numberOfLines={1}>
+                    {chosen ? chosen.registration : 'All'}
+                  </Text>
+                </View>
+              </Picker>
             ) : null}
           </View>
 
@@ -556,18 +563,13 @@ const styles = StyleSheet.create({
   filter: { ...type.label, color: color.secondary, paddingVertical: space.xs },
   // Weight and a teal rule, so the selected filter is never colour alone.
   filterOn: { color: color.navy, borderBottomWidth: 2, borderBottomColor: color.teal },
-  aircraftFilter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    paddingVertical: space.xs,
-    paddingHorizontal: space.sm,
-    borderWidth: 1,
-    borderColor: color.line,
-    borderRadius: radius.control,
-    backgroundColor: color.surface,
-  },
-  aircraftFilterLabel: { ...type.label },
+  // Two Text nodes rather than one with a nested span: §11 reserves uppercase
+  // for registrations, and the word that names the control is not one. Siblings
+  // keep that unambiguous without relying on a nested textTransform overriding
+  // its parent.
+  aircraftFilterText: { flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 1 },
+  aircraftFilterPrefix: { ...type.label, color: color.secondary },
+  aircraftFilterLabel: { ...type.label, textTransform: 'uppercase', flexShrink: 1 },
 
   dayHead: {
     flexDirection: 'row',
