@@ -16,6 +16,9 @@ import type {
   FlightResponse,
   FlightSummaryResponse,
   LoginResponse,
+  GroundingOverrideRequest,
+  GroundingOverrideResponse,
+  MaintenanceItemHistoryResponse,
   MaintenanceItemResponse,
   MaintenanceSummaryResponse,
   PreviewMaintenanceRequest,
@@ -213,6 +216,21 @@ export function createClient(options: ClientOptions) {
      */
     previewMaintenance: (input: PreviewMaintenanceRequest) =>
       request<PreviewMaintenanceResponse>('POST', '/maintenance-items/preview', input),
+
+    /** §4.5: fly it anyway, for a reason and until a time. Never a switch. */
+    overrideGrounding: (aircraftId: string, input: GroundingOverrideRequest) =>
+      request<GroundingOverrideResponse>(
+        'POST',
+        `/aircraft/${aircraftId}/grounding/override`,
+        input,
+      ),
+
+    /** §7: what changed on an item, and who changed it. */
+    maintenanceItemHistory: (itemId: string) =>
+      request<MaintenanceItemHistoryResponse[]>(
+        'GET',
+        `/maintenance-items/${itemId}/history`,
+      ),
 
     listMaintenanceItems: (query: { aircraftId?: string } = {}) =>
       request<MaintenanceItemResponse[]>(

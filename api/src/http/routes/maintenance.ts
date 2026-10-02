@@ -2,6 +2,9 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import type {
   AircraftAvailabilityResponse,
+  GroundingOverrideRequest,
+  GroundingOverrideResponse,
+  MaintenanceItemHistoryResponse,
   MaintenanceSummaryResponse,
   PreviewMaintenanceRequest,
   PreviewMaintenanceResponse,
@@ -94,6 +97,21 @@ const itemFields = {
   rules: itemFieldsRules,
 } as const;
 
+
+const overrideSchema = {
+  body: {
+    type: 'object',
+    required: ['reason', 'until'],
+    additionalProperties: false,
+    properties: {
+      // §4.5 asks for a typed reason, and means typed: "ok" is not a record of
+      // why an aeroplane flew against an overdue inspection.
+      reason: { type: 'string', minLength: 10, maxLength: 500 },
+      until: { type: 'string', format: 'date-time' },
+      maintenance_item_id: { type: 'string', format: 'uuid' },
+    },
+  },
+} as const;
 
 const previewSchema = {
   body: {
@@ -431,6 +449,31 @@ function columnsOf(
   return columns;
 }
 
+/**
+ * What actually moved between two snapshots of a row.
+ *
+ * The log stores whole rows, because a trigger cannot know in advance which
+ * columns will matter. A reader can: showing them thirty unchanged fields to
+ * find the one that moved is how a log stops being read.
+ */
+function changedFields(
+  before: unknown,
+  after: unknown,
+): Record<string, { from: unknown; to: unknown }> {
+  const from = (before ?? {}) as Record<string, unknown>;
+  const to = (after ?? {}) as Record<string, unknown>;
+  const changed: Record<string, { from: unknown; to: unknown }> = {};
+
+  for (const key of new Set([...Object.keys(from), ...Object.keys(to)])) {
+    // Housekeeping, not a change anybody made.
+    if (key === 'updated_at' || key === 'created_at') continue;
+    if (JSON.stringify(from[key]) !== JSON.stringify(to[key])) {
+      changed[key] = { from: from[key] ?? null, to: to[key] ?? null };
+    }
+  }
+  return changed;
+}
+
 /** §4.4's states, worst first — the same order the status view ranks them in. */
 const SEVERITY = ['overdue', 'due_soon', 'upcoming', 'ok', 'inactive'] as const;
 
@@ -535,6 +578,142 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
         return toItems(trx, rows);
       });
       return items;
+    },
+  );
+
+  /**
+   * §4.5's override: fly it anyway, for a reason and until a time.
+   *
+   * `maintenance.items: write`, because deciding an aeroplane may fly against
+   * an overdue inspection is the sharpest end of signing off work — and the
+   * one judgement in the module that the app most explicitly does not make
+   * (§1 principle 2: the app advises, the A&P decides).
+   *
+   * It is an event, not a setting. The expiry is required and bounded, so the
+   * aeroplane returns to the honest answer by itself rather than when somebody
+   * remembers.
+   */
+  app.post<{ Params: { id: string }; Body: GroundingOverrideRequest }>(
+    '/aircraft/:id/grounding/override',
+    {
+      schema: overrideSchema,
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'write'],
+      },
+    },
+    async (request, reply) => {
+      const until = new Date(request.body.until);
+      if (Number.isNaN(until.getTime()) || until <= new Date()) {
+        return reply.status(400).send({
+          error: 'invalid_request',
+          detail: 'an override has to end in the future',
+        });
+      }
+      // A month is longer than any ferry permit and shorter than forgetting.
+      // An override that outlives the problem is the thing this must not be.
+      const horizon = new Date(Date.now() + 30 * 86_400_000);
+      if (until > horizon) {
+        return reply.status(400).send({
+          error: 'invalid_request',
+          detail: 'an override can run for at most 30 days; set a nearer date and renew it',
+        });
+      }
+
+      const result = await request.withTenant(async (trx) => {
+        await requireAircraft(trx, request.params.id);
+
+        if (request.body.maintenance_item_id) {
+          const item = await trx
+            .selectFrom('maintenance_items')
+            .select('id')
+            .where('id', '=', request.body.maintenance_item_id)
+            .where('aircraft_id', '=', request.params.id)
+            .executeTakeFirst();
+          if (!item) throw new NotFoundError();
+        }
+
+        const created = await trx
+          .insertInto('maintenance_grounding_events')
+          .values({
+            tenant_id: request.ctx!.tenantId!,
+            aircraft_id: request.params.id,
+            cause: request.body.maintenance_item_id ? 'item' : 'manual',
+            maintenance_item_id: request.body.maintenance_item_id ?? null,
+            override_reason: request.body.reason,
+            override_until: until,
+            override_by: await ownMembership(trx, request.ctx!.userId),
+          })
+          .returning(['id', 'override_until'])
+          .executeTakeFirstOrThrow();
+
+        // The dispatch state as it now stands, from the one view that decides
+        // it — so the screen that pressed the button needs no second call and
+        // cannot draw a different conclusion from the booking path.
+        const dispatch = await selectAvailability(trx)
+          .where('aircraft_id', '=', request.params.id)
+          .executeTakeFirstOrThrow();
+
+        return { created, dispatch };
+      });
+
+      return reply.status(201).send({
+        id: result.created.id,
+        aircraft_id: request.params.id,
+        reason: request.body.reason,
+        until: result.created.override_until!.toISOString(),
+        available: result.dispatch.available,
+        grounding_reasons: result.dispatch.grounding_reasons,
+      } satisfies GroundingOverrideResponse);
+    },
+  );
+
+  /**
+   * What changed on an item, and who changed it (§7).
+   *
+   * `maintenance.items: read` — this is the record, which is the half a pilot
+   * does not hold. Only the fields that actually moved are reported: a diff of
+   * two whole rows is something nobody reads, and a log nobody reads is not a
+   * log.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/maintenance-items/:id/history',
+    {
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'read'],
+      },
+    },
+    async (request) => {
+      return request.withTenant(async (trx) => {
+        const item = await trx
+          .selectFrom('maintenance_items')
+          .select('id')
+          .where('id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!item) throw new NotFoundError();
+
+        const rows = await trx
+          .selectFrom('maintenance_item_history as h')
+          .leftJoin('memberships as m', 'm.id', 'h.actor')
+          .leftJoin('users as u', 'u.id', 'm.user_id')
+          .select(['h.id', 'h.action', 'h.before', 'h.after', 'h.at', 'u.email as actor_email'])
+          .where('h.maintenance_item_id', '=', request.params.id)
+          .orderBy('h.at', 'desc')
+          .orderBy('h.id', 'desc')
+          .limit(200)
+          .execute();
+
+        return rows.map((row) => ({
+          id: row.id,
+          action: row.action,
+          actor_email: row.actor_email,
+          at: row.at.toISOString(),
+          changed: changedFields(row.before, row.after),
+        })) satisfies MaintenanceItemHistoryResponse[];
+      });
     },
   );
 

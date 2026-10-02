@@ -881,6 +881,46 @@ export type UpdateMaintenanceItemRequest = Partial<CreateMaintenanceItemRequest>
   status?: MaintenanceItemStatus;
 };
 
+/** One change to an item, from its append-only log (§7). */
+export interface MaintenanceItemHistoryResponse {
+  id: string;
+  action: 'created' | 'edited' | 'archived' | 'restored' | 'rolled_forward';
+  /** Null for a roll-forward: the database did the arithmetic, not a person. */
+  actor_email: string | null;
+  at: string;
+  /** What moved. Only the fields that changed, so a reader is not hunting. */
+  changed: Record<string, { from: unknown; to: unknown }>;
+}
+
+/**
+ * §4.5's override: a typed reason and a time it stops.
+ *
+ * Never a switch. An override with no expiry is a grounding turned off, and the
+ * aeroplane has to come back to the honest answer by itself rather than when
+ * somebody remembers.
+ *
+ * Squawks are not overridden this way. A reported defect is deferred under
+ * 14 CFR 91.213, which `squawk_deferrals` records — a second, weaker door would
+ * be a way around the deferral rather than an addition to it.
+ */
+export interface GroundingOverrideRequest {
+  reason: string;
+  /** ISO. The server refuses one in the past and one more than 30 days out. */
+  until: string;
+  /** The overdue item being flown against, when there is one. */
+  maintenance_item_id?: string;
+}
+
+export interface GroundingOverrideResponse {
+  id: string;
+  aircraft_id: string;
+  reason: string;
+  until: string;
+  /** The dispatch state as it now stands, so the screen needs no second call. */
+  available: boolean;
+  grounding_reasons: string[];
+}
+
 /**
  * What a rule would be, for a form nobody has saved (SPEC §8).
  *

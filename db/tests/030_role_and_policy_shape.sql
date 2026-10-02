@@ -170,6 +170,8 @@ BEGIN
                             'idempotency_keys.tenant_isolation',
                             'invites.tenant_isolation',
                             'ledger_adjustments.tenant_isolation',
+                            'maintenance_grounding_events.tenant_isolation',
+                            'maintenance_item_history.tenant_isolation',
                             'maintenance_item_rules.tenant_isolation',
                             'maintenance_items.tenant_isolation',
                             'member_aircraft_authorizations.tenant_isolation',

@@ -688,3 +688,181 @@ BEGIN
   RAISE NOTICE '   ok: the append-only tables are append-only in the grants';
 END
 $t$;
+
+-- ===========================================================================
+-- §4.5's override, and the log that records an edit
+-- ===========================================================================
+
+BEGIN;
+SET LOCAL app.tenant_id = '01920000-0000-7000-8000-00000000000a';
+SET LOCAL app.user_id   = '01920000-0000-7000-8000-0000000000a1';
+
+-- An aircraft, an annual that grounds it, and no record behind it.
+INSERT INTO public.aircraft (id, tenant_id, registration, type_code)
+VALUES ('01920000-0000-7000-8000-00000000d001',
+        '01920000-0000-7000-8000-00000000000a', 'N600OV', 'C172');
+
+INSERT INTO public.maintenance_items
+  (id, tenant_id, aircraft_id, name, grounds_aircraft, due_on,
+   interval_months, warn_within_days)
+VALUES ('01920000-0000-7000-8000-00000000d002',
+        '01920000-0000-7000-8000-00000000000a',
+        '01920000-0000-7000-8000-00000000d001',
+        'Annual inspection', true, current_date - 1, 12, 45);
+
+INSERT INTO public.maintenance_item_rules
+  (tenant_id, maintenance_item_id, kind, every, end_of_month, due_on,
+   warn_at, critical_at)
+VALUES ('01920000-0000-7000-8000-00000000000a',
+        '01920000-0000-7000-8000-00000000d002',
+        'cal_month', 12, true, current_date - 1, 45, 7);
+
+DO $t$
+DECLARE a record;
+BEGIN
+  SELECT * INTO a FROM public.aircraft_availability
+   WHERE aircraft_id = '01920000-0000-7000-8000-00000000d001';
+  IF a.available THEN
+    RAISE EXCEPTION 'an out-of-annual aircraft is bookable before any override';
+  END IF;
+
+  -- §4.5: a typed reason and an expiry. Not a switch.
+  INSERT INTO public.maintenance_grounding_events
+    (tenant_id, aircraft_id, cause, maintenance_item_id,
+     override_reason, override_until, override_by)
+  VALUES ('01920000-0000-7000-8000-00000000000a',
+          '01920000-0000-7000-8000-00000000d001', 'item',
+          '01920000-0000-7000-8000-00000000d002',
+          'Ferry permit to Castellano Aviation, FAA 8130-6 on file',
+          now() + interval '3 days',
+          '01920000-0000-7000-8000-0000000000a2');
+
+  SELECT * INTO a FROM public.aircraft_availability
+   WHERE aircraft_id = '01920000-0000-7000-8000-00000000d001';
+  IF NOT a.available THEN
+    RAISE EXCEPTION 'a live override did not return the aircraft to service';
+  END IF;
+  -- The reason stays in the list. A club calling a member has to be able to
+  -- say what was overridden and until when, not merely that it was.
+  IF NOT (a.grounding_reasons::text LIKE '%Override until%Ferry permit%') THEN
+    RAISE EXCEPTION 'the override is invisible: %', a.grounding_reasons;
+  END IF;
+  -- And the item is still overdue. The override is about the aeroplane, not
+  -- about the inspection, and the maintenance screen goes on saying so.
+  IF (SELECT state FROM public.maintenance_item_status
+       WHERE maintenance_item_id = '01920000-0000-7000-8000-00000000d002') <> 'overdue' THEN
+    RAISE EXCEPTION 'an override made the item itself look compliant';
+  END IF;
+  RAISE NOTICE '   ok: an override returns the aeroplane without clearing the item';
+END
+$t$;
+
+DO $t$
+DECLARE a record;
+BEGIN
+  -- It ends by itself. Nobody has to remember, which is the whole reason
+  -- `override_until` is required rather than optional.
+  UPDATE public.maintenance_grounding_events
+     SET cleared_at = now()
+   WHERE aircraft_id = '01920000-0000-7000-8000-00000000d001';
+
+  SELECT * INTO a FROM public.aircraft_availability
+   WHERE aircraft_id = '01920000-0000-7000-8000-00000000d001';
+  IF a.available THEN
+    RAISE EXCEPTION 'a cleared override still lets the aircraft fly';
+  END IF;
+  RAISE NOTICE '   ok: and the aeroplane goes back down when it ends';
+END
+$t$;
+
+DO $t$
+BEGIN
+  -- Half an override is not an override: a reason with no end is a grounding
+  -- switched off, which is the thing this must never become.
+  BEGIN
+    INSERT INTO public.maintenance_grounding_events
+      (tenant_id, aircraft_id, cause, maintenance_item_id, override_reason)
+    VALUES ('01920000-0000-7000-8000-00000000000a',
+            '01920000-0000-7000-8000-00000000d001', 'item',
+            '01920000-0000-7000-8000-00000000d002', 'because I said so');
+    RAISE EXCEPTION 'an override with no expiry was accepted';
+  EXCEPTION WHEN check_violation THEN
+    RAISE NOTICE '   ok: an override needs a reason and an end, or it is neither';
+  END;
+END
+$t$;
+
+-- ---------------------------------------------------------------------------
+-- The log writes itself, and says who
+-- ---------------------------------------------------------------------------
+DO $t$
+DECLARE n bigint; v_action text; v_actor uuid;
+BEGIN
+  SELECT count(*) INTO n FROM public.maintenance_item_history
+   WHERE maintenance_item_id = '01920000-0000-7000-8000-00000000d002'
+     AND action = 'created';
+  IF n <> 1 THEN RAISE EXCEPTION 'creating an item left % history rows', n; END IF;
+
+  UPDATE public.maintenance_items SET name = 'Annual inspection (Dave''s shop)'
+   WHERE id = '01920000-0000-7000-8000-00000000d002';
+
+  SELECT action, actor INTO v_action, v_actor
+    FROM public.maintenance_item_history
+   WHERE maintenance_item_id = '01920000-0000-7000-8000-00000000d002'
+   ORDER BY at DESC, id DESC LIMIT 1;
+  IF v_action <> 'edited' THEN
+    RAISE EXCEPTION 'a rename was logged as %', v_action;
+  END IF;
+  IF v_actor IS NULL THEN
+    RAISE EXCEPTION 'an edit was logged with nobody attached to it';
+  END IF;
+  RAISE NOTICE '   ok: an edit is logged, with the member who made it';
+END
+$t$;
+
+DO $t$
+DECLARE v_action text; v_actor uuid;
+BEGIN
+  -- A completion moves the anchor and the due points. That is the database
+  -- doing arithmetic, not a person changing their mind about an interval, and
+  -- the log says which.
+  INSERT INTO public.compliance_records
+    (tenant_id, aircraft_id, maintenance_item_id, kind, title, complied_on)
+  VALUES ('01920000-0000-7000-8000-00000000000a',
+          '01920000-0000-7000-8000-00000000d001',
+          '01920000-0000-7000-8000-00000000d002',
+          'inspection', 'Annual inspection', current_date);
+
+  SELECT action, actor INTO v_action, v_actor
+    FROM public.maintenance_item_history
+   WHERE maintenance_item_id = '01920000-0000-7000-8000-00000000d002'
+   ORDER BY at DESC, id DESC LIMIT 1;
+  IF v_action <> 'rolled_forward' THEN
+    RAISE EXCEPTION 'a completion was logged as %', v_action;
+  END IF;
+  IF v_actor IS NOT NULL THEN
+    RAISE EXCEPTION 'the roll-forward claimed a person did it';
+  END IF;
+  RAISE NOTICE '   ok: a roll-forward is not an edit, and names nobody';
+END
+$t$;
+
+DO $t$
+BEGIN
+  BEGIN
+    UPDATE public.maintenance_item_history SET action = 'edited'
+     WHERE maintenance_item_id = '01920000-0000-7000-8000-00000000d002';
+    RAISE EXCEPTION 'the edit log is editable';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE '   ok: an edit log that can be edited is not one';
+  END;
+
+  BEGIN
+    DELETE FROM public.maintenance_item_history;
+    RAISE EXCEPTION 'the edit log can be deleted';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE '   ok: and it cannot be deleted either';
+  END;
+END
+$t$;
+ROLLBACK;

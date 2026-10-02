@@ -616,6 +616,44 @@ export interface MaintenanceItemRulesTable {
   updated_at: Generated<Timestamp>;
 }
 
+/**
+ * §4.5: why an aeroplane is down, and the override that lets it fly anyway.
+ *
+ * An event with an end, never a setting. `override_until` is required alongside
+ * the reason precisely so the aeroplane returns to the honest answer by itself.
+ */
+export interface MaintenanceGroundingEventsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  cause: 'item' | 'squawk' | 'manual';
+  maintenance_item_id: string | null;
+  started_at: Generated<Timestamp>;
+  cleared_at: Timestamp | null;
+  override_reason: string | null;
+  override_until: Timestamp | null;
+  override_by: string | null;
+  created_at: Generated<Timestamp>;
+}
+
+/** §7: what changed on an item, by whom. Append-only — INSERT and SELECT only. */
+export interface MaintenanceItemHistoryTable {
+  id: Generated<string>;
+  tenant_id: string;
+  maintenance_item_id: string;
+  /** Null for a roll-forward: the database did it, not a person. */
+  actor: string | null;
+  action: 'created' | 'edited' | 'archived' | 'restored' | 'rolled_forward';
+  before: unknown;
+  after: unknown;
+  /**
+   * Read-only, because nothing in the application writes this table — the
+   * trigger does. `Generated` would say "you may omit it on insert"; `never`
+   * says there is no insert from here at all, which is the truth.
+   */
+  at: ColumnType<Date, never, never>;
+}
+
 /** Every rule's own next due, remaining and state. Derived, never stored. */
 export interface MaintenanceRuleStatusView {
   rule_id: ViewColumn<string>;
@@ -933,6 +971,8 @@ export interface Database {
   maintenance_interval_templates: MaintenanceIntervalTemplatesTable;
   maintenance_items: MaintenanceItemsTable;
   maintenance_item_rules: MaintenanceItemRulesTable;
+  maintenance_grounding_events: MaintenanceGroundingEventsTable;
+  maintenance_item_history: MaintenanceItemHistoryTable;
   maintenance_item_status: MaintenanceItemStatusView;
   maintenance_rule_status: MaintenanceRuleStatusView;
   aircraft_availability: AircraftAvailabilityView;
