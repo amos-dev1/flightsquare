@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, Check, Clock, Info } from 'lucide-react';
+import { AlertTriangle, Ban, CalendarClock, Check, Clock, Info } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 
 /**
@@ -193,10 +193,23 @@ export function KeyMetric({
  * Status, as §11 specifies it: an icon and explicit wording, never colour
  * alone, and never an airworthiness claim inferred from silence.
  */
-export type StatusKind = 'available' | 'due_soon' | 'overdue' | 'grounded' | 'neutral';
+export type StatusKind =
+  | 'available'
+  | 'upcoming'
+  | 'due_soon'
+  | 'overdue'
+  | 'grounded'
+  | 'neutral';
 
 const STATUS: Record<StatusKind, { icon: typeof Check; label: string; emphatic: boolean }> = {
   available: { icon: Check, label: 'Available', emphatic: false },
+  /*
+    SPEC §4.4 has four states, and `upcoming` is the one the web was missing:
+    something to plan around rather than to book a shop slot for. Collapsing it
+    into `due_soon` would put an annual twenty-nine days out in the same
+    register as an oil change two hours out.
+  */
+  upcoming: { icon: CalendarClock, label: 'Upcoming', emphatic: false },
   due_soon: { icon: Clock, label: 'Due soon', emphatic: false },
   overdue: { icon: AlertTriangle, label: 'Overdue', emphatic: true },
   grounded: { icon: Ban, label: 'Grounded', emphatic: true },

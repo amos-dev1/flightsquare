@@ -1,18 +1,32 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useActionState, useEffect, useState, useTransition } from 'react';
 import { CalendarPlus, Ban, X } from 'lucide-react';
 
 import {
   bookAircraft,
   cancelReservation,
+  checkBookingAgainstMaintenance,
   clearReservationFlag,
   createBlackout,
   removeBlackout,
   type FormState,
 } from '@/app/actions';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
-import type { AircraftResponse, BlackoutResponse } from '@flightsquare/shared';
+import type {
+  AircraftResponse,
+  BlackoutResponse,
+  BookingMaintenanceCheckResponse,
+} from '@flightsquare/shared';
+
+/** "09:00" to "12:00" as 3.0. Wall-clock subtraction, nothing more. */
+function hoursBetween(from: string, to: string): number {
+  const minutes = (value: string): number => {
+    const [h, m] = value.split(':');
+    return Number(h ?? 0) * 60 + Number(m ?? 0);
+  };
+  return Math.max(0, (minutes(to) - minutes(from)) / 60);
+}
 
 /**
  * Booking, in the club's own clock.
@@ -35,6 +49,40 @@ export function BookingForm({
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(bookAircraft, {});
 
+  /*
+    §4.6: what this block of time would take the aeroplane past.
+
+    The block's length is wall-clock arithmetic a browser may do; whether it
+    crosses an inspection is not — that needs the meters and every rule on the
+    aeroplane, which §8.2 keeps on the server. Warn only: it never stops the
+    submit, and no answer is no warning.
+  */
+  const [aircraftId, setAircraftId] = useState(defaultAircraftId);
+  const [starts, setStarts] = useState(state.values?.starts ?? '09:00');
+  const [ends, setEnds] = useState(state.values?.ends ?? '12:00');
+  const [crosses, setCrosses] = useState<BookingMaintenanceCheckResponse['crosses']>([]);
+
+  const blockHours = hoursBetween(starts, ends);
+
+  useEffect(() => {
+    if (!aircraftId || blockHours <= 0) {
+      setCrosses([]);
+      return;
+    }
+    let current = true;
+    const timer = setTimeout(() => {
+      void checkBookingAgainstMaintenance(aircraftId, blockHours.toFixed(1)).then((result) => {
+        if (current) setCrosses(result.crosses ?? []);
+      });
+    }, 400);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [aircraftId, blockHours]);
+
+  const registration = fleet.find((one) => one.id === aircraftId)?.registration ?? 'the aircraft';
+
   return (
     <Card className="p-5">
       <form action={action} className="space-y-4">
@@ -43,7 +91,8 @@ export function BookingForm({
             <Select
               name="aircraft_id"
               required
-              defaultValue={state.values?.aircraft_id ?? defaultAircraftId}
+              value={aircraftId}
+              onChange={(event) => setAircraftId(event.target.value)}
             >
               {fleet.map((aircraft) => (
                 <option key={aircraft.id} value={aircraft.id}>
@@ -68,7 +117,8 @@ export function BookingForm({
               type="time"
               required
               step={900}
-              defaultValue={state.values?.starts ?? '09:00'}
+              value={starts}
+              onChange={(event) => setStarts(event.target.value)}
               className="tabular"
             />
           </Field>
@@ -79,7 +129,8 @@ export function BookingForm({
               type="time"
               required
               step={900}
-              defaultValue={state.values?.ends ?? '12:00'}
+              value={ends}
+              onChange={(event) => setEnds(event.target.value)}
               className="tabular"
             />
           </Field>
@@ -97,6 +148,17 @@ export function BookingForm({
         <Field label="Notes">
           <Textarea name="notes" maxLength={2000} defaultValue={state.values?.notes} />
         </Field>
+
+        {/* A warning, not a refusal: somebody may be flying it to the shop, and
+            a club that cannot book the flight that fixes the aeroplane is a club
+            that stops using the app. */}
+        {crosses.length > 0 ? (
+          <Alert tone="info">
+            {`This ${blockHours.toFixed(1)} hr booking would take ${registration} past ${crosses
+              .map((item) => item.name)
+              .join(' and ')}. You can still book it.`}
+          </Alert>
+        ) : null}
 
         {state.error ? <Alert>{state.error}</Alert> : null}
         {state.saved ? <Alert tone="info">Booked. It is on the calendar below.</Alert> : null}

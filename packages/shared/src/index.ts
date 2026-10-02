@@ -1037,6 +1037,39 @@ export interface MaintenanceSummaryResponse {
   }[];
 }
 
+/**
+ * SPEC §4.6: would this booking take the aeroplane past something?
+ *
+ * **Warn only, and the wording matters.** Nothing here refuses a booking — the
+ * only thing that does is `aircraft_availability`, which answers whether the
+ * aeroplane is dispatchable *now*. This answers a different question, about a
+ * block of time that has not happened yet, and the honest response to it is to
+ * tell the pilot and let them book: a club member taking the 172 for three hours
+ * when the oil change is two hours out needs to know, and may well be flying it
+ * to the shop.
+ */
+export interface BookingMaintenanceCheckResponse {
+  aircraft_id: string;
+  /** The block that was asked about, echoed so a stale reply is recognisable. */
+  hours: string;
+  /**
+   * The hour-based items the block would cross, soonest first.
+   *
+   * Only hour rules: a calendar item is unaffected by how long somebody flies,
+   * and an item already past its due point is a different sentence — the
+   * grounding reasons and restrictions on the summary already say that one.
+   */
+  crosses: {
+    id: string;
+    name: string;
+    /** Which meter, because "2.0 hr left" means nothing without it (§3.4). */
+    kind: MaintenanceRuleKind;
+    remaining: string;
+    /** Whether crossing it would stop the aeroplane, rather than just note it. */
+    grounds_aircraft: boolean;
+  }[];
+}
+
 /** One entry in the preset library (§3.6), offered before it is instantiated. */
 export interface MaintenanceTemplateResponse {
   code: string;
@@ -1073,6 +1106,16 @@ export interface ComplianceRecordResponse {
   recorded_at: string;
   /** Set when a later correction supersedes this row. Both stay (§3.6). */
   superseded: boolean;
+  /**
+   * Taken back (§4.7), with the reason given.
+   *
+   * Labelled rather than hidden: a retracted completion is part of the trail,
+   * and a log that quietly loses one is a log that cannot be read back. Both
+   * fields are additive, so a shipped build that does not know about them shows
+   * the row as it always did (§8.1).
+   */
+  voided?: boolean;
+  void_reason?: string | null;
 }
 
 /**

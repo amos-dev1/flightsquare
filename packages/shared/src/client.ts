@@ -5,10 +5,13 @@ import type {
   AircraftTypeResponse,
   AttachmentResponse,
   BlackoutResponse,
+  BookingMaintenanceCheckResponse,
   CreateAircraftRequest,
   CreateAttachmentRequest,
+  ComplianceRecordResponse,
   CreateComplianceRecordRequest,
   CreateFlightRequest,
+  CreateMaintenanceItemRequest,
   CreateMeterReadingRequest,
   CreateReservationRequest,
   CreateSquawkRequest,
@@ -36,6 +39,7 @@ import type {
   SquawkResponse,
   StatementResponse,
   TenantResponse,
+  UpdateMaintenanceItemRequest,
 } from './index.js';
 
 /**
@@ -260,6 +264,48 @@ export function createClient(options: ClientOptions) {
       request<MaintenanceItemHistoryResponse[]>(
         'GET',
         `/maintenance-items/${itemId}/history`,
+      ),
+
+    /** One item, for a detail screen reached by id rather than by list. */
+    maintenanceItem: (itemId: string) =>
+      request<MaintenanceItemResponse>('GET', `/maintenance-items/${itemId}`),
+
+    /** What has been logged against it, voided rows labelled rather than gone. */
+    maintenanceItemCompletions: (itemId: string) =>
+      request<ComplianceRecordResponse[]>(
+        'GET',
+        `/maintenance-items/${itemId}/completions`,
+      ),
+
+    /**
+     * Adding something to track (mockup 03).
+     *
+     * `rules` rather than the `interval_*` fields: a form that knows about
+     * whichever-comes-first sends the rules whole, and the old fields stay for
+     * the build already on the App Store (§8.1).
+     */
+    createMaintenanceItem: (aircraftId: string, input: CreateMaintenanceItemRequest) =>
+      request<MaintenanceItemResponse>(
+        'POST',
+        `/aircraft/${aircraftId}/maintenance-items`,
+        input,
+      ),
+
+    /** Editing one, or archiving it — `status` is on the same request. */
+    updateMaintenanceItem: (itemId: string, input: UpdateMaintenanceItemRequest) =>
+      request<MaintenanceItemResponse>('PATCH', `/maintenance-items/${itemId}`, input),
+
+    /**
+     * §4.6: would a block of this many hours take the aeroplane past something?
+     *
+     * `reservations: read`, not `maintenance.items` — a pilot has to be able to
+     * ask it, and a pilot holds nothing on the record. Warn only: the answer
+     * never stops a booking.
+     */
+    bookingMaintenanceCheck: (aircraftId: string, hours: string) =>
+      request<BookingMaintenanceCheckResponse>(
+        'GET',
+        `/aircraft/${aircraftId}/bookings/check?hours=${encodeURIComponent(hours)}`,
       ),
 
     listMaintenanceItems: (query: { aircraftId?: string } = {}) =>

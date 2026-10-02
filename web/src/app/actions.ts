@@ -11,8 +11,10 @@ import type {
   AerodromeResponse,
   AircraftResponse,
   BillingRedirectResponse,
+  BookingMaintenanceCheckResponse,
   CheckoutRequest,
   LoginResponse,
+  PreviewMaintenanceResponse,
   SelectTenantResponse,
 } from '@flightsquare/shared';
 
@@ -468,6 +470,301 @@ export async function recordCompliance(
   revalidatePath('/aircraft');
   revalidatePath(`/aircraft/${aircraftId}`);
   return { saved: true };
+}
+
+/**
+ * Adding something to track (SPEC §4.2, mockup 03), or editing it.
+ *
+ * `rules` and not the older `interval_*` fields: an item can be due on up to
+ * three bases at once and the earliest wins, which the single interval could
+ * not say. The due points are the server's — the form sends what was typed and
+ * what it was last done at, and §8.2 keeps the arithmetic on the far side.
+ */
+export async function saveMaintenanceItem(
+  aircraftId: string,
+  itemId: string | null,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values: Record<string, string> = {};
+  for (const [key, value] of form.entries()) {
+    if (typeof value === 'string') values[key] = value;
+  }
+
+  if (!text('name')) return { error: 'Give the item a name.', values };
+
+  const rules = readRules(form);
+  if (rules.length === 0) {
+    return { error: 'Set at least one interval, or this item never comes due.', values };
+  }
+
+  const body: Record<string, unknown> = {
+    name: text('name'),
+    category: text('category') || 'airframe',
+    grounds_aircraft: form.get('grounds_aircraft') === 'on',
+    rules,
+  };
+  if (text('regulatory_reference')) body.regulatory_reference = text('regulatory_reference');
+  if (text('description')) body.description = text('description');
+  // A restriction and a grounding are different consequences (§4.5): an
+  // overdue transponder check is "VFR only", not an aeroplane that cannot fly.
+  if (!body.grounds_aircraft && text('restriction_label')) {
+    body.restriction_label = text('restriction_label');
+  }
+  if (text('tolerance_hours')) body.tolerance_hours = text('tolerance_hours');
+
+  try {
+    if (itemId) {
+      await apiFetch(`/maintenance-items/${itemId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+    } else {
+      await apiFetch(`/aircraft/${aircraftId}/maintenance-items`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+    }
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/maintenance');
+  revalidatePath(`/aircraft/${aircraftId}`);
+  if (itemId) revalidatePath(`/maintenance/${itemId}`);
+  redirect(itemId ? `/maintenance/${itemId}` : '/maintenance');
+}
+
+/**
+ * What the form's footer says, before anything is saved.
+ *
+ * §13 requires the preview to match what saving produces, and it does by
+ * construction: this endpoint and the completion trigger call the same two
+ * database functions. The alternative — working the date out in the browser —
+ * is a second implementation that would drift within a month.
+ */
+export async function previewMaintenanceRules(
+  aircraftId: string,
+  rules: unknown[],
+  tolerance?: string,
+): Promise<{ preview?: PreviewMaintenanceResponse; error?: string }> {
+  if (rules.length === 0) return {};
+  try {
+    const preview = await apiFetch<PreviewMaintenanceResponse>('/maintenance-items/preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        aircraft_id: aircraftId,
+        rules,
+        ...(tolerance ? { tolerance_hours: tolerance } : {}),
+      }),
+    });
+    return { preview };
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+}
+
+/**
+ * The rules out of a form, up to three, each prefixed by its index.
+ *
+ * Strings all the way: the meters are `numeric` and a float round-trip is how
+ * a countdown drifts by a tenth and then by an hour.
+ */
+function readRules(form: FormData): Record<string, unknown>[] {
+  const rules: Record<string, unknown>[] = [];
+  for (let index = 0; index < 3; index += 1) {
+    const kind = String(form.get(`rules.${index}.kind`) ?? '').trim();
+    if (!kind) continue;
+
+    const every = String(form.get(`rules.${index}.every`) ?? '').trim();
+    const fixedDate = String(form.get(`rules.${index}.fixed_date`) ?? '').trim();
+    if (kind !== 'fixed_date' && !every) continue;
+    if (kind === 'fixed_date' && !fixedDate) continue;
+
+    const anchorOn = String(form.get(`rules.${index}.anchor_on`) ?? '').trim();
+    const anchorHours = String(form.get(`rules.${index}.anchor_hours`) ?? '').trim();
+
+    rules.push({
+      kind,
+      ...(kind === 'fixed_date' ? { fixed_date: fixedDate } : { every }),
+      end_of_month: form.get(`rules.${index}.end_of_month`) === 'on',
+      ...(anchorOn ? { anchor_on: anchorOn } : {}),
+      ...(anchorHours ? { anchor_hours: anchorHours } : {}),
+    });
+  }
+  return rules;
+}
+
+/**
+ * Logging a completion (§4.7, mockup 05).
+ *
+ * This is the path that rolls the item forward, and it is a different act from
+ * `recordCompliance` above: that one records an AD or a work order against the
+ * aircraft, this one says "the thing we were counting down to has been done".
+ */
+export async function logMaintenanceCompletion(
+  itemId: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values = Object.fromEntries(
+    ['done_on', 'tach', 'hobbs', 'performed_by', 'cert_no', 'notes'].map((k) => [k, text(k)]),
+  );
+
+  if (!values.done_on) return { error: 'Enter the date the work was done.', values };
+
+  const body: Record<string, unknown> = { done_on: values.done_on };
+  for (const key of ['tach', 'hobbs', 'performed_by', 'cert_no', 'notes'] as const) {
+    if (values[key]) body[key] = values[key];
+  }
+  if (text('next_from')) body.next_from = text('next_from');
+
+  try {
+    await apiFetch(`/maintenance-items/${itemId}/completions`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/maintenance');
+  revalidatePath(`/maintenance/${itemId}`);
+  return { saved: true };
+}
+
+/**
+ * Taking a completion back (§4.7).
+ *
+ * Not a delete and not an edit. `compliance_records` is the table read back
+ * after an accident (§7.2), so the record stays and the void is its own fact,
+ * with a reason and an actor — which is why the reason is required here rather
+ * than optional.
+ */
+export async function voidMaintenanceCompletion(
+  itemId: string,
+  recordId: string,
+  reason: string,
+): Promise<ActionResult> {
+  if (reason.trim().length < 5) {
+    return { error: 'Say why in a few words. This stays on the record.' };
+  }
+  try {
+    await apiFetch(`/maintenance-completions/${recordId}/void`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason.trim() }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
+  revalidatePath('/maintenance');
+  revalidatePath(`/maintenance/${itemId}`);
+  return {};
+}
+
+/** Archiving an item, or bringing it back. §5.5: never a delete. */
+export async function setMaintenanceItemStatus(
+  itemId: string,
+  status: 'active' | 'archived',
+): Promise<ActionResult> {
+  try {
+    await apiFetch(`/maintenance-items/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
+  revalidatePath('/maintenance');
+  revalidatePath(`/maintenance/${itemId}`);
+  return {};
+}
+
+/**
+ * §4.5's override: fly it anyway, for a reason and until a time.
+ *
+ * Never a switch. An override with no expiry is a grounding turned off, so the
+ * expiry is required and the server bounds it — the aeroplane comes back to the
+ * honest answer by itself rather than when somebody remembers.
+ */
+export async function overrideGrounding(
+  aircraftId: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const reason = String(form.get('reason') ?? '').trim();
+  const until = String(form.get('until') ?? '').trim();
+  const values = { reason, until };
+
+  if (reason.length < 5) return { error: 'Say why, in a sentence.', values };
+  if (!until) return { error: 'Say when the override ends.', values };
+
+  try {
+    await apiFetch(`/aircraft/${aircraftId}/grounding/override`, {
+      method: 'POST',
+      body: JSON.stringify({
+        reason,
+        // A local datetime from the browser, as an instant.
+        until: new Date(until).toISOString(),
+        ...(form.get('maintenance_item_id')
+          ? { maintenance_item_id: String(form.get('maintenance_item_id')) }
+          : {}),
+      }),
+    });
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath('/maintenance');
+  revalidatePath('/schedule');
+  revalidatePath(`/aircraft/${aircraftId}`);
+  return { saved: true };
+}
+
+/**
+ * §4.6: would this block take the aeroplane past something?
+ *
+ * Warn only, and a failure is no warning rather than a blocked form — the
+ * booking is refused by the exclusion constraint and by availability, never by
+ * this.
+ */
+export async function checkBookingAgainstMaintenance(
+  aircraftId: string,
+  hours: string,
+): Promise<{ crosses?: BookingMaintenanceCheckResponse['crosses'] }> {
+  try {
+    const result = await apiFetch<BookingMaintenanceCheckResponse>(
+      `/aircraft/${aircraftId}/bookings/check?hours=${encodeURIComponent(hours)}`,
+    );
+    return { crosses: result.crosses };
+  } catch {
+    return {};
+  }
+}
+
+/** The feed (§3.8). Opening a notice is seeing it, so this is not a gesture. */
+export async function markNotificationRead(id: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/notifications/${id}/read`, { method: 'POST' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/notifications');
+  return {};
+}
+
+export async function markAllNotificationsRead(): Promise<ActionResult> {
+  try {
+    await apiFetch('/notifications/read-all', { method: 'POST' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath('/notifications');
+  return {};
 }
 
 /**

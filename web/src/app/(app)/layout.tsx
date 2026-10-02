@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { Bell } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { logout } from '@/app/actions';
@@ -46,6 +47,15 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     }
     throw error;
   }
+
+  /*
+    The bell (§3.8). Its own request and its own failure: a feed that cannot be
+    counted must not take the whole shell down with it, and no dot is the right
+    answer when we do not know.
+  */
+  const unread = await apiFetch<{ unread: number }>('/notifications/unread-count')
+    .then((body) => body.unread)
+    .catch(() => 0);
 
   const aircraftQuota = entitlements.quotas['aircraft.active'];
   const memberQuota = entitlements.quotas['members.active'];
@@ -136,6 +146,25 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             )}
             <NavLink href="/settings">Settings</NavLink>
           </nav>
+
+          {/*
+            §11 §7: an outline icon in navy, with the count as a word for a
+            screen reader rather than a dot alone — colour carries nothing on its
+            own (§11 §13).
+          */}
+          <Link
+            href="/notifications"
+            aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+            className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-subtle"
+          >
+            <Bell aria-hidden size={20} strokeWidth={1.75} />
+            {unread > 0 ? (
+              <span
+                aria-hidden
+                className="absolute right-2.5 top-2.5 size-2 rounded-full border-2 border-surface bg-navy"
+              />
+            ) : null}
+          </Link>
 
           <span className="hidden text-sm text-secondary sm:inline">{tenant.name}</span>
           <form action={logout}>

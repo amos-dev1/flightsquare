@@ -1,62 +1,116 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import Feather from '@expo/vector-icons/Feather';
 import type {
   AircraftResponse,
   MaintenanceItemResponse,
+  MaintenanceState,
+  MaintenanceSummaryResponse,
   SquawkResponse,
 } from '@flightsquare/shared';
 
-import { Body, Button, Card, Notice, SectionHeading, Status } from '@/components/ui';
+import { Body, Button, Card, CardHeading, Notice, Picker, SectionHeading } from '@/components/ui';
+import { Sheet } from '@/components/sheet';
+import { AircraftThumbnail } from '@/components/aircraft';
 import { api, withAuth } from '@/lib/api';
-import { color, space, type } from '@/theme';
+import { readSession } from '@/lib/auth';
+import { usePermission } from '@/lib/entitlements';
+import { readPref, writePref } from '@/lib/prefs';
+import { color, radius, space, statusColor, type } from '@/theme';
 
 /**
- * What the fleet owes and what is wrong with it.
+ * Maintenance, which is two screens behind one tab.
  *
- * Reading defects was the half that did not exist: a pilot could file one
- * from the phone and never see one, which makes the walk-around check — "has
- * anybody else found this?" — impossible in the place it is actually done.
+ * SPEC §3 splits the module in half and §5 draws both. An admin gets the
+ * record — the status card, every tracked item with its countdown, and the way
+ * in to adding one. A pilot gets the aeroplane: whether it flies, what is
+ * coming up, and a way to report what they found. The split is a permission,
+ * not a role name (§1.5), so this screen asks what the member holds rather than
+ * what they are called.
  *
- * Two lists, because the dashboard counts both and a screen that showed only
- * one would contradict the number that sent you here. §1.5 keeps them
- * separate resources for a reason — filing a defect and signing off the work
- * are different acts done by different people — so they are separate
- * sections rather than one merged list.
- *
- * Nothing here closes anything. §1.5 puts every status change behind
- * `maintenance: write`, which a Pilot does not hold, and offering a button
- * the server would refuse is worse than not offering it.
+ * Nothing here computes a due date, a remaining or a state. §8.2: the client
+ * renders what the API returned, and the API renders what the database said —
+ * which is why the same numbers appear here, on the web, and in the digest.
  */
+
+const SELECTED = 'maintenance.aircraft';
+
+type Filter = 'all' | 'due_soon' | 'overdue';
+
 export default function Maintenance() {
-  const [squawks, setSquawks] = useState<SquawkResponse[] | null>(null);
-  const [items, setItems] = useState<MaintenanceItemResponse[]>([]);
-  // A maintenance item carries `aircraft_id` and no registration, and a
-  // card that cannot name the aeroplane is not worth showing.
+  const canReadItems = usePermission('maintenance.items') !== 'none';
+  const canWriteItems = usePermission('maintenance.items') === 'write';
+
   const [fleet, setFleet] = useState<AircraftResponse[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+
+  const [summary, setSummary] = useState<MaintenanceSummaryResponse | null>(null);
+  const [items, setItems] = useState<MaintenanceItemResponse[]>([]);
+  const [squawks, setSquawks] = useState<SquawkResponse[]>([]);
+  const [filter, setFilter] = useState<Filter>('all');
+
+  const [unread, setUnread] = useState(0);
+  /** Who and where, for the remembered selection. Read once, not per tap. */
+  const [scope, setScope] = useState<{ userId: string; tenantId: string } | null>(null);
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
+    // Each one catches its own: a club without the maintenance module must not
+    // lose the squawk list, and a pilot's 403 on the item list is the
+    // permission model working rather than a failure to load.
+    const optional = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+      promise.catch(() => fallback);
+
     try {
-      const [defects, due, aircraft] = await Promise.all([
-        withAuth(() => api.listSquawks()),
-        // Every tier has maintenance tracking (§4.3), so this does not 404
-        // for entitlement reasons — but a tenant override could switch it
-        // off, and the defects are worth showing either way.
-        withAuth(() => api.listMaintenanceItems()).catch(() => []),
-        withAuth(() => api.listAircraft()).catch(() => []),
-      ]);
-      setSquawks(defects);
-      setItems(due);
-      setFleet(aircraft);
+      const aircraft = await withAuth(() => api.listAircraft());
+      const active = aircraft.filter((one) => one.status === 'active');
+      setFleet(active);
       setOffline(false);
+
+      // Per (user, tenant), like the dashboard's: somebody in two clubs has a
+      // different aeroplane in mind at each of them (§3.1).
+      const session = await readSession();
+      const profile = await withAuth(() => api.me()).catch(() => null);
+      const where =
+        profile && session?.tenantId
+          ? { userId: profile.id, tenantId: session.tenantId }
+          : null;
+      setScope(where);
+      const remembered = where ? await readPref(where.userId, where.tenantId, SELECTED) : null;
+      const chosen =
+        active.find((one) => one.id === selectedId)?.id ??
+        active.find((one) => one.id === remembered)?.id ??
+        active[0]?.id ??
+        null;
+      setSelectedId(chosen);
+      if (!chosen) {
+        setSummary(null);
+        setItems([]);
+        return;
+      }
+
+      const [theSummary, theItems, theSquawks, bell] = await Promise.all([
+        optional(withAuth(() => api.maintenanceSummary(chosen)), null),
+        canReadItems
+          ? optional(withAuth(() => api.listMaintenanceItems({ aircraftId: chosen })), [])
+          : Promise.resolve([] as MaintenanceItemResponse[]),
+        optional(withAuth(() => api.listSquawks({ aircraftId: chosen, open: true })), []),
+        optional(withAuth(() => api.unreadCount()), { unread: 0 }),
+      ]);
+
+      setSummary(theSummary);
+      setItems(theItems);
+      setSquawks(theSquawks);
+      setUnread(bell.unread);
     } catch {
-      // Same as the aircraft screen: whatever was loaded last stays up. An
-      // empty defect list is a dangerous thing to show by accident.
+      // Whatever loaded last stays. This is a field app, and an empty
+      // maintenance screen reads as an aeroplane with nothing wrong with it.
       setOffline(true);
     }
-  }, []);
+  }, [canReadItems, selectedId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -64,23 +118,22 @@ export default function Maintenance() {
     }, [load]),
   );
 
-  const open = squawks?.filter((squawk) => squawk.status !== 'resolved') ?? [];
-  // Overdue before due-soon, and within each the aeroplane's own order.
-  const attention = items
-    .filter((item) => item.state === 'overdue' || item.state === 'due_soon')
-    .sort((a, b) => {
-      if (a.state !== b.state) return a.state === 'overdue' ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
+  const select = useCallback(
+    async (id: string) => {
+      setSelectedId(id);
+      setPicking(false);
+      if (scope) await writePref(scope.userId, scope.tenantId, SELECTED, id);
+    },
+    [scope],
+  );
 
-  const registrationOf = (aircraftId: string): string =>
-    fleet.find((aircraft) => aircraft.id === aircraftId)?.registration ?? 'Aircraft';
-  // Grounding first, then most recently reported. §3.6's severity order is
-  // advisory; what stops an aeroplane flying is the boolean.
-  const sorted = [...open].sort((a, b) => {
-    if (a.grounding !== b.grounding) return a.grounding ? -1 : 1;
-    return b.reported_at.localeCompare(a.reported_at);
-  });
+  const selected = fleet.find((one) => one.id === selectedId) ?? null;
+  const counts = {
+    all: items.length,
+    due_soon: items.filter((item) => item.state === 'due_soon').length,
+    overdue: items.filter((item) => item.state === 'overdue').length,
+  };
+  const shown = filter === 'all' ? items : items.filter((item) => item.state === filter);
 
   return (
     <ScrollView
@@ -95,169 +148,552 @@ export default function Maintenance() {
         />
       }
     >
-      {offline ? <Notice>Offline. Showing what loaded last.</Notice> : null}
-
-      {/*
-        Maintenance first, because it is what the aeroplane is due rather
-        than what somebody noticed, and the three states are kept apart on
-        purpose. §11 forbids asserting something the records do not support:
-        an interval seeded with the aircraft that nobody has confirmed is
-        "not recorded", which is a different sentence from "overdue" and the
-        one the rest of the product uses.
-      */}
-      {attention.length > 0 ? (
-        <View style={styles.group}>
-          <SectionHeading>Due</SectionHeading>
-          {attention.map((item) => (
-            <Card key={item.id}>
-              <View style={styles.headline}>
-                <Text style={styles.registration}>{registrationOf(item.aircraft_id)}</Text>
-                <Status label={labelFor(item)} emphatic={isOverdue(item)} />
-              </View>
-              <Text style={styles.summary}>{item.name}</Text>
-              <Text style={styles.meta}>{describe(item)}</Text>
-            </Card>
-          ))}
-        </View>
-      ) : null}
-
-      {attention.length > 0 && sorted.length > 0 ? (
-        <SectionHeading>Reported defects</SectionHeading>
-      ) : null}
-
-      {squawks !== null && sorted.length === 0 && attention.length === 0 ? (
-        <View style={styles.empty}>
-          <SectionHeading>Nothing outstanding</SectionHeading>
-          <Body muted>
-            {/*
-              §11: never infer airworthiness from the absence of a warning.
-              This says what the list contains, not what the aeroplane is.
-            */}
-            No open defects have been reported. That is not the same as an
-            aircraft being airworthy — the Fleet tab has the dispatch answer.
-          </Body>
-        </View>
-      ) : null}
-
-      {sorted.map((squawk) => (
-        <Card key={squawk.id}>
-          <View style={styles.headline}>
-            <Text style={styles.registration}>{squawk.aircraft_registration}</Text>
-            {squawk.grounding ? <Status label="Grounding" emphatic /> : null}
-            {squawk.status === 'deferred' ? <Status label="Deferred" /> : null}
-          </View>
-
-          <Text style={styles.summary}>{squawk.summary}</Text>
-          {squawk.details ? <Body muted>{squawk.details}</Body> : null}
-
-          {/*
-            What the pilot photographed. One picture of the bracket tells a
-            mechanic more than any sentence typed standing in the wind, which
-            is the whole reason attachments exist (§3.8).
-          */}
-          {squawk.attachments.length > 0 ? (
-            <View style={styles.photos}>
-              {squawk.attachments.map((photo) => (
-                <Image
-                  key={photo.id}
-                  source={{ uri: photo.url }}
-                  style={styles.thumb}
-                  accessibilityLabel={`Photo of ${squawk.summary}`}
-                />
-              ))}
-            </View>
-          ) : null}
-
-          <Text style={styles.meta}>
-            {squawk.reported_by_email ?? 'a member'} · {squawk.reported_at.slice(0, 10)}
-          </Text>
-
-          {squawk.deferrals.length > 0 ? (
-            <Text style={styles.meta}>
-              {/* A deferral lifts the grounding and leaves the defect open,
-                  so saying which basis it was deferred under is the whole
-                  content of the line. */}
-              Deferred under {squawk.deferrals[0]!.basis}
-              {squawk.deferrals[0]!.expires_on
-                ? ` until ${squawk.deferrals[0]!.expires_on}`
-                : ''}
+      {/* Which aeroplane, and the bell ------------------------------- */}
+      <View style={styles.head}>
+        <View style={styles.headPicker}>
+          <Picker
+            compact
+            disabled={fleet.length <= 1}
+            onPress={() => setPicking(true)}
+            label={selected ? `${selected.registration}. Change aircraft` : 'Choose an aircraft'}
+          >
+            <Text style={styles.registration} numberOfLines={1}>
+              {selected?.registration ?? '—'}
             </Text>
-          ) : null}
-        </Card>
-      ))}
-
-      <View style={styles.action}>
-        <Button
-          label="Report a defect"
-          onPress={() => router.push('/(app)/report-squawk')}
-        />
+          </Picker>
+        </View>
+        <Pressable
+          onPress={() => router.push('/(app)/notifications')}
+          accessibilityRole="button"
+          accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+          style={({ pressed }) => [styles.bell, pressed && styles.pressed]}
+        >
+          <Feather name="bell" size={20} color={color.navy} />
+          {/* Never the dot alone: the accessible label carries the count, and
+              §11 §13 forbids meaning that lives only in a colour. */}
+          {unread > 0 ? <View style={styles.dot} /> : null}
+        </Pressable>
       </View>
+
+      {offline ? <Notice>Showing what loaded last. No connection.</Notice> : null}
+
+      {selected === null ? (
+        <Card style={styles.group}>
+          <SectionHeading>No aircraft yet</SectionHeading>
+          <Body muted>Add one and its maintenance lives here.</Body>
+        </Card>
+      ) : (
+        <>
+          <StatusCard summary={summary} model={selected.type_code} />
+
+          {/* §4.5: a restriction is not a grounding, and saying so is the
+              difference between not flying and not flying IFR. */}
+          {summary?.restrictions.length ? (
+            <Notice>{summary.restrictions.join('\n')}</Notice>
+          ) : null}
+
+          {canReadItems ? (
+            <AdminItems
+              items={shown}
+              counts={counts}
+              filter={filter}
+              onFilter={setFilter}
+              canWrite={canWriteItems}
+              aircraftId={selected.id}
+            />
+          ) : (
+            <PilotUpcoming summary={summary} />
+          )}
+
+          {/* Defects live on this screen because this app has no Squawks tab;
+              §1.5 keeps them a separate resource, so they are a separate
+              section rather than mixed into the list above. */}
+          <View style={styles.group}>
+            <SectionHeading>Reported defects</SectionHeading>
+            {squawks.length === 0 ? (
+              <Body muted>Nothing outstanding.</Body>
+            ) : (
+              squawks.map((squawk) => (
+                <Card key={squawk.id} style={styles.defect}>
+                  <View style={styles.defectHead}>
+                    <Text style={styles.defectSummary}>{squawk.summary}</Text>
+                    {squawk.grounding ? <Pill state="overdue" label="Grounding" /> : null}
+                  </View>
+                  {squawk.details ? <Body muted>{squawk.details}</Body> : null}
+                </Card>
+              ))
+            )}
+            <Button
+              label="Report a defect"
+              variant="secondary"
+              onPress={() =>
+                router.push({
+                  pathname: '/(app)/report-squawk',
+                  params: { aircraft: selected.id },
+                })
+              }
+            />
+          </View>
+        </>
+      )}
+
+      <Sheet visible={picking} title="Choose aircraft" onClose={() => setPicking(false)}>
+        {fleet.map((one) => (
+          <Pressable
+            key={one.id}
+            onPress={() => void select(one.id)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: one.id === selectedId }}
+            style={({ pressed }) => [
+              styles.option,
+              one.id === selectedId && styles.optionChosen,
+              pressed && styles.pressed,
+            ]}
+          >
+            <AircraftThumbnail size="small" />
+            <View style={styles.optionText}>
+              <Text style={styles.optionRegistration}>{one.registration}</Text>
+              <Text style={styles.meta}>{one.type_code ?? 'Type not recorded'}</Text>
+            </View>
+            {one.id === selectedId ? (
+              <Feather name="check" size={20} color={color.tealText} />
+            ) : null}
+          </Pressable>
+        ))}
+      </Sheet>
     </ScrollView>
   );
 }
 
 /**
- * The three states, named the way every other screen names them.
+ * The dark card at the top of mockup 01.
  *
- * `state === 'overdue'` with `ever_complied === false` means the item was
- * created with the aeroplane and nobody has entered when it was last done.
- * That is not overdue — it is unknown — and §11 does not allow the stronger
- * claim.
+ * Navy rather than the mockup's ink, and Inter rather than Plex: §11 is the
+ * authoritative design spec and the mockups are the layout. The meters keep
+ * tabular numerals, which is the one thing both documents insist on.
  */
-function isOverdue(item: MaintenanceItemResponse): boolean {
-  return item.state === 'overdue' && item.ever_complied;
+function StatusCard({
+  summary,
+  model,
+}: {
+  summary: MaintenanceSummaryResponse | null;
+  model: string | null;
+}) {
+  const next = summary?.upcoming[0];
+  const tone: MaintenanceState = summary
+    ? !summary.available
+      ? 'overdue'
+      : (next?.state ?? 'ok')
+    : 'ok';
+
+  return (
+    <View style={styles.statusCard}>
+      <View style={styles.statusHead}>
+        <View style={[styles.pill, { backgroundColor: toneOf(tone).surface }]}>
+          <Text style={[styles.pillLabel, { color: toneOf(tone).ink }]}>
+            {summary === null ? 'Unknown' : !summary.available ? 'Grounded' : wordFor(tone)}
+          </Text>
+        </View>
+        <Text style={styles.statusMeta}>{model ?? 'Type not recorded'}</Text>
+      </View>
+
+      <View style={styles.meters}>
+        <View style={styles.meter}>
+          <Text style={styles.meterLabel}>Hobbs</Text>
+          <Text style={styles.meterValue}>{summary?.hobbs ?? '—'}</Text>
+        </View>
+        <View style={styles.meter}>
+          <Text style={styles.meterLabel}>Tach</Text>
+          <Text style={styles.meterValue}>{summary?.tach ?? '—'}</Text>
+        </View>
+      </View>
+
+      {/* §1 principle 2: never "airworthy". What is tracked, and what it says. */}
+      {summary && !summary.available ? (
+        <View style={styles.statusFoot}>
+          <Text style={styles.statusFootText}>{summary.grounding_reasons.join('\n')}</Text>
+          <Text style={styles.statusFootQuiet}>
+            New bookings are blocked until an admin logs it complete.
+          </Text>
+        </View>
+      ) : next ? (
+        <View style={styles.statusFoot}>
+          <Text style={styles.statusFootText}>
+            Next due: <Text style={styles.statusStrong}>{next.name}</Text>
+            {next.governing_remaining
+              ? ` in ${remainingLabel(next.governing_kind, next.governing_remaining)}`
+              : ''}
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
 }
 
-function labelFor(item: MaintenanceItemResponse): string {
-  if (!item.ever_complied) return 'No record';
-  return item.state === 'overdue' ? 'Overdue' : 'Due soon';
+function AdminItems({
+  items,
+  counts,
+  filter,
+  onFilter,
+  canWrite,
+  aircraftId,
+}: {
+  items: MaintenanceItemResponse[];
+  counts: Record<Filter, number>;
+  filter: Filter;
+  onFilter: (next: Filter) => void;
+  canWrite: boolean;
+  aircraftId: string;
+}) {
+  return (
+    <View style={styles.group}>
+      <View style={styles.filterRow}>
+        <View style={styles.segmented}>
+          {(['all', 'due_soon', 'overdue'] as const).map((option) => (
+            <Pressable
+              key={option}
+              onPress={() => onFilter(option)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: filter === option }}
+              style={({ pressed }) => [
+                styles.segment,
+                filter === option && styles.segmentOn,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={[styles.segmentLabel, filter === option && styles.segmentLabelOn]}>
+                {option === 'all' ? 'All' : option === 'due_soon' ? 'Due soon' : 'Overdue'}{' '}
+                {counts[option]}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {canWrite ? (
+          <Pressable
+            onPress={() =>
+              router.push({
+                pathname: '/(app)/add-maintenance-item',
+                params: { aircraft: aircraftId },
+              })
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Add a tracked item"
+            style={({ pressed }) => [styles.add, pressed && styles.pressed]}
+          >
+            <Feather name="plus" size={18} color={color.navy} />
+            <Text style={styles.addLabel}>Add</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {items.length === 0 ? (
+        <Card style={styles.group}>
+          {/*
+            SPEC §1: nothing is tracked until somebody adds it. A new aeroplane
+            arriving with fifteen red items nobody approved is the app asserting
+            obligations it cannot know apply.
+          */}
+          <CardHeading>Nothing tracked yet</CardHeading>
+          <Body muted>
+            Add the inspections and services this aircraft is on, and FlightSquare counts them
+            down against the meters your flights already record.
+          </Body>
+        </Card>
+      ) : (
+        items.map((item) => <ItemCard key={item.id} item={item} />)
+      )}
+    </View>
+  );
 }
 
-function describe(item: MaintenanceItemResponse): string {
-  if (!item.ever_complied) {
-    return 'Created with the aircraft. Record when it was last done and the countdown starts from the real date.';
-  }
+/** Mockup 02: the next five, and nothing about the record (§3). */
+function PilotUpcoming({ summary }: { summary: MaintenanceSummaryResponse | null }) {
+  return (
+    <View style={styles.group}>
+      <SectionHeading>Coming up</SectionHeading>
+      {summary === null || summary.upcoming.length === 0 ? (
+        <Body muted>Nothing outstanding.</Body>
+      ) : (
+        summary.upcoming.map((item) => (
+          <Card key={item.id} style={styles.itemCard}>
+            <View style={styles.itemHead}>
+              <Text style={styles.itemName}>{item.name}</Text>
+              <Text style={[styles.itemRemaining, { color: toneOf(item.state).ink }]}>
+                {item.state === 'overdue'
+                  ? 'Overdue'
+                  : remainingLabel(item.governing_kind, item.governing_remaining)}
+              </Text>
+            </View>
+            {!item.ever_complied ? (
+              // §3.6: "no record" and "overdue" are different claims, and only
+              // one of them is about the aeroplane.
+              <Text style={styles.meta}>No compliance recorded</Text>
+            ) : null}
+          </Card>
+        ))
+      )}
+      <Body muted>Full maintenance records are kept by your account admin.</Body>
+    </View>
+  );
+}
 
-  const parts: string[] = [];
-  if (item.days_remaining !== null) {
-    const days = Number(item.days_remaining);
-    parts.push(days < 0 ? `${Math.abs(days)} days over` : `${days} days left`);
+function ItemCard({ item }: { item: MaintenanceItemResponse }) {
+  const tone = toneOf(item.state);
+  return (
+    <Pressable
+      onPress={() => router.push({ pathname: '/(app)/maintenance-item', params: { id: item.id } })}
+      accessibilityRole="button"
+      accessibilityLabel={`${item.name}, ${wordFor(item.state)}`}
+      style={({ pressed }) => [styles.itemCard, pressed && styles.pressed]}
+    >
+      <View style={styles.itemHead}>
+        <View style={styles.itemNameRow}>
+          <Text style={styles.itemName} numberOfLines={1}>
+            {item.name}
+          </Text>
+          {/* §4.5: the lock says this one stops the aeroplane. Paired with the
+              word in the accessible label, never the icon alone. */}
+          {item.grounds_aircraft ? (
+            <Feather name="lock" size={14} color={statusColor.bad.ink} />
+          ) : null}
+        </View>
+        <Text style={[styles.itemRemaining, { color: tone.ink }]}>
+          {item.state === 'overdue'
+            ? 'Overdue'
+            : remainingLabel(item.governing_kind, item.governing_remaining)}
+        </Text>
+      </View>
+
+      <View style={styles.itemFoot}>
+        <Text style={styles.meta} numberOfLines={1}>
+          {ruleSummary(item)}
+        </Text>
+        <Text style={styles.meta}>
+          {item.restriction_label && item.state === 'overdue'
+            ? item.restriction_label
+            : wordFor(item.state)}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function Pill({ state, label }: { state: MaintenanceState; label: string }) {
+  const tone = toneOf(state);
+  return (
+    <View style={[styles.pill, { backgroundColor: tone.surface }]}>
+      <Text style={[styles.pillLabel, { color: tone.ink }]}>{label}</Text>
+    </View>
+  );
+}
+
+/**
+ * §4.4's four states, four treatments.
+ *
+ * `upcoming` is a thing to plan for and `due_soon` is a thing to book a shop
+ * slot for. One colour for both would waste the split the module is built on.
+ */
+function toneOf(state: MaintenanceState): { surface: string; ink: string } {
+  switch (state) {
+    case 'overdue':
+      return statusColor.bad;
+    case 'due_soon':
+      return statusColor.urgent;
+    case 'upcoming':
+      return statusColor.warn;
+    case 'inactive':
+      return statusColor.unknown;
+    default:
+      return statusColor.good;
   }
-  if (item.hours_remaining !== null) {
-    const hours = Number(item.hours_remaining);
-    parts.push(
-      hours < 0 ? `${Math.abs(hours).toFixed(1)} hours over` : `${hours.toFixed(1)} hours left`,
-    );
+}
+
+function wordFor(state: MaintenanceState): string {
+  switch (state) {
+    case 'overdue':
+      return 'Overdue';
+    case 'due_soon':
+      return 'Due soon';
+    case 'upcoming':
+      return 'Upcoming';
+    case 'inactive':
+      return 'Archived';
+    default:
+      return 'OK';
   }
-  /**
-   * Both bases at once is normal, and they disagree constantly — §3.6 says
-   * an item can be due on more than one and the earliest wins. So each one
-   * says whether it is time left or time past: "131 days · 1106.7 hours
-   * over" reads as though the days were over too, which is the opposite of
-   * what it means.
-   */
-  return parts.length > 0 ? parts.join(' · ') : 'Due';
+}
+
+/**
+ * The remaining, in the governing rule's own units.
+ *
+ * §4.3's rounding: under a fortnight in days, under ten weeks in weeks, else
+ * months. "428 days" is a number nobody holds in their head, and the whole
+ * point of this line is that somebody can.
+ */
+function remainingLabel(kind: string | null, remaining: string | null): string {
+  if (remaining === null) return '—';
+  const value = Number(remaining);
+  if (!Number.isFinite(value)) return '—';
+
+  if (kind === 'tach_hr' || kind === 'hobbs_hr' || kind === 'airframe_hr') {
+    return `${value.toFixed(1)} hr`;
+  }
+  if (kind === 'cycles') return `${value} cycles`;
+
+  const days = Math.round(value);
+  if (days < 14) return `${days} days`;
+  if (days < 70) return `${Math.round(days / 7)} weeks`;
+  return `${Math.round(days / 30)} months`;
+}
+
+/** "50.0 tach hr or 4 mo" — what the item is on, in the card's one line. */
+function ruleSummary(item: MaintenanceItemResponse): string {
+  if (item.rules.length === 0) return 'No interval set';
+  return item.rules
+    .map((rule) => {
+      switch (rule.kind) {
+        case 'cal_month':
+          return `${rule.every ?? '?'} mo`;
+        case 'cal_day':
+          return `${rule.every ?? '?'} days`;
+        case 'fixed_date':
+          return rule.due_on ?? 'fixed date';
+        case 'cycles':
+          return `${rule.every ?? '?'} cycles`;
+        default:
+          return `${Number(rule.every ?? 0).toFixed(1)} ${rule.kind.replace('_hr', '')} hr`;
+      }
+    })
+    .join(' or ');
 }
 
 const styles = StyleSheet.create({
-  container: { padding: space.base, gap: space.md },
-  group: { gap: space.sm },
-  empty: { gap: space.sm, paddingVertical: space.lg },
-  headline: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
-  registration: { ...type.cardHeading, flex: 1 },
-  summary: { ...type.body, marginTop: space.xs },
+  container: { padding: space.base, gap: space.md, paddingBottom: space.xxl },
+  pressed: { opacity: 0.7 },
+  group: { gap: space.md },
+  meta: { ...type.supporting, color: color.secondary, flexShrink: 1 },
 
-  photos: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
-  thumb: {
-    width: 72,
-    height: 72,
-    borderRadius: 8,
-    // A dark engine bay and a wing in sunlight both need an edge to be
-    // visible against a white card (§11 §13).
+  head: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  headPicker: { flex: 1 },
+  registration: { ...type.sectionHeading, textTransform: 'uppercase' },
+  bell: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: color.line,
-    backgroundColor: color.mist,
+    backgroundColor: color.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  meta: { ...type.supporting, color: color.secondary, marginTop: space.xs },
-  action: { marginTop: space.sm },
+  dot: {
+    position: 'absolute',
+    top: 9,
+    right: 10,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: statusColor.urgent.ink,
+    borderWidth: 2,
+    borderColor: color.surface,
+  },
+
+  // Navy where the mockup says ink. §11 is the design system; the mockup is
+  // the layout.
+  statusCard: {
+    backgroundColor: color.navy,
+    borderRadius: radius.card,
+    padding: space.base,
+    gap: space.base,
+  },
+  statusHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  statusMeta: { ...type.supporting, color: color.line },
+  meters: { flexDirection: 'row', gap: space.base },
+  meter: { flex: 1, gap: space.xs },
+  meterLabel: { ...type.supporting, color: color.line, textTransform: 'uppercase' },
+  meterValue: { ...type.sectionHeading, color: color.onDark, fontVariant: ['tabular-nums'] },
+  statusFoot: {
+    borderTopWidth: 1,
+    borderTopColor: color.navyHover,
+    paddingTop: space.md,
+    gap: space.xs,
+  },
+  statusFootText: { ...type.bodySmall, color: color.onDark },
+  statusFootQuiet: { ...type.supporting, color: color.line },
+  statusStrong: { ...type.label, color: color.onDark },
+
+  pill: { paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: 999 },
+  pillLabel: { ...type.supporting, textTransform: 'uppercase' },
+
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  segmented: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: color.subtle,
+    borderRadius: radius.control,
+    padding: 3,
+  },
+  segment: { flex: 1, paddingVertical: space.sm, borderRadius: 6, alignItems: 'center' },
+  segmentOn: { backgroundColor: color.surface },
+  segmentLabel: { ...type.supporting, color: color.secondary },
+  segmentLabelOn: { color: color.navy },
+  add: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    minHeight: 44,
+    paddingHorizontal: space.md,
+    borderRadius: radius.control,
+    borderWidth: 1,
+    borderColor: color.control,
+    backgroundColor: color.surface,
+  },
+  addLabel: { ...type.button },
+
+  itemCard: {
+    backgroundColor: color.surface,
+    borderColor: color.line,
+    borderWidth: 1,
+    borderRadius: radius.card,
+    padding: space.base,
+    gap: space.sm,
+  },
+  itemHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+  itemNameRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm, flexShrink: 1 },
+  itemName: { ...type.cardHeading, flexShrink: 1 },
+  itemRemaining: { ...type.label, fontVariant: ['tabular-nums'] },
+  itemFoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+
+  defect: { gap: space.sm },
+  defectHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+  },
+  defectSummary: { ...type.cardHeading, flexShrink: 1 },
+
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: radius.card,
+    minHeight: 64,
+  },
+  optionChosen: { borderColor: color.teal, backgroundColor: color.selected },
+  optionText: { flex: 1, gap: 2 },
+  optionRegistration: { ...type.cardHeading, textTransform: 'uppercase' },
 });

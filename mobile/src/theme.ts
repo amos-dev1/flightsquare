@@ -56,6 +56,17 @@ export const statusColor = {
   /** Not a state of the aeroplane — a state of the calendar. */
   neutral: { surface: '#EAF1F5', ink: '#152B3C' },
   bad: { surface: '#FDEBEC', ink: '#B42318' },
+  /**
+   * Between amber and red, for SPEC §4.4's `due_soon`.
+   *
+   * The four maintenance states need four treatments or the split is wasted:
+   * `upcoming` is a thing to plan for and `due_soon` is a thing to book a shop
+   * slot for, and showing them the same colour puts an annual twenty-nine days
+   * out in the same visual register as an oil change two hours out. Taken from
+   * the mockup's due-soon pill, which is the one place the design system was
+   * already carrying a fourth level.
+   */
+  urgent: { surface: '#FFE4D5', ink: '#9A3412' },
   warn: { surface: '#FFF3DC', ink: '#8A4B08' },
   /** Nothing has told us. Said out loud rather than guessed at. */
   unknown: { surface: '#F3F7F9', ink: '#526675' },

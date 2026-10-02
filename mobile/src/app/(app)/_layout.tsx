@@ -194,6 +194,18 @@ function FleetTabs() {
         options={{ href: null, title: "Report a defect", headerLeft: Back }}
       />
       <Tabs.Screen
+        name="maintenance-item"
+        options={{ href: null, title: "Tracked item", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="add-maintenance-item"
+        options={{ href: null, title: "Tracked item", headerLeft: Back }}
+      />
+      <Tabs.Screen
+        name="notifications"
+        options={{ href: null, title: "Notifications", headerLeft: Back }}
+      />
+      <Tabs.Screen
         name="queue"
         options={{ href: null, title: "Waiting to sync", headerLeft: Back }}
       />

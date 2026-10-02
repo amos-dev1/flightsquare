@@ -7,6 +7,7 @@ import {
   ApiError,
   type AircraftAvailabilityResponse,
   type AircraftResponse,
+  type BookingMaintenanceCheckResponse,
   type ConflictBody,
 } from '@flightsquare/shared';
 import { dayLabel, plainDate, timeIn, zonedToInstant } from '@flightsquare/shared/time';
@@ -36,6 +37,15 @@ import { color, radius, space, type } from '@/theme';
  * aeroplane or a checkout the pilot does not hold all come back from the
  * server in its own words, because the database is what refuses them.
  */
+/** "09:00" to "12:00" as 3.0. Wall-clock subtraction, nothing more. */
+function hoursBetween(from: string, to: string): number {
+  const minutes = (value: string): number => {
+    const [h, m] = value.split(':');
+    return Number(h ?? 0) * 60 + Number(m ?? 0);
+  };
+  return Math.max(0, (minutes(to) - minutes(from)) / 60);
+}
+
 export default function Book() {
   const { date, aircraft: preselected } = useLocalSearchParams<{
     date?: string;
@@ -71,6 +81,8 @@ export default function Book() {
    */
   const [slotTaken, setSlotTaken] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** §4.6: what this block of time would take the aeroplane past. Warn only. */
+  const [crosses, setCrosses] = useState<BookingMaintenanceCheckResponse['crosses']>([]);
 
   useEffect(() => {
     void (async () => {
@@ -99,6 +111,33 @@ export default function Book() {
   const active = fleet.filter((one) => one.status === 'active');
   const chosen = active.find((one) => one.id === aircraftId) ?? null;
   const dispatch = availability.find((row) => row.aircraft_id === aircraftId);
+
+  /*
+    §4.6, and the one number on this screen the server has to work out.
+
+    The block's length is wall-clock arithmetic the client may do; whether it
+    crosses an inspection is not — that needs the aeroplane's meters and every
+    rule on it, which is exactly what §8.2 keeps on the far side.
+  */
+  const blockHours = hoursBetween(from, to);
+  useEffect(() => {
+    if (!aircraftId || blockHours <= 0) {
+      setCrosses([]);
+      return;
+    }
+    let current = true;
+    const timer = setTimeout(() => {
+      void withAuth(() => api.bookingMaintenanceCheck(aircraftId, blockHours.toFixed(1)))
+        // No answer is no warning. This never blocks the booking, so a failed
+        // check must not look like one.
+        .then((result) => current && setCrosses(result.crosses))
+        .catch(() => current && setCrosses([]));
+    }, 300);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [aircraftId, blockHours]);
 
   async function book() {
     if (!aircraftId || !day) return;
@@ -170,6 +209,19 @@ export default function Book() {
           {dispatch && !dispatch.available ? (
             <Notice tone="error">
               {dispatch.grounding_reasons.join('\n') || 'This aircraft is grounded.'}
+            </Notice>
+          ) : null}
+
+          {/*
+            §4.6: a warning and nothing else. Somebody may be flying it to the
+            shop, and a club that cannot book the flight that fixes the aeroplane
+            is a club that stops using the app.
+          */}
+          {crosses.length > 0 ? (
+            <Notice>
+              {`This ${blockHours.toFixed(1)} hr booking would take ${
+                chosen?.registration ?? 'the aircraft'
+              } past ${crosses.map((item) => item.name).join(' and ')}.`}
             </Notice>
           ) : null}
         </Card>

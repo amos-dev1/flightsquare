@@ -474,6 +474,145 @@ describe('maintenance', () => {
       url: `/aircraft/${aircraftId}/compliance-records`,
     });
     expect(records.json().length).toBeGreaterThanOrEqual(2);
+
+    /*
+      And the item's own log says which one was taken back, and why.
+
+      The screen greys the row rather than losing it: a retracted completion is
+      part of the trail and so is the reason. A log that quietly drops one is a
+      log that cannot be read back after an accident (§3.6, §7.2).
+    */
+    const logged = await app.inject({
+      method: 'GET',
+      url: `/maintenance-items/${itemId}/completions`,
+    });
+    expect(logged.statusCode).toBe(200);
+    const rows = logged.json() as {
+      id: string;
+      complied_on: string;
+      voided?: boolean;
+      void_reason?: string | null;
+    }[];
+    expect(rows).toHaveLength(2);
+
+    const retracted = rows.find((row) => row.id === second.json().id);
+    expect(retracted?.voided).toBe(true);
+    expect(retracted?.void_reason).toBe('Logged against the wrong aeroplane');
+
+    const standing = rows.find((row) => row.complied_on === '2026-08-02');
+    expect(standing?.voided).toBe(false);
+  });
+
+  it('serves one item by id, and nothing at all from another tenant', async () => {
+    /*
+      A notification carries an item id and no aircraft id, so a deep link has
+      to be able to ask for one item. The pair of assertions is §6.1 items 5
+      and 6 in their read form: the id resolves in the tenant that owns it and
+      is simply not there in the one that does not.
+
+      §6 is explicit about which answer that is — "Aircraft not found" for a
+      tail number in another tenant, never "you don't have access to that
+      aircraft" — so the second half asserts a 404 and not a 403.
+    */
+    asAdmin();
+    await setBundle('admin');
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/aircraft/${aircraftId}/maintenance-items`,
+      payload: {
+        name: 'Transponder check',
+        rules: [{ kind: 'cal_month', every: '24', anchor_on: '2026-03-01' }],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const itemId = created.json().id as string;
+
+    const mine = await app.inject({ method: 'GET', url: `/maintenance-items/${itemId}` });
+    expect(mine.statusCode).toBe(200);
+    expect(mine.json().name).toBe('Transponder check');
+    expect(mine.json().rules).toHaveLength(1);
+
+    asOtherTenant();
+    const theirs = await app.inject({ method: 'GET', url: `/maintenance-items/${itemId}` });
+    expect(theirs.statusCode).toBe(404);
+
+    // And the log behind it, which would otherwise be a second way in.
+    const theirLog = await app.inject({
+      method: 'GET',
+      url: `/maintenance-items/${itemId}/completions`,
+    });
+    expect(theirLog.statusCode).toBe(404);
+
+    // Back to this tenant's session: the suite shares one app, and leaving
+    // somebody else's context behind is how the next test fails for the wrong
+    // reason.
+    asAdmin();
+  });
+
+  it('warns that a booking would cross an hour-based item, and only warns', async () => {
+    /*
+      SPEC §4.6. The three assertions are the whole behaviour: a short block
+      crosses nothing, a long one names what it would cross, and a pilot — who
+      holds nothing on the maintenance record — can still ask.
+
+      Nothing here refuses anything. A booking is refused by
+      `aircraft_availability` and by the exclusion constraint, and neither of
+      them is this.
+    */
+    asAdmin();
+    await setBundle('admin');
+
+    const aircraft = await app.inject({ method: 'GET', url: `/aircraft/${aircraftId}` });
+    const tach = Number(aircraft.json().tach ?? 0);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/aircraft/${aircraftId}/maintenance-items`,
+      payload: {
+        name: '100-hour inspection',
+        grounds_aircraft: true,
+        // Two hours out, whatever the aeroplane happens to be sitting at.
+        rules: [{ kind: 'tach_hr', every: '100.0', anchor_hours: String((tach - 98).toFixed(1)) }],
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(Number(created.json().governing_remaining)).toBeCloseTo(2, 1);
+
+    const short = await app.inject({
+      method: 'GET',
+      url: `/aircraft/${aircraftId}/bookings/check?hours=1.0`,
+    });
+    expect(short.statusCode).toBe(200);
+    expect(short.json().crosses).toEqual([]);
+
+    const long = await app.inject({
+      method: 'GET',
+      url: `/aircraft/${aircraftId}/bookings/check?hours=3.5`,
+    });
+    expect(long.statusCode).toBe(200);
+    expect(long.json().hours).toBe('3.5');
+    const crossed = long.json().crosses as {
+      name: string;
+      kind: string;
+      grounds_aircraft: boolean;
+    }[];
+    expect(crossed.map((row) => row.name)).toContain('100-hour inspection');
+    const hundred = crossed.find((row) => row.name === '100-hour inspection')!;
+    expect(hundred.kind).toBe('tach_hr');
+    expect(hundred.grounds_aircraft).toBe(true);
+
+    // And the booking path is a pilot's path. `reservations: read`, which they
+    // hold, rather than the record, which they do not.
+    await setBundle('pilot');
+    const asPilot = await app.inject({
+      method: 'GET',
+      url: `/aircraft/${aircraftId}/bookings/check?hours=3.5`,
+    });
+    expect(asPilot.statusCode).toBe(200);
+    expect((asPilot.json().crosses as unknown[]).length).toBeGreaterThan(0);
+
+    await setBundle('admin');
   });
 
   it('shuts a pilot out of the maintenance record, not out of the aeroplane', async () => {

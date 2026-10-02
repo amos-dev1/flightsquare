@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import type {
   AircraftAvailabilityResponse,
+  BookingMaintenanceCheckResponse,
   CompletionResponse,
   CreateCompletionRequest,
   GroundingOverrideRequest,
@@ -28,7 +29,7 @@ import type {
 
 import { ownMembership } from '../../db/membership.js';
 import { previewRules } from '../../maintenance/intervals.js';
-import { ConflictError, NotFoundError } from '../errors.js';
+import { ConflictError, InvalidRequestError, NotFoundError } from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
 /**
@@ -381,6 +382,53 @@ async function toItem(trx: Tx, row: ItemRow): Promise<MaintenanceItemResponse> {
  * The old `interval_*` and `due_*` fields still work — a shipped build posts
  * them — and translate to one rule each, exactly as 0023's backfill did.
  */
+/**
+ * The soonest due point a set of rules implies, before any row exists.
+ *
+ * `writeRules` works this out per rule and `restate_item_due_points` reduces it
+ * to the item — but the item's CHECK requires a due point at the moment it is
+ * inserted, which is before either has run. Same function, one step earlier.
+ */
+async function impliedDuePoints(
+  trx: Tx,
+  drafts: MaintenanceRuleInput[],
+  anchor: { on: string | null; hours: string | null; cycles: number | null },
+): Promise<{ on: string | null; hours: string | null; cycles: number | null }> {
+  let on: string | null = null;
+  let hours: string | null = null;
+  let cycles: number | null = null;
+
+  for (const draft of drafts) {
+    const due = await sql<{
+      due_on: string | null;
+      due_at_hours: string | null;
+      due_at_cycles: number | null;
+    }>`
+      SELECT * FROM public.next_due_for(
+        ${draft.kind}, ${draft.every ?? null}::numeric, ${draft.end_of_month ?? false},
+        ${draft.anchor_on ?? anchor.on ?? null}::date,
+        ${draft.anchor_hours ?? anchor.hours ?? null}::numeric,
+        ${draft.anchor_cycles ?? anchor.cycles ?? null}::integer)
+    `.execute(trx);
+    const next = due.rows[0];
+    if (!next) continue;
+
+    // A fixed date is its own due point and does not roll forward.
+    const dueOn = draft.kind === 'fixed_date' ? (draft.fixed_date ?? null) : next.due_on;
+
+    // The earliest wins, which is §3.6's rule for an item on several bases.
+    if (dueOn !== null && (on === null || dueOn < on)) on = dueOn;
+    if (next.due_at_hours !== null && (hours === null || Number(next.due_at_hours) < Number(hours))) {
+      hours = next.due_at_hours;
+    }
+    if (next.due_at_cycles !== null && (cycles === null || next.due_at_cycles < cycles)) {
+      cycles = next.due_at_cycles;
+    }
+  }
+
+  return { on, hours, cycles };
+}
+
 async function writeRules(
   trx: Tx,
   tenantId: string,
@@ -588,6 +636,102 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
         return toItems(trx, rows);
       });
       return items;
+    },
+  );
+
+  /**
+   * One item, resolved (mockup 04).
+   *
+   * The list endpoint already returns everything this does, and a detail screen
+   * reached from a notification has an item id and no aircraft id — asking for
+   * the fleet's worth of items to find one of them is how a deep link gets slow
+   * on a tiedown. Additive, per §8.1: nothing changed shape to make room.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/maintenance-items/:id',
+    {
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'read'],
+      },
+    },
+    async (request) => {
+      return request.withTenant<MaintenanceItemResponse>(async (trx) => {
+        // No tenant predicate: RLS put one there (§1.1). An id from another
+        // club resolves to nothing, which is the 404 §6 asks for — "not found",
+        // never "not yours".
+        const row = await selectItems(trx).where('i.id', '=', request.params.id).executeTakeFirst();
+        if (!row) throw new NotFoundError();
+        return toItem(trx, row);
+      });
+    },
+  );
+
+  /**
+   * What has been logged against this item, including what was taken back.
+   *
+   * Voided records are labelled and never hidden, for the same reason
+   * superseded ones are not (§3.6): the trail is the point, and a completion
+   * that was retracted is part of it. The screen greys the row and says why
+   * rather than losing it.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/maintenance-items/:id/completions',
+    {
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'read'],
+      },
+    },
+    async (request) => {
+      return request.withTenant<ComplianceRecordResponse[]>(async (trx) => {
+        const item = await trx
+          .selectFrom('maintenance_items')
+          .select('id')
+          .where('id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!item) throw new NotFoundError();
+
+        const rows = await trx
+          .selectFrom('compliance_records as c')
+          .leftJoin('compliance_voids as v', 'v.compliance_record_id', 'c.id')
+          .leftJoin('compliance_records as later', 'later.supersedes_id', 'c.id')
+          .selectAll('c')
+          .select(['v.reason as void_reason', 'later.id as superseded_by'])
+          .where('c.maintenance_item_id', '=', request.params.id)
+          .orderBy('c.complied_on', 'desc')
+          .orderBy('c.recorded_at', 'desc')
+          .execute();
+
+        return rows.map(
+          (r): ComplianceRecordResponse => ({
+            id: r.id,
+            aircraft_id: r.aircraft_id,
+            maintenance_item_id: r.maintenance_item_id,
+            work_order_id: r.work_order_id,
+            kind: r.kind,
+            reference: r.reference,
+            title: r.title,
+            method: r.method,
+            complied_on: r.complied_on,
+            complied_at_hours: r.complied_at_hours,
+            complied_at_cycles: r.complied_at_cycles,
+            hours_meter: r.hours_meter,
+            next_due_on: r.next_due_on,
+            next_due_at_hours: r.next_due_at_hours,
+            signed_by: r.signed_by,
+            signed_certificate: r.signed_certificate,
+            supersedes_id: r.supersedes_id,
+            note: r.note,
+            recorded_at: r.recorded_at.toISOString(),
+            superseded: r.superseded_by !== null,
+            voided: r.void_reason !== null,
+            void_reason: r.void_reason,
+          }),
+        );
+      });
     },
   );
 
@@ -1046,6 +1190,83 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * SPEC §4.6: would a booking of this many hours take the aeroplane past
+   * something?
+   *
+   * **Warn only.** The one thing that refuses a booking is
+   * `aircraft_availability`, and it answers a different question — whether the
+   * aeroplane is dispatchable now. This is about a block of time that has not
+   * happened yet, and the honest response is to say so and let the member book:
+   * a club pilot taking the 172 for three hours when the oil change is two out
+   * may well be flying it to the shop.
+   *
+   * `reservations: read` rather than `maintenance.items`, because the question
+   * belongs to the booking path and a pilot holds nothing on the record (§1.5).
+   * It discloses nothing new: the summary endpoint a pilot already holds names
+   * the same items.
+   */
+  app.get<{ Params: { id: string }; Querystring: { hours?: string } }>(
+    '/aircraft/:id/bookings/check',
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          required: ['hours'],
+          properties: { hours: decimal },
+        },
+      },
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['reservations', 'read'],
+      },
+    },
+    async (request) => {
+      const hours = request.query.hours ?? '0';
+
+      return request.withTenant<BookingMaintenanceCheckResponse>(async (trx) => {
+        await requireAircraft(trx, request.params.id);
+
+        const { rows } = await sql<{
+          id: string;
+          name: string;
+          kind: MaintenanceRuleKind;
+          remaining: string;
+          grounds_aircraft: boolean;
+        }>`
+          SELECT i.id, i.name, s.kind, s.remaining, i.grounds_aircraft
+            FROM public.maintenance_rule_status s
+            JOIN public.maintenance_items i ON i.id = s.maintenance_item_id
+           WHERE s.aircraft_id = ${request.params.id}
+             AND i.status = 'active'
+             -- Hour rules only: a calendar item does not care how long somebody
+             -- flies, and cycles are not what a booking is measured in.
+             AND s.kind IN ('tach_hr', 'hobbs_hr', 'airframe_hr')
+             AND s.remaining IS NOT NULL
+             -- Already past is a different sentence, and the summary's grounding
+             -- reasons and restrictions are the ones that say it. "This booking
+             -- would take it past" is false for something it is already past.
+             AND s.remaining >= 0
+             AND s.remaining <= ${hours}::numeric
+           ORDER BY s.remaining
+        `.execute(trx);
+
+        return {
+          aircraft_id: request.params.id,
+          hours,
+          crosses: rows.map((row) => ({
+            id: row.id,
+            name: row.name,
+            kind: row.kind,
+            remaining: row.remaining,
+            grounds_aircraft: row.grounds_aircraft,
+          })),
+        };
+      });
+    },
+  );
+
   app.post<{ Params: { id: string }; Body: CreateMaintenanceItemRequest }>(
     '/aircraft/:id/maintenance-items',
     {
@@ -1058,22 +1279,42 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const body = request.body;
-      if (
-        body.due_on === undefined &&
-        body.due_at_hours === undefined &&
-        body.due_at_cycles === undefined
-      ) {
-        // An item due on nothing never comes due, which makes it a note
-        // rather than an inspection. The database says so too; this is a
-        // better message than a CHECK violation surfacing as a 500.
-        return reply.status(400).send({
-          error: 'invalid_request',
-          detail: 'an item needs a due date, a due hour reading, or due cycles',
-        });
-      }
 
       const row = await request.withTenant(async (trx) => {
         await requireAircraft(trx, request.params.id);
+
+        /*
+          Where the first due point comes from.
+
+          A form that says "every 50 tach hours, last done at 1,225.0" has
+          stated everything needed, and 1,275.0 is arithmetic — §8.2 is explicit
+          that the client never computes anything that matters, and a due point
+          is the clearest case. So the rules are resolved here, by the same
+          function the completion trigger uses, rather than being demanded from
+          the caller. The `due_*` fields still work and still win where given,
+          because a shipped build sends them (§8.1).
+        */
+        const implied = await impliedDuePoints(trx, body.rules ?? [], {
+          on: body.due_on ?? null,
+          hours: body.due_at_hours ?? null,
+          cycles: body.due_at_cycles ?? null,
+        });
+
+        const due = {
+          on: body.due_on ?? implied.on,
+          hours: body.due_at_hours ?? implied.hours,
+          cycles: body.due_at_cycles ?? implied.cycles,
+        };
+
+        if (due.on === null && due.hours === null && due.cycles === null) {
+          // An item due on nothing never comes due, which makes it a note
+          // rather than an inspection. The database says so too; this is a
+          // better message than a CHECK violation surfacing as a 500.
+          throw new InvalidRequestError(
+            'an item needs an interval with something to count from, a due date, a due hour reading, or due cycles',
+          );
+        }
+
         const created = await trx
           .insertInto('maintenance_items')
           .values({
@@ -1083,9 +1324,9 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
             description: body.description ?? null,
             regulatory_reference: body.regulatory_reference ?? null,
             grounds_aircraft: body.grounds_aircraft ?? false,
-            due_on: body.due_on ?? null,
-            due_at_hours: body.due_at_hours ?? null,
-            due_at_cycles: body.due_at_cycles ?? null,
+            due_on: due.on,
+            due_at_hours: due.hours,
+            due_at_cycles: due.cycles,
             hours_meter: body.hours_meter ?? null,
             interval_months: body.interval_months ?? null,
             interval_hours: body.interval_hours ?? null,
