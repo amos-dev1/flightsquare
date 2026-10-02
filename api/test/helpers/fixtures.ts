@@ -274,6 +274,11 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM work_orders WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
+    // Rules point at items (0022), so they go first.
+    await adminPool.query(
+      `DELETE FROM maintenance_item_rules WHERE tenant_id IN (${tenants})`,
+      [`${TEST_PREFIX}%`],
+    );
     await adminPool.query(`DELETE FROM maintenance_items WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);

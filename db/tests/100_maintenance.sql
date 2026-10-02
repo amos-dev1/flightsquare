@@ -137,9 +137,20 @@ $t$;
 DO $t$
 DECLARE a record;
 BEGIN
-  UPDATE public.maintenance_items SET due_on = current_date - 1
-   WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1'
-     AND template_code = 'annual';
+  -- The rule is where a due point lives since 0022; the item's own `due_on` is
+  -- the soonest of its rules, restated by `restate_item_due_points`. Writing
+  -- the item alone moves the number the API returns and nothing the status
+  -- view reads, which is exactly the trap this now drives the right way round.
+  UPDATE public.maintenance_item_rules r SET due_on = current_date - 1
+    FROM public.maintenance_items i
+   WHERE i.id = r.maintenance_item_id
+     AND i.aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+     AND i.template_code = 'annual'
+     AND r.kind = 'cal_month';
+  PERFORM public.restate_item_due_points(i.id)
+     FROM public.maintenance_items i
+    WHERE i.aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+      AND i.template_code = 'annual';
 
   SELECT * INTO a FROM public.aircraft_availability
    WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1';
@@ -153,9 +164,16 @@ BEGIN
   END IF;
   RAISE NOTICE '   ok: no record grounds it, and says so in those words';
 
-  UPDATE public.maintenance_items SET due_on = current_date
-   WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1'
-     AND template_code = 'annual';
+  UPDATE public.maintenance_item_rules r SET due_on = current_date
+    FROM public.maintenance_items i
+   WHERE i.id = r.maintenance_item_id
+     AND i.aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+     AND i.template_code = 'annual'
+     AND r.kind = 'cal_month';
+  PERFORM public.restate_item_due_points(i.id)
+     FROM public.maintenance_items i
+    WHERE i.aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+      AND i.template_code = 'annual';
 END
 $t$;
 
@@ -238,11 +256,41 @@ BEGIN
   SELECT * INTO s FROM public.maintenance_item_status
    WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1'
      AND template_code = 'oil_change';
-  IF s.hours_remaining <> 5.0 OR s.state <> 'due_soon' THEN
+  /*
+    5.0 hours left is `upcoming`, not `due_soon`.
+
+    0022 split the one warning threshold into two (SPEC §4.4): `upcoming` at
+    10 hours is amber and goes in a weekly digest; `due_soon` at 3 hours is
+    orange and is pushed to the admins and to anyone with the aeroplane booked.
+    Under the old single threshold an annual 29 days out shouted exactly as
+    loudly as an oil change two hours out, and nobody can act on both.
+
+    This assertion used to read `due_soon` and is inverted deliberately.
+  */
+  IF s.hours_remaining <> 5.0 OR s.state <> 'upcoming' THEN
     RAISE EXCEPTION 'after the flight: % remaining, state %',
       s.hours_remaining, s.state;
   END IF;
+  -- Three more hours, and it crosses into the state that actually pushes.
+  INSERT INTO public.flights (id, tenant_id, aircraft_id, flown_by, flight_date)
+  VALUES ('01920000-0000-7000-8000-0000000000c9',
+          '01920000-0000-7000-8000-00000000000a',
+          '01920000-0000-7000-8000-0000000000f1',
+          '01920000-0000-7000-8000-0000000000a2', current_date);
+  INSERT INTO public.flight_meters (flight_id, tenant_id, tach_start, tach_end)
+  VALUES ('01920000-0000-7000-8000-0000000000c9',
+          '01920000-0000-7000-8000-00000000000a', 1145.0, 1148.0);
+
+  SELECT * INTO s FROM public.maintenance_item_status
+   WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+     AND template_code = 'oil_change';
+  IF s.hours_remaining <> 2.0 OR s.state <> 'due_soon' THEN
+    RAISE EXCEPTION 'at 2 hours left: % remaining, state %',
+      s.hours_remaining, s.state;
+  END IF;
+
   RAISE NOTICE '   ok: a logged flight ticks the interval down, without being told';
+  RAISE NOTICE '   ok: and the two warning thresholds are two different warnings';
 
   INSERT INTO public.flights (id, tenant_id, aircraft_id, flown_by, flight_date)
   VALUES ('01920000-0000-7000-8000-0000000000c2',
@@ -276,11 +324,18 @@ $t$;
 DO $t$
 DECLARE a record;
 BEGIN
-  -- Way one: an overdue inspection that grounds.
-  UPDATE public.maintenance_items
-     SET due_on = current_date - 1
-   WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1'
-     AND template_code = 'annual';
+  -- Way one: an overdue inspection that grounds. Driven through the rule,
+  -- which is where a due point lives since 0022.
+  UPDATE public.maintenance_item_rules r SET due_on = current_date - 1
+    FROM public.maintenance_items i
+   WHERE i.id = r.maintenance_item_id
+     AND i.aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+     AND i.template_code = 'annual'
+     AND r.kind = 'cal_month';
+  PERFORM public.restate_item_due_points(i.id)
+     FROM public.maintenance_items i
+    WHERE i.aircraft_id = '01920000-0000-7000-8000-0000000000f1'
+      AND i.template_code = 'annual';
 
   SELECT * INTO a FROM public.aircraft_availability
    WHERE aircraft_id = '01920000-0000-7000-8000-0000000000f1';

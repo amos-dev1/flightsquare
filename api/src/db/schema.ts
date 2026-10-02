@@ -378,7 +378,26 @@ export interface MeterReadingsTable {
 }
 
 export type MaintenanceItemStatus = 'active' | 'archived';
-export type MaintenanceState = 'ok' | 'due_soon' | 'overdue' | 'inactive';
+/**
+ * SPEC §4.4's four states.
+ *
+ * `upcoming` is new in 0022, and the split is the point: amber at 10 hours goes
+ * in a weekly digest, orange at 3 hours is pushed to the admins and to whoever
+ * has the aeroplane booked. One threshold made an annual 29 days out shout
+ * exactly as loudly as an oil change two hours out.
+ */
+export type MaintenanceState = 'ok' | 'upcoming' | 'due_soon' | 'overdue' | 'inactive';
+export type MaintenanceCategory = 'airframe' | 'engine' | 'prop' | 'avionics' | 'other';
+export type MaintenanceNextFrom = 'completion' | 'previous_due';
+/** The bases an item can be due on (§3.6, SPEC §4.2). */
+export type MaintenanceRuleKind =
+  | 'tach_hr'
+  | 'hobbs_hr'
+  | 'airframe_hr'
+  | 'cycles'
+  | 'cal_month'
+  | 'cal_day'
+  | 'fixed_date';
 export type SquawkSeverity = 'advisory' | 'minor' | 'major' | 'grounding';
 export type SquawkStatus = 'open' | 'deferred' | 'resolved';
 export type DeferralBasis = 'mel' | 'cdl' | 'far_91_213' | 'other';
@@ -431,11 +450,25 @@ export interface MaintenanceItemsTable {
   due_at_hours: string | null;
   due_at_cycles: number | null;
   hours_meter: MaintenanceMeter | null;
+  /**
+   * Superseded by `maintenance_item_rules` (0022) and kept for one migration
+   * so the backfill can be checked against its source. Nothing reads them.
+   */
   interval_months: number | null;
   interval_hours: string | null;
   interval_cycles: number | null;
   warn_within_days: Generated<number>;
   warn_within_hours: Generated<string>;
+  /** SPEC §4.1: airframe | engine | prop | avionics | other. */
+  category: Generated<MaintenanceCategory>;
+  /** §4.8's twins, until Phase 3's component tree: "left", "right". */
+  position: string | null;
+  /** §4.5: restricts rather than grounds — "Not for IFR". Never blocks a booking. */
+  restriction_label: string | null;
+  /** §4.4: hours an item may be overflown before it counts as overdue. */
+  tolerance_hours: string | null;
+  /** §4.7: whether the next interval runs from the completion or the due point. */
+  next_from: Generated<MaintenanceNextFrom>;
   // Rolled forward by a trigger when compliance lands, never by the caller.
   last_complied_on: ColumnType<string | null, never, never>;
   last_complied_hours: ColumnType<string | null, never, never>;
@@ -554,6 +587,57 @@ export interface ComplianceRecordsTable {
  * tables underneath stay in the path — without that they would read every
  * tenant, and they would do it silently.
  */
+/**
+ * One basis an item is due on (0022, SPEC §4.2).
+ *
+ * Up to three per item, combined whichever-comes-first. The due point lives
+ * here; `maintenance_items.due_on` / `due_at_hours` is the soonest of them,
+ * restated by `restate_item_due_points` so the index, 0017's notice trigger
+ * and the API's response keep reading what they always read.
+ */
+export interface MaintenanceItemRulesTable {
+  id: Generated<string>;
+  tenant_id: string;
+  maintenance_item_id: string;
+  kind: MaintenanceRuleKind;
+  /** Null for `fixed_date`, which happens once. */
+  every: string | null;
+  /** §4.2: a 12-month annual signed 12 March is due 31 March. Months only. */
+  end_of_month: Generated<boolean>;
+  fixed_date: CalendarDate | null;
+  due_on: CalendarDate | null;
+  due_at_hours: string | null;
+  due_at_cycles: number | null;
+  /** §4.4, per rule: 10 hours of warning is a fifth of an oil change and
+   *  nothing at all of an overhaul. */
+  warn_at: string;
+  critical_at: string;
+  created_at: Generated<Timestamp>;
+  updated_at: Generated<Timestamp>;
+}
+
+/** Every rule's own next due, remaining and state. Derived, never stored. */
+export interface MaintenanceRuleStatusView {
+  rule_id: ViewColumn<string>;
+  tenant_id: ViewColumn<string>;
+  maintenance_item_id: ViewColumn<string>;
+  aircraft_id: ViewColumn<string>;
+  kind: ViewColumn<MaintenanceRuleKind>;
+  every: ViewColumn<string | null>;
+  end_of_month: ViewColumn<boolean>;
+  due_on: ViewColumn<string | null>;
+  due_at_hours: ViewColumn<string | null>;
+  due_at_cycles: ViewColumn<number | null>;
+  warn_at: ViewColumn<string>;
+  critical_at: ViewColumn<string>;
+  current_value: ViewColumn<string | null>;
+  remaining: ViewColumn<string | null>;
+  state: ViewColumn<MaintenanceState>;
+  /** §4.3: when this runs out at the pace actually flown, or null rather than
+   *  a forecast nobody should plan around. */
+  projected_date: ViewColumn<string | null>;
+}
+
 export interface MaintenanceItemStatusView {
   maintenance_item_id: ViewColumn<string>;
   tenant_id: ViewColumn<string>;
@@ -573,6 +657,13 @@ export interface MaintenanceItemStatusView {
   days_remaining: ViewColumn<number | null>;
   hours_remaining: ViewColumn<string | null>;
   cycles_remaining: ViewColumn<number | null>;
+  category: ViewColumn<MaintenanceCategory>;
+  restriction_label: ViewColumn<string | null>;
+  /** Which rule is deciding — the number that belongs on the card. */
+  governing_rule_id: ViewColumn<string | null>;
+  governing_kind: ViewColumn<MaintenanceRuleKind | null>;
+  governing_remaining: ViewColumn<string | null>;
+  projected_date: ViewColumn<string | null>;
   state: ViewColumn<MaintenanceState>;
 }
 
@@ -841,7 +932,9 @@ export interface Database {
   outbox: OutboxTable;
   maintenance_interval_templates: MaintenanceIntervalTemplatesTable;
   maintenance_items: MaintenanceItemsTable;
+  maintenance_item_rules: MaintenanceItemRulesTable;
   maintenance_item_status: MaintenanceItemStatusView;
+  maintenance_rule_status: MaintenanceRuleStatusView;
   aircraft_availability: AircraftAvailabilityView;
   squawks: SquawksTable;
   squawk_deferrals: SquawkDeferralsTable;

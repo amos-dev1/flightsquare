@@ -704,7 +704,21 @@ export interface CreateFlightRequest {
 // ---------------------------------------------------------------------------
 
 export type MaintenanceItemStatus = 'active' | 'archived';
-export type MaintenanceState = 'ok' | 'due_soon' | 'overdue' | 'inactive';
+/**
+ * SPEC §4.4's four states, of which `upcoming` is new.
+ *
+ * The split is the point: amber at ten hours or thirty days belongs in a weekly
+ * digest, orange at three hours or seven days is pushed to the admins and to
+ * anybody holding a booking. One threshold made an annual twenty-nine days out
+ * shout exactly as loudly as an oil change two hours out, and nobody can act on
+ * both.
+ *
+ * **A new value in a returned union, which §8.1 asks care of.** Nothing is
+ * removed and no field changes shape, so a shipped build keeps working — but a
+ * client that matches on this exhaustively will not recognise `upcoming`, so
+ * both of ours fall back to the neutral treatment rather than to nothing.
+ */
+export type MaintenanceState = 'ok' | 'upcoming' | 'due_soon' | 'overdue' | 'inactive';
 export type SquawkSeverity = 'advisory' | 'minor' | 'major' | 'grounding';
 export type SquawkStatus = 'open' | 'deferred' | 'resolved';
 export type DeferralBasis = 'mel' | 'cdl' | 'far_91_213' | 'other';
