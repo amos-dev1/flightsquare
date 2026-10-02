@@ -273,6 +273,49 @@ describe('the mail queue', () => {
     expect(second.notified).toBe(0);
   });
 
+  it('writes the same news to the feed, and tells pilots who are booked', async () => {
+    /*
+      §9 gives the email and the feed different audiences, and the difference is
+      the point. The email goes to whoever manages maintenance. The feed goes to
+      them *and* to every pilot holding the aeroplane in the next fortnight —
+      because the person who needs to know the annual lapsed is the one who was
+      going to fly on Sunday.
+    */
+    asAdmin();
+    const feed = await app.inject({ method: 'GET', url: '/notifications' });
+    expect(feed.statusCode).toBe(200);
+    expect(feed.json().length).toBeGreaterThan(0);
+
+    const notice = feed.json()[0] as Record<string, unknown>;
+    expect(notice.subject_type).toBe('maintenance_item');
+    expect(notice.read_at).toBeNull();
+    expect(String(notice.title)).toContain('N8800M');
+
+    // The bell's dot is its own call: a hundred rows to render one is how a
+    // tab bar starts feeling slow.
+    const count = await app.inject({ method: 'GET', url: '/notifications/unread-count' });
+    expect(count.json().unread).toBeGreaterThan(0);
+
+    // A pilot sees their own feed and nobody else's — the policy scopes it to
+    // the membership, so there is no level at which this is a permission.
+    asPilot();
+    const theirs = await app.inject({ method: 'GET', url: '/notifications' });
+    expect(theirs.statusCode).toBe(200);
+    for (const row of theirs.json() as { id: string }[]) {
+      expect(feed.json().some((mine: { id: string }) => mine.id === row.id)).toBe(false);
+    }
+
+    // And reading one is the only write they make to it.
+    asAdmin();
+    const read = await app.inject({
+      method: 'POST',
+      url: `/notifications/${notice.id as string}/read`,
+    });
+    expect(read.statusCode).toBe(200);
+    const after = await app.inject({ method: 'GET', url: '/notifications?unread=true' });
+    expect((after.json() as { id: string }[]).some((row) => row.id === notice.id)).toBe(false);
+  });
+
   it('starts telling again once the item has been dealt with', async () => {
     asAdmin();
     const items = await app.inject({

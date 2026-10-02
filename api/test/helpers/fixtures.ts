@@ -257,6 +257,12 @@ export async function cleanupTestTenants(): Promise<void> {
     // orders, and compliance records point at items and orders. app_role
     // could not do any of this — compliance_records holds SELECT and INSERT
     // and nothing else — which is the design working rather than a gap.
+    // Voids and notifications point at compliance records and memberships.
+    for (const table of ['compliance_voids', 'notifications']) {
+      await adminPool.query(`DELETE FROM ${table} WHERE tenant_id IN (${tenants})`, [
+        `${TEST_PREFIX}%`,
+      ]);
+    }
     await adminPool.query(`DELETE FROM compliance_records WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);

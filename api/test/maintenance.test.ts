@@ -409,6 +409,73 @@ describe('maintenance', () => {
     expect(preview!.state).toBe(saved.state);
   });
 
+  it('logs a completion, and voiding it restores the previous anchor', async () => {
+    // §13, twice: "Mark complete from 1,270.4 on Sep 30 2026 resets oil change
+    // to 1,320.4 or Jan 30 2027", and "voiding the latest completion restores
+    // the previous anchor".
+    //
+    // `setBundle` as well as `asAdmin`: an earlier test demotes this membership
+    // to Pilot to exercise §1.5's line, and the session being the owner's is
+    // not the same thing as the bundle holding the grant.
+    asAdmin();
+    await setBundle('admin');
+
+    const item = await app.inject({
+      method: 'POST',
+      url: `/aircraft/${aircraftId}/maintenance-items`,
+      payload: {
+        name: 'Oil and filter change',
+        due_at_hours: '1275.0',
+        rules: [{ kind: 'tach_hr', every: '50.0', anchor_hours: '1225.0' }],
+      },
+    });
+    expect(item.statusCode).toBe(201);
+    const itemId = item.json().id as string;
+    expect(item.json().rules[0].due_at_hours).toBe('1275.0');
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `/maintenance-items/${itemId}/completions`,
+      payload: { done_on: '2026-08-02', tach: '1225.0', performed_by: 'R. Castellano' },
+    });
+    expect(first.statusCode).toBe(201);
+    expect(first.json().maintenance_item.rules[0].due_at_hours).toBe('1275.0');
+
+    const second = await app.inject({
+      method: 'POST',
+      url: `/maintenance-items/${itemId}/completions`,
+      payload: { done_on: '2026-09-30', tach: '1270.4', performed_by: 'R. Castellano' },
+    });
+    expect(second.statusCode).toBe(201);
+    expect(second.json().maintenance_item.rules[0].due_at_hours).toBe('1320.4');
+    expect(second.json().maintenance_item.last_complied_on).toBe('2026-09-30');
+
+    // And back. Not a delete: the record stays and the void is its own fact.
+    const voided = await app.inject({
+      method: 'POST',
+      url: `/maintenance-completions/${second.json().id}/void`,
+      payload: { reason: 'Logged against the wrong aeroplane' },
+    });
+    expect(voided.statusCode).toBe(200);
+    expect(voided.json().last_complied_on).toBe('2026-08-02');
+    expect(voided.json().rules[0].due_at_hours).toBe('1275.0');
+
+    // Voiding twice is not twice as void.
+    const again = await app.inject({
+      method: 'POST',
+      url: `/maintenance-completions/${second.json().id}/void`,
+      payload: { reason: 'Logged against the wrong aeroplane' },
+    });
+    expect(again.statusCode).toBe(409);
+
+    // The voided record is still on the log, because §3.6 never deletes one.
+    const records = await app.inject({
+      method: 'GET',
+      url: `/aircraft/${aircraftId}/compliance-records`,
+    });
+    expect(records.json().length).toBeGreaterThanOrEqual(2);
+  });
+
   it('shuts a pilot out of the maintenance record, not out of the aeroplane', async () => {
     /*
       SPEC §3's line, and the one change in Phase 1 that takes something away

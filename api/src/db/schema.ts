@@ -482,7 +482,15 @@ export interface MaintenanceItemsTable {
    * nothing is outstanding. Compared against the computed state so the sweep
    * reports changes rather than repeating itself every morning.
    */
-  notified_state: ColumnType<'due_soon' | 'overdue' | null, never, 'due_soon' | 'overdue' | null>;
+  /**
+   * The due state this item was last reported in, or null if nothing is
+   * outstanding. `upcoming` since 0022 widened both the CHECK and the states.
+   */
+  notified_state: ColumnType<
+    'upcoming' | 'due_soon' | 'overdue' | null,
+    never,
+    'upcoming' | 'due_soon' | 'overdue' | null
+  >;
 
 }
 
@@ -614,6 +622,56 @@ export interface MaintenanceItemRulesTable {
   critical_at: string;
   created_at: Generated<Timestamp>;
   updated_at: Generated<Timestamp>;
+}
+
+/**
+ * The in-app feed §3.8 named (0036).
+ *
+ * Per membership, not per user: a notice about an annual belongs to the club it
+ * is about, and somebody in two clubs should get each club's notices in that
+ * club. Written only by `notify_member`, which holds the INSERT the application
+ * must not — a role that can write another member's feed can write over a
+ * notice saying the aeroplane is grounded.
+ */
+export interface NotificationsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  membership_id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string | null;
+  subject_type: 'maintenance_item' | 'aircraft' | 'reservation' | 'squawk' | null;
+  subject_id: string | null;
+  /** The one column a member may write on their own feed. */
+  read_at: ColumnType<Date | null, never, Date | null>;
+  created_at: ColumnType<Date, never, never>;
+}
+
+export type NotificationKind =
+  | 'maintenance_upcoming'
+  | 'maintenance_due_soon'
+  | 'maintenance_overdue'
+  | 'aircraft_grounded'
+  | 'aircraft_returned'
+  | 'booking_needs_review'
+  | 'squawk_filed';
+
+/**
+ * §4.7: a completion taken back, with a reason and an actor.
+ *
+ * Its own table rather than a column on the record, because `complied_on` is
+ * NOT NULL — a void written as a compliance record would have to claim a date
+ * the work was done on, in the table §7.2 names among what is read back after
+ * an accident.
+ */
+export interface ComplianceVoidsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  compliance_record_id: string;
+  reason: string;
+  voided_by: string;
+  voided_at: Generated<Timestamp>;
+  created_at: Generated<Timestamp>;
 }
 
 /**
@@ -973,6 +1031,8 @@ export interface Database {
   maintenance_item_rules: MaintenanceItemRulesTable;
   maintenance_grounding_events: MaintenanceGroundingEventsTable;
   maintenance_item_history: MaintenanceItemHistoryTable;
+  compliance_voids: ComplianceVoidsTable;
+  notifications: NotificationsTable;
   maintenance_item_status: MaintenanceItemStatusView;
   maintenance_rule_status: MaintenanceRuleStatusView;
   aircraft_availability: AircraftAvailabilityView;

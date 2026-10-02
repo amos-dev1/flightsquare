@@ -881,6 +881,61 @@ export type UpdateMaintenanceItemRequest = Partial<CreateMaintenanceItemRequest>
   status?: MaintenanceItemStatus;
 };
 
+/**
+ * Logging a completion (SPEC §4.7, mockup 05).
+ *
+ * Prefilled with today and the latest meters, all editable — work is often
+ * logged days later and the dates are frequently in the past.
+ */
+export interface CreateCompletionRequest {
+  done_on: string;
+  tach?: string;
+  hobbs?: string;
+  performed_by?: string;
+  cert_no?: string;
+  notes?: string;
+  /** §4.7: whether the next interval runs from here or from the due point. */
+  next_from?: MaintenanceNextFrom;
+}
+
+export interface CompletionResponse {
+  id: string;
+  recorded_at: string;
+  /** The item as it now stands, so the screen needs no second round trip. */
+  maintenance_item: MaintenanceItemResponse;
+}
+
+/** §4.7: taking a completion back. A reason, not a delete. */
+export interface VoidCompletionRequest {
+  reason: string;
+}
+
+/**
+ * One notice in the in-app feed (§3.8), which is what the bell has a dot for.
+ *
+ * Addressed to a membership rather than a user: somebody in two clubs gets each
+ * club's notices in that club, and leaving a club takes its notices with it.
+ */
+export interface NotificationResponse {
+  id: string;
+  kind:
+    | 'maintenance_upcoming'
+    | 'maintenance_due_soon'
+    | 'maintenance_overdue'
+    | 'aircraft_grounded'
+    | 'aircraft_returned'
+    | 'booking_needs_review'
+    | 'squawk_filed';
+  title: string;
+  body: string | null;
+  /** Where it points, as a kind and an id — never a path a stale build
+   *  cannot route (§8.1). */
+  subject_type: 'maintenance_item' | 'aircraft' | 'reservation' | 'squawk' | null;
+  subject_id: string | null;
+  read_at: string | null;
+  created_at: string;
+}
+
 /** One change to an item, from its append-only log (§7). */
 export interface MaintenanceItemHistoryResponse {
   id: string;

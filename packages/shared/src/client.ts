@@ -16,13 +16,17 @@ import type {
   FlightResponse,
   FlightSummaryResponse,
   LoginResponse,
+  CompletionResponse,
+  CreateCompletionRequest,
   GroundingOverrideRequest,
   GroundingOverrideResponse,
   MaintenanceItemHistoryResponse,
   MaintenanceItemResponse,
+  NotificationResponse,
   MaintenanceSummaryResponse,
   PreviewMaintenanceRequest,
   PreviewMaintenanceResponse,
+  VoidCompletionRequest,
   MeResponse,
   MembershipSummaryResponse,
   MeterReadingResponse,
@@ -216,6 +220,32 @@ export function createClient(options: ClientOptions) {
      */
     previewMaintenance: (input: PreviewMaintenanceRequest) =>
       request<PreviewMaintenanceResponse>('POST', '/maintenance-items/preview', input),
+
+    // ---- notifications (§3.8) -------------------------------------------
+    /** The feed. No permission beyond membership: it is addressed to you. */
+    listNotifications: (query: { unread?: boolean } = {}) =>
+      request<NotificationResponse[]>(
+        'GET',
+        query.unread ? '/notifications?unread=true' : '/notifications',
+      ),
+    /** Just the dot. A hundred rows to render one is how a tab bar feels slow. */
+    unreadCount: () => request<{ unread: number }>('GET', '/notifications/unread-count'),
+    markNotificationRead: (id: string) =>
+      request<{ ok: true }>('POST', `/notifications/${id}/read`),
+    markAllNotificationsRead: () =>
+      request<{ read: number }>('POST', '/notifications/read-all'),
+
+    /** Mockup 05's sheet: a date, the meters, who did it. Returns the item. */
+    logCompletion: (itemId: string, input: CreateCompletionRequest) =>
+      request<CompletionResponse>('POST', `/maintenance-items/${itemId}/completions`, input),
+
+    /** §4.7: taking it back. Not a delete — the record stays, voided. */
+    voidCompletion: (recordId: string, input: VoidCompletionRequest) =>
+      request<MaintenanceItemResponse>(
+        'POST',
+        `/maintenance-completions/${recordId}/void`,
+        input,
+      ),
 
     /** §4.5: fly it anyway, for a reason and until a time. Never a switch. */
     overrideGrounding: (aircraftId: string, input: GroundingOverrideRequest) =>

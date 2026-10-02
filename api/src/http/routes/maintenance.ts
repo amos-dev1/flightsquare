@@ -2,12 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import type {
   AircraftAvailabilityResponse,
+  CompletionResponse,
+  CreateCompletionRequest,
   GroundingOverrideRequest,
   GroundingOverrideResponse,
   MaintenanceItemHistoryResponse,
   MaintenanceSummaryResponse,
   PreviewMaintenanceRequest,
   PreviewMaintenanceResponse,
+  VoidCompletionRequest,
   MaintenanceRuleInput,
   MaintenanceRuleKind,
   MaintenanceRuleResponse,
@@ -97,6 +100,36 @@ const itemFields = {
   rules: itemFieldsRules,
 } as const;
 
+
+const completionSchema = {
+  body: {
+    type: 'object',
+    required: ['done_on'],
+    additionalProperties: false,
+    properties: {
+      // §4.7: dates are frequently in the past, because work is logged days
+      // after it was done. Nothing here refuses one.
+      done_on: { type: 'string', format: 'date' },
+      tach: decimal,
+      hobbs: decimal,
+      performed_by: { type: 'string', maxLength: 200 },
+      cert_no: { type: 'string', maxLength: 100 },
+      notes: { type: 'string', maxLength: 2000 },
+      next_from: { type: 'string', enum: ['completion', 'previous_due'] },
+    },
+  },
+} as const;
+
+const voidSchema = {
+  body: {
+    type: 'object',
+    required: ['reason'],
+    additionalProperties: false,
+    // A reason, and one somebody typed: taking back a signed inspection is not
+    // something "oops" is a record of.
+    properties: { reason: { type: 'string', minLength: 5, maxLength: 500 } },
+  },
+} as const;
 
 const overrideSchema = {
   body: {
@@ -578,6 +611,143 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
         return toItems(trx, rows);
       });
       return items;
+    },
+  );
+
+  /**
+   * Logging a completion, from the sheet rather than from the record (§4.7).
+   *
+   * `POST /compliance-records` already does this and stays — it takes the
+   * regulatory shape, with AD references and signatures. This takes mockup 05's
+   * shape: a date, the meters, who did it, and whether the next interval runs
+   * from here or from the due point it was meant to happen at.
+   *
+   * It returns the rolled-forward item, so the screen that logged an annual can
+   * show the new due date without a second call and without computing it
+   * (§8.2).
+   */
+  app.post<{ Params: { id: string }; Body: CreateCompletionRequest }>(
+    '/maintenance-items/:id/completions',
+    {
+      schema: completionSchema,
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'write'],
+      },
+    },
+    async (request, reply) => {
+      const body = request.body;
+
+      const result = await request.withTenant(async (trx) => {
+        const item = await trx
+          .selectFrom('maintenance_items')
+          .select(['id', 'aircraft_id', 'name', 'hours_meter', 'next_from'])
+          .where('id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!item) throw new NotFoundError();
+
+        // §4.7 lets the sheet choose, and the choice belongs on the item
+        // because it governs every rule the completion rolls forward.
+        if (body.next_from && body.next_from !== item.next_from) {
+          await trx
+            .updateTable('maintenance_items')
+            .set({ next_from: body.next_from })
+            .where('id', '=', item.id)
+            .execute();
+        }
+
+        // Which meter this item counts on decides which number is *its*
+        // compliance reading; the other is recorded on the record all the same.
+        const meter = item.hours_meter ?? 'tach';
+        const created = await trx
+          .insertInto('compliance_records')
+          .values({
+            tenant_id: request.ctx!.tenantId!,
+            aircraft_id: item.aircraft_id,
+            maintenance_item_id: item.id,
+            kind: 'inspection',
+            title: item.name,
+            complied_on: body.done_on,
+            complied_at_hours:
+              (meter === 'hobbs' ? body.hobbs : body.tach) ?? body.tach ?? null,
+            hours_meter: meter,
+            signed_by: body.performed_by ?? null,
+            signed_certificate: body.cert_no ?? null,
+            note: body.notes ?? null,
+            recorded_by: await ownMembership(trx, request.ctx!.userId),
+          })
+          .returning(['id', 'recorded_at'])
+          .executeTakeFirstOrThrow();
+
+        const saved = await selectItems(trx)
+          .where('i.id', '=', item.id)
+          .executeTakeFirstOrThrow();
+
+        return { created, item: await toItem(trx, saved) };
+      });
+
+      return reply.status(201).send({
+        id: result.created.id,
+        recorded_at: result.created.recorded_at.toISOString(),
+        maintenance_item: result.item,
+      } satisfies CompletionResponse);
+    },
+  );
+
+  /**
+   * Taking a completion back (§4.7, §13: "voiding the latest completion
+   * restores the previous anchor").
+   *
+   * Not a delete and not an edit: `compliance_records` holds SELECT and INSERT
+   * and nothing else, because §3.6 makes it the table read back after an
+   * accident. The void is its own append-only fact, and the item is rebuilt
+   * from the latest record that is neither superseded nor voided.
+   */
+  app.post<{ Params: { id: string }; Body: VoidCompletionRequest }>(
+    '/maintenance-completions/:id/void',
+    {
+      schema: voidSchema,
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'write'],
+      },
+    },
+    async (request) => {
+      return request.withTenant(async (trx) => {
+        const record = await trx
+          .selectFrom('compliance_records')
+          .select(['id', 'maintenance_item_id'])
+          .where('id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!record?.maintenance_item_id) throw new NotFoundError();
+
+        await trx
+          .insertInto('compliance_voids')
+          .values({
+            tenant_id: request.ctx!.tenantId!,
+            compliance_record_id: record.id,
+            reason: request.body.reason,
+            voided_by: await ownMembership(trx, request.ctx!.userId),
+          })
+          .execute()
+          .catch((error: unknown) => {
+            // The unique constraint: voiding twice is not twice as void.
+            if ((error as { code?: string }).code === '23505') {
+              throw new ConflictError('that completion has already been voided');
+            }
+            throw error;
+          });
+
+        await sql`SELECT public.recompute_item_from_compliance(${record.maintenance_item_id}::uuid)`
+          .execute(trx);
+
+        const saved = await selectItems(trx)
+          .where('i.id', '=', record.maintenance_item_id)
+          .executeTakeFirstOrThrow();
+        return toItem(trx, saved);
+      });
     },
   );
 

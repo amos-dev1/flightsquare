@@ -144,10 +144,20 @@ export const config = {
     user: process.env.FS_DB_SCHEDULER_USER ?? 'scheduler_role',
     password: process.env.FS_SCHEDULER_PASSWORD ?? 'scheduler_dev_password',
     /**
-     * Once a day. Maintenance moves on a scale of days and meters, and a
-     * digest that arrives more often than the thing it reports is noise.
+     * Hourly, since SPEC §9.
+     *
+     * It was daily, on the reasoning that maintenance moves on a scale of days
+     * and a digest arriving more often than the thing it reports is noise. That
+     * reasoning still holds for the *digest*, and the digest still only fires on
+     * a state change — an item that has been overdue a month is news no more.
+     *
+     * What changed is what else the sweep does. It now re-evaluates date rules
+     * in each aeroplane's own zone, expires grounding overrides, and flags
+     * bookings standing over an aeroplane that went down. Those are answers that
+     * go stale within the day: an override that ended at nine should not still
+     * be letting people book at five.
      */
-    everyHours: int('FS_SWEEP_EVERY_HOURS', 24),
+    everyHours: int('FS_SWEEP_EVERY_HOURS', 1),
   },
   /**
    * Platform billing (§8.3) — tenant to FlightSquare, web only.

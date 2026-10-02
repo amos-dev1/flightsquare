@@ -161,6 +161,7 @@ BEGIN
                             'billing_events.tenant_isolation',
                             'blackouts.tenant_isolation',
                             'compliance_records.tenant_isolation',
+                            'compliance_voids.tenant_isolation',
                             'device_registrations.user_isolation',
                             'flight_charges.tenant_isolation',
                             'flight_fuel.tenant_isolation',
@@ -178,6 +179,7 @@ BEGIN
                             'member_aircraft_rates.tenant_isolation',
                             'memberships.tenant_isolation',
                             'meter_readings.tenant_isolation',
+                            'notifications.tenant_isolation',
                             'refresh_tokens.user_isolation',
                             'reservation_resources.tenant_isolation',
                             'reservations.tenant_isolation',
@@ -364,6 +366,11 @@ BEGIN
                                   'assert_quota',
                                   'charge_for_flight',
                                   'credit_fuel_for_flight',
+                                  -- 0036: holds the INSERT on `notifications`
+                                  -- that app_role must not. A role that can
+                                  -- write another member's feed can write over
+                                  -- a notice saying the aeroplane is grounded.
+                                  'notify_member',
                                   'refresh_aircraft_active_usage',
                                   'refresh_aircraft_meter_totals',
                                   -- 0020: the third of the refresh_*_usage
