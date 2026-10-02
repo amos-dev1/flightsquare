@@ -23,7 +23,7 @@ export default async function SquawksPage() {
     apiFetch<EntitlementsResponse>('/entitlements'),
   ]);
 
-  const canClose = entitlements.permissions.maintenance === 'write';
+  const canClose = entitlements.permissions['maintenance.items'] === 'write';
   const canFile = entitlements.permissions.squawks === 'write';
   const active = fleet.filter((aircraft) => aircraft.status === 'active');
 

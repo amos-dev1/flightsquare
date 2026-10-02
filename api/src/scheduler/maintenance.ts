@@ -44,7 +44,7 @@ export async function sweepTenant(tenantId: string): Promise<SweepResult> {
     const changed = await dueChanges(trx);
     if (changed.length === 0) return { tenantId, items: 0, notified: 0 };
 
-    const recipients = await recipientsWith(trx, 'maintenance', 'write');
+    const recipients = await recipientsWith(trx, 'maintenance.items', 'write');
     if (recipients.length === 0) {
       // Nobody to tell — a club with no one holding maintenance. Stamp them
       // anyway: the alternative is looking at the same rows every night

@@ -224,7 +224,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'read'],
+        permission: ['maintenance.items', 'read'],
       },
     },
     async (request) => {
@@ -256,7 +256,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'read'],
+        permission: ['maintenance.items', 'read'],
       },
     },
     async (request) => {
@@ -279,7 +279,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'write'],
+        permission: ['maintenance.items', 'write'],
       },
     },
     async (request, reply) => {
@@ -346,7 +346,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'write'],
+        permission: ['maintenance.items', 'write'],
       },
     },
     async (request) => {
@@ -371,7 +371,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'write'],
+        permission: ['maintenance.items', 'write'],
       },
     },
     async (request) => {
@@ -400,7 +400,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'read'],
+        permission: ['maintenance.items', 'read'],
       },
     },
     async () => {
@@ -436,7 +436,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'read'],
+        permission: ['maintenance.items', 'read'],
       },
     },
     async (request) => {
@@ -500,7 +500,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'write'],
+        permission: ['maintenance.items', 'write'],
       },
     },
     async (request, reply) => {
@@ -563,7 +563,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'read'],
+        permission: ['maintenance.items', 'read'],
       },
     },
     async (request) => {
@@ -588,7 +588,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'write'],
+        permission: ['maintenance.items', 'write'],
       },
     },
     async (request, reply) => {
@@ -629,7 +629,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       config: {
         requiresTenant: true,
         feature: 'maintenance_module',
-        permission: ['maintenance', 'write'],
+        permission: ['maintenance.items', 'write'],
       },
     },
     async (request) => {

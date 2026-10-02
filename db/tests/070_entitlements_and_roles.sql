@@ -60,7 +60,9 @@ BEGIN
   IF n <> 0 THEN RAISE EXCEPTION 'role bundles leaked from another tenant'; END IF;
 
   SELECT count(*) INTO n FROM public.role_bundle_permissions;
-  IF n <> 24 THEN RAISE EXCEPTION 'expected 24 permission rows, got %', n; END IF;
+  -- 26 since 0027: `maintenance` became `maintenance.summary` and
+  -- `maintenance.items`, one row each per bundle.
+  IF n <> 26 THEN RAISE EXCEPTION 'expected 26 permission rows, got %', n; END IF;
 
   -- §1.5's two load-bearing distinctions, as data.
   IF (SELECT level FROM public.role_bundle_permissions p
@@ -68,12 +70,24 @@ BEGIN
       WHERE b.code = 'pilot' AND p.resource = 'squawks') <> 'write' THEN
     RAISE EXCEPTION 'a pilot cannot report a defect';
   END IF;
+  -- A pilot is told whether the aeroplane is fit to fly...
   IF (SELECT level FROM public.role_bundle_permissions p
        JOIN public.role_bundles b ON b.id = p.role_bundle_id
-      WHERE b.code = 'pilot' AND p.resource = 'maintenance') <> 'read' THEN
-    RAISE EXCEPTION 'a pilot can sign off maintenance';
+      WHERE b.code = 'pilot' AND p.resource = 'maintenance.summary') <> 'read' THEN
+    RAISE EXCEPTION 'a pilot cannot see whether the aeroplane is grounded';
+  END IF;
+  -- ...and reads neither the record nor signs off the work (SPEC §3).
+  IF (SELECT level FROM public.role_bundle_permissions p
+       JOIN public.role_bundles b ON b.id = p.role_bundle_id
+      WHERE b.code = 'pilot' AND p.resource = 'maintenance.items') <> 'none' THEN
+    RAISE EXCEPTION 'a pilot can read or sign off the maintenance record';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.role_bundle_permissions
+              WHERE resource = 'maintenance') THEN
+    RAISE EXCEPTION 'the undivided maintenance resource is still granted';
   END IF;
   RAISE NOTICE '   ok: bundles are tenant-scoped, and squawks is not maintenance';
+  RAISE NOTICE '   ok: and a pilot sees the aeroplane without reading its record';
 
   BEGIN
     INSERT INTO public.role_bundles (tenant_id, code, name)

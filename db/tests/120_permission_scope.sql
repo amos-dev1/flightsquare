@@ -72,7 +72,7 @@ BEGIN
   -- what the last one found.
   IF app.permission_scope('squawks') <> 'all'
      OR app.permission_scope('flights') <> 'all'
-     OR app.permission_scope('maintenance') <> 'all' THEN
+     OR app.permission_scope('maintenance.summary') <> 'all' THEN
     RAISE EXCEPTION 'something other than charges was narrowed';
   END IF;
   RAISE NOTICE '   ok: flights, squawks and maintenance stay shared';

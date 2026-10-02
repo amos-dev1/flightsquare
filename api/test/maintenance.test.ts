@@ -252,7 +252,9 @@ describe('maintenance', () => {
     expect(close.statusCode).toBe(403);
     expect(close.json()).toEqual({
       error: 'forbidden',
-      resource: 'maintenance',
+      // `maintenance.items` since 0027, not `maintenance`: closing a defect is
+      // work on the record, not a reading of whether the aeroplane is fit.
+      resource: 'maintenance.items',
       level: 'write',
     });
 
@@ -293,6 +295,42 @@ describe('maintenance', () => {
       payload: { grounding: false },
     });
     expect(clear.statusCode).toBe(403);
+  });
+
+  it('shuts a pilot out of the maintenance record, not out of the aeroplane', async () => {
+    /*
+      SPEC §3's line, and the one change in Phase 1 that takes something away
+      from somebody who already had it. A pilot could read the whole fleet's
+      maintenance list until 0027 split the resource; now the record is the
+      admin's and the pilot is told what they need to fly safely.
+
+      The summary half arrives with its endpoint in 1D. This asserts the half
+      that exists: the record is closed, and the aeroplane's dispatch state —
+      which is `aircraft: read` and deliberately ungated — is not.
+    */
+    await setBundle('pilot');
+
+    for (const url of [
+      '/maintenance',
+      `/aircraft/${aircraftId}/maintenance-items`,
+      `/aircraft/${aircraftId}/compliance-records`,
+      '/work-orders',
+    ]) {
+      const refused = await app.inject({ method: 'GET', url });
+      expect(refused.statusCode, url).toBe(403);
+      expect(refused.json().resource, url).toBe('maintenance.items');
+    }
+
+    // Still told whether it flies. §3.3 keeps that on `aircraft: read` so the
+    // booking path never has to ask the maintenance module's permission.
+    const dispatch = await app.inject({
+      method: 'GET',
+      url: `/aircraft/${aircraftId}/availability`,
+    });
+    expect(dispatch.statusCode).toBe(200);
+    expect(dispatch.json()).toHaveProperty('available');
+
+    await setBundle('admin');
   });
 
   it('lets a pilot into the app at all', async () => {

@@ -300,7 +300,7 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
           await queueAll(
             trx,
             'squawk_filed',
-            await recipientsWith(trx, 'maintenance', 'write', { except: reporter }),
+            await recipientsWith(trx, 'maintenance.items', 'write', { except: reporter }),
             () =>
               squawkFiledEmail({
                 registration: squawk.aircraft_registration,
@@ -350,7 +350,7 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
       const unGrounding = body.grounding === false;
       if (body.status !== undefined || unGrounding) {
         const { permissions } = await request.loadGates();
-        permissions.require('maintenance', 'write');
+        permissions.require('maintenance.items', 'write');
       }
 
       return request.withTenant(async (trx) => {
@@ -392,7 +392,7 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
     '/squawks/:id/deferrals',
     {
       schema: deferralSchema,
-      config: { requiresTenant: true, permission: ['maintenance', 'write'] },
+      config: { requiresTenant: true, permission: ['maintenance.items', 'write'] },
     },
     async (request, reply) => {
       const body = request.body;

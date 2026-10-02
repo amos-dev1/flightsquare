@@ -30,7 +30,7 @@ export default async function MaintenancePage() {
   // §8.1: the client hides what the user cannot do, and the server enforces
   // it regardless. A Pilot holds `maintenance: read` — they see the whole
   // picture and sign off none of it.
-  const canWrite = entitlements.permissions.maintenance === 'write';
+  const canWrite = entitlements.permissions['maintenance.items'] === 'write';
 
   const byAircraft = new Map<string, MaintenanceItemResponse[]>();
   for (const item of items) {

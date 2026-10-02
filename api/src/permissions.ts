@@ -21,7 +21,18 @@ export const RESOURCES = [
   'reservations',
   'flights',
   'squawks',
-  'maintenance',
+  /**
+   * Maintenance is two resources, and the line between them is the one SPEC §3
+   * draws: a pilot is told whether the aeroplane is fit to fly and what is
+   * coming up; the record — every item, its rules, its history, its notes — is
+   * the admin's.
+   *
+   * It is the same distinction §1.5 already makes between `squawks` and
+   * maintenance, one level down. A pilot reports a defect and does not sign off
+   * the work; a pilot is warned the annual is due and does not read the logs.
+   */
+  'maintenance.summary',
+  'maintenance.items',
   'rates',
   'charges',
   'qualifications',

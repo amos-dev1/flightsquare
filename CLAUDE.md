@@ -91,14 +91,18 @@ A permission is a pair: a **resource** and a **level** from `none | read | write
 Resources for this domain:
 
 ```
-aircraft       reservations   flights      squawks    maintenance
+aircraft       reservations   flights      squawks
+maintenance.summary           maintenance.items
 rates          charges        qualifications
 documents      members        subscription settings
 ```
 
-Two distinctions that are easy to lose and expensive to recover:
+Three distinctions that are easy to lose and expensive to recover:
 
-- `squawks` is separate from `maintenance`. A pilot reports a defect but does not sign off work, close an item, or record compliance — `squawks: write` with `maintenance: read`. Collapsing them makes the central permission line in the product inexpressible.
+- `squawks` is separate from `maintenance.items`. A pilot reports a defect but does not sign off work, close an item, or record compliance — `squawks: write` with `maintenance.items: none`. Collapsing them makes the central permission line in the product inexpressible.
+- `maintenance.summary` is separate from `maintenance.items`, and the line is the same one a level lower. **Summary** is whether the aeroplane is fit to fly and what is coming up: a pilot needs it before every flight. **Items** is the record — every tracked item, its rules, its history, its notes — and it belongs to whoever signs the work. A pilot holds `maintenance.summary: read` and `maintenance.items: none`.
+
+  The split was added in `0027` rather than designed in, so a club that wants its pilots reading the whole list grants them `maintenance.items: read`. That is a row, not a release.
 - `subscription` (what the tenant pays FlightSquare) is separate from `rates` and `charges` (what pilots pay their club). See §3.7.
 
 - **Roles are bundles of pairs, not code.** "Dispatcher," "Chief Pilot," "Maintenance Controller," "Owner," "Read-only Auditor" are named sets of (resource, level) rows. Adding a role is a data change. Nothing branches on a role name.
@@ -478,7 +482,8 @@ Two bundles, also data (§1.5). Free tenants only ever have an Admin.
 | `reservations` | write | write |
 | `flights` | write | write |
 | `squawks` | write | write |
-| `maintenance` | write | read |
+| `maintenance.summary` | write | read |
+| `maintenance.items` | write | **none** |
 | `rates` | write | read |
 | `charges` | write | read — **own only, see below** |
 | `qualifications` | write | read |
