@@ -108,6 +108,26 @@ export function dayLabel(day: string): string {
   }).format(new Date(`${day}T12:00:00Z`));
 }
 
+/**
+ * The wall-clock date a date picker handed back, as `YYYY-MM-DD`. Never its
+ * instant.
+ *
+ * A picker returns a `Date`, which is an instant in the *phone's* zone — and
+ * the thing the person chose was a square on a calendar. Reading it with
+ * `toISOString()` is the bug that follows: a pilot in Chicago picking the 30th
+ * at a spinner anchored to midnight gets the 1st, because the instant is
+ * already tomorrow in UTC. So the local parts are read off and nothing is
+ * converted.
+ *
+ * The same class of mistake `zonedToInstant` and `dayLabel` guard, from the
+ * other direction.
+ */
+export function plainDate(picked: Date): string {
+  const month = String(picked.getMonth() + 1).padStart(2, '0');
+  const date = String(picked.getDate()).padStart(2, '0');
+  return `${picked.getFullYear()}-${month}-${date}`;
+}
+
 /** The Monday of the week `day` falls in. Weeks start on Monday here. */
 export function startOfWeek(day: string): string {
   const date = new Date(`${day}T12:00:00Z`);

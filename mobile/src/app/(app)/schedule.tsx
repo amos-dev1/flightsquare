@@ -170,14 +170,24 @@ export default function Schedule() {
           // Today when it is in the week being shown, its Monday otherwise.
           return today >= first && today <= addDays(first, 6) ? today : first;
         });
-        // A filter pointing at an aeroplane that has been archived, or that
-        // a parameter named wrongly, would narrow every query to nothing and
-        // show an empty week that is not empty. Correct it to all aircraft.
-        setAircraftId((current) =>
-          current && aircraft.some((a) => a.id === current && a.status === 'active')
-            ? current
-            : null,
-        );
+        /**
+         * Settle what the filter is pointing at, now that the fleet is known.
+         *
+         * Two corrections in one. A filter naming an aeroplane that has been
+         * archived — or that a route parameter named wrongly — would narrow
+         * every query to nothing and show an empty week that is not empty, so
+         * it falls back to all aircraft.
+         *
+         * And a club with exactly one aeroplane has no "all" worth the name:
+         * the one is the all. Naming it is the honest default and it is what
+         * the sheet would offer anyway, so the filter starts there rather than
+         * on a word that implies a choice nobody has.
+         */
+        const flyable = aircraft.filter((a) => a.status === 'active');
+        setAircraftId((current) => {
+          if (current && flyable.some((a) => a.id === current)) return current;
+          return flyable.length === 1 ? flyable[0]!.id : null;
+        });
       } catch {
         // No signal. Whatever loaded last stays — this is a field app, and an
         // empty week would read as a free one.
@@ -295,27 +305,39 @@ export default function Schedule() {
               </Pressable>
             ))}
 
-            {active.length > 1 ? (
-              /*
-                Compact, because it shares a row with the everyone/mine toggle
-                and a full-height labelled control would unbalance it — but the
-                same control boundary and the same chevron as the Dashboard and
-                Book pickers (§11 §8). It names what it changes, so the chip
-                reads as a control rather than as a statement of what is shown.
-              */
+            {/*
+              Compact, because it shares a row with the everyone/mine toggle and
+              a full-height labelled control would unbalance it — but the same
+              boundary and chevron as the Dashboard and Book pickers (§11 §8).
+
+              One Text and no wrapper. The nested View it replaces was a third
+              layer of flex inside a `space-between` row, and the combination is
+              what let it collapse to nothing — a chip is a word and an arrow,
+              and it should be built like one.
+
+              Shown with one aeroplane as well as with several, because "whose
+              calendar is this" is worth answering either way. With one there is
+              nothing to choose, so it renders as plain content: no chevron, not
+              tappable.
+            */}
+            {active.length > 0 ? (
               <Picker
                 compact
+                disabled={active.length <= 1}
                 onPress={() => setPicking(true)}
                 label={
-                  chosen ? `Showing ${chosen.registration}. Change aircraft` : 'Filter by aircraft'
+                  chosen ? `Showing ${chosen.registration}. Change aircraft` : 'Showing all aircraft'
                 }
               >
-                <View style={styles.aircraftFilterText}>
-                  <Text style={styles.aircraftFilterPrefix}>Aircraft</Text>
-                  <Text style={styles.aircraftFilterLabel} numberOfLines={1}>
-                    {chosen ? chosen.registration : 'All'}
-                  </Text>
-                </View>
+                <Text
+                  style={[styles.aircraftFilterLabel, chosen && styles.aircraftFilterRegistration]}
+                  numberOfLines={1}
+                >
+                  {/* §11 reserves uppercase for registrations, and "All
+                      aircraft" is a sentence — the same distinction the sheet's
+                      own option already makes. */}
+                  {chosen ? chosen.registration : 'All aircraft'}
+                </Text>
               </Picker>
             ) : null}
           </View>
@@ -563,13 +585,9 @@ const styles = StyleSheet.create({
   filter: { ...type.label, color: color.secondary, paddingVertical: space.xs },
   // Weight and a teal rule, so the selected filter is never colour alone.
   filterOn: { color: color.navy, borderBottomWidth: 2, borderBottomColor: color.teal },
-  // Two Text nodes rather than one with a nested span: §11 reserves uppercase
-  // for registrations, and the word that names the control is not one. Siblings
-  // keep that unambiguous without relying on a nested textTransform overriding
-  // its parent.
-  aircraftFilterText: { flexDirection: 'row', alignItems: 'center', gap: space.xs, flexShrink: 1 },
-  aircraftFilterPrefix: { ...type.label, color: color.secondary },
-  aircraftFilterLabel: { ...type.label, textTransform: 'uppercase', flexShrink: 1 },
+  aircraftFilterLabel: { ...type.label },
+  // Uppercase only when it is a tail number (§11).
+  aircraftFilterRegistration: { textTransform: 'uppercase' },
 
   dayHead: {
     flexDirection: 'row',

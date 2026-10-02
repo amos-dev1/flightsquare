@@ -11,10 +11,22 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Feather from '@expo/vector-icons/Feather';
+import { dayLabel, plainDate } from '@flightsquare/shared/time';
 import type { AerodromeResponse, AircraftResponse, FlightCategory } from '@flightsquare/shared';
 
-import { Body, Button, Card, Choice, Field, Input, Notice, SectionHeading } from '@/components/ui';
+import {
+  Body,
+  Button,
+  Card,
+  CardHeading,
+  Choice,
+  Field,
+  Input,
+  Notice,
+  Picker,
+} from '@/components/ui';
 import { api, messageFor, withAuth } from '@/lib/api';
 import { saveAttachment, saveFlight, saveSquawk } from '@/lib/sync';
 import { color, radius, space, type } from '@/theme';
@@ -48,6 +60,24 @@ function hoursBetween(start: string, end: string): string | null {
 }
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * When the reading was taken, for a flight dated `day`.
+ *
+ * Today's flight is being logged at the aeroplane, so the moment is the truth.
+ * A flight logged the next morning happened at some point on its own day, and
+ * noon local is the honest anchor for "that day" — precise enough to order it
+ * before anything logged since, vague enough not to claim a time nobody
+ * recorded.
+ *
+ * Two flights back-dated to the same day tie, and the tie breaks on the row id,
+ * which is a UUIDv7 and therefore ordered by when it was minted. Deterministic,
+ * and the later entry wins — which is the best available answer.
+ */
+function recordedAtFor(day: string): string {
+  if (day === todayIso()) return new Date().toISOString();
+  return new Date(`${day}T12:00:00`).toISOString();
+}
 
 /**
  * The airport behind an identifier, if the table knows it.
@@ -149,6 +179,21 @@ export default function LogFlight() {
   const { aircraft: aircraftId } = useLocalSearchParams<{ aircraft: string }>();
 
   const [aircraft, setAircraft] = useState<AircraftResponse | null>(null);
+
+  /**
+   * When it was flown.
+   *
+   * Today, almost always — a post-flight entry is made at the aeroplane — so
+   * today is the default and nobody has to touch it. But a flight logged the
+   * next morning is the whole reason the field exists, and until now this
+   * screen sent `todayIso()` with no way to say otherwise, which quietly
+   * dated yesterday's flying to today and put its meters in the wrong order.
+   *
+   * A plain calendar date, never an instant (§6 keeps those apart).
+   */
+  const [flightDate, setFlightDate] = useState(todayIso);
+  const [pickingDate, setPickingDate] = useState(false);
+
   const [meters, setMeters] = useState({
     hobbs_start: '',
     hobbs_end: '',
@@ -223,6 +268,8 @@ export default function LogFlight() {
   const hobbsHours = hoursBetween(meters.hobbs_start, meters.hobbs_end);
   const tachHours = hoursBetween(meters.tach_start, meters.tach_end);
   const unit = aircraft?.fuel_units === 'litres' ? 'L' : 'gal';
+  /** The word, for the heading. `unit` is the abbreviation, for a label. */
+  const units = aircraft?.fuel_units === 'litres' ? 'litres' : 'gallons';
 
   // §8.2: a start that does not meet the last reading is flagged for an
   // admin, never rejected. Said plainly rather than looking like an error the
@@ -251,7 +298,16 @@ export default function LogFlight() {
     try {
       const flightId = await saveFlight({
         aircraft_id: aircraftId,
-        flight_date: todayIso(),
+        flight_date: flightDate,
+        // §8.2: recorded-at is when it *happened*, and received-at is when it
+        // arrived — "frequently different, sometimes by days". That stopped
+        // being a formality the moment the date became choosable, because
+        // `record_flight_meters` stamps the meter reading with the flight's
+        // recorded-at and `refresh_aircraft_meter_totals` takes the latest
+        // reading by it. Send `now` for a flight logged this morning and the
+        // aircraft's totals would wind *backwards* to yesterday's shutdown,
+        // with every number downstream following.
+        recorded_at: recordedAtFor(flightDate),
         category,
         ...(meters.hobbs_start ? { hobbs_start: meters.hobbs_start } : {}),
         ...(meters.hobbs_end ? { hobbs_end: meters.hobbs_end } : {}),
@@ -380,61 +436,112 @@ export default function LogFlight() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        {aircraft ? <Text style={styles.registration}>{aircraft.registration}</Text> : null}
+        {/*
+          The aeroplane and the day, on one line. The date is almost always
+          today and almost never touched, so it sits here as a compact control
+          rather than as a field of its own further down the form.
+        */}
+        <View style={styles.head}>
+          {/* `flex: 1` either way, so the date sits at the right edge from the
+              first frame instead of jumping there when the aircraft loads. */}
+          <Text style={styles.registration} numberOfLines={1}>
+            {aircraft?.registration ?? ''}
+          </Text>
+          <Picker
+            compact
+            onPress={() => setPickingDate(true)}
+            label={`Flown ${dayLabel(flightDate)}. Change the date`}
+          >
+            <Feather name="calendar" size={16} color={color.secondary} />
+            <Text style={styles.date}>
+              {flightDate === todayIso() ? 'Today' : dayLabel(flightDate)}
+            </Text>
+          </Picker>
+        </View>
+
+        {pickingDate ? (
+          <DateTimePicker
+            value={new Date(`${flightDate}T12:00:00`)}
+            mode="date"
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            // Nothing has been flown tomorrow. The server does not care, but
+            // offering the date is offering a mistake.
+            maximumDate={new Date()}
+            onValueChange={(_, picked) => {
+              // Android's dialog is modal and closes itself; the iOS spinner
+              // stays open under the control it belongs to.
+              if (Platform.OS !== 'ios') setPickingDate(false);
+              // The wall-clock date, never the picker's instant — which
+              // belongs to the phone's zone and is already tomorrow in UTC
+              // for half the world.
+              if (picked) setFlightDate(plainDate(picked));
+            }}
+            onDismiss={() => setPickingDate(false)}
+          />
+        ) : null}
 
         {/* Meters ------------------------------------------------------ */}
         <Card style={styles.group}>
           {/*
             §11 and §3.4: Hobbs and tach are distinguished explicitly. They
             run at different rates by design, and the difference between them
-            is real data about how the aircraft was flown.
-          */}
-          <SectionHeading>Hobbs</SectionHeading>
-          <View style={styles.pair}>
-            <View style={styles.half}>
-              <Field label="Out">
-                <Input
-                  value={meters.hobbs_start}
-                  onChangeText={set('hobbs_start')}
-                  keyboardType="decimal-pad"
-                />
-              </Field>
-            </View>
-            <View style={styles.half}>
-              <Field label="In">
-                <Input
-                  value={meters.hobbs_end}
-                  onChangeText={set('hobbs_end')}
-                  keyboardType="decimal-pad"
-                  autoFocus
-                />
-              </Field>
-            </View>
-          </View>
-          {hobbsHours ? <Body muted>{hobbsHours} Hobbs hours</Body> : null}
+            is real data about how the aircraft was flown — so they are two
+            named rows of a grid rather than two anonymous pairs.
 
-          <SectionHeading>Tach</SectionHeading>
-          <View style={styles.pair}>
-            <View style={styles.half}>
-              <Field label="Out">
-                <Input
-                  value={meters.tach_start}
-                  onChangeText={set('tach_start')}
-                  keyboardType="decimal-pad"
-                />
-              </Field>
-            </View>
-            <View style={styles.half}>
-              <Field label="In">
-                <Input
-                  value={meters.tach_end}
-                  onChangeText={set('tach_end')}
-                  keyboardType="decimal-pad"
-                />
-              </Field>
-            </View>
+            A grid, because the two meters ask the same two questions: naming
+            Out and In once across the top costs one 18px row instead of four
+            field labels, and the derived hours get a column rather than a line
+            of body text each. Four stacked fields became two rows.
+          */}
+          <View style={styles.meterHead}>
+            <Text style={styles.meterName} />
+            <Text style={styles.columnLabel}>Out</Text>
+            <Text style={styles.columnLabel}>In</Text>
+            <Text style={styles.hoursLabel}>Hours</Text>
           </View>
-          {tachHours ? <Body muted>{tachHours} tach hours</Body> : null}
+
+          <View style={styles.meterRow}>
+            <Text style={styles.meterName}>Hobbs</Text>
+            <Input
+              compact
+              style={styles.meterInput}
+              value={meters.hobbs_start}
+              onChangeText={set('hobbs_start')}
+              keyboardType="decimal-pad"
+              accessibilityLabel="Hobbs out"
+            />
+            <Input
+              compact
+              style={styles.meterInput}
+              value={meters.hobbs_end}
+              onChangeText={set('hobbs_end')}
+              keyboardType="decimal-pad"
+              autoFocus
+              accessibilityLabel="Hobbs in"
+            />
+            <Text style={styles.hoursValue}>{hobbsHours ?? '—'}</Text>
+          </View>
+
+          <View style={styles.meterRow}>
+            <Text style={styles.meterName}>Tach</Text>
+            <Input
+              compact
+              style={styles.meterInput}
+              value={meters.tach_start}
+              onChangeText={set('tach_start')}
+              keyboardType="decimal-pad"
+              accessibilityLabel="Tach out"
+            />
+            <Input
+              compact
+              style={styles.meterInput}
+              value={meters.tach_end}
+              onChangeText={set('tach_end')}
+              keyboardType="decimal-pad"
+              accessibilityLabel="Tach in"
+            />
+            <Text style={styles.hoursValue}>{tachHours ?? '—'}</Text>
+          </View>
 
           {hobbsGap ? (
             <Notice>
@@ -446,11 +553,12 @@ export default function LogFlight() {
 
         {/* Route ------------------------------------------------------- */}
         <Card style={styles.group}>
-          <SectionHeading>Route</SectionHeading>
+          <CardHeading>Route</CardHeading>
           <View style={styles.pair}>
             <View style={styles.half}>
-              <Field label="From">
+              <Field label="From" compact>
                 <Input
+                  compact
                   value={departedFrom}
                   onChangeText={(text) => setDepartedFrom(text.toUpperCase())}
                   placeholder="KPAO"
@@ -462,8 +570,9 @@ export default function LogFlight() {
               {from ? <Text style={styles.place}>{describe(from)}</Text> : null}
             </View>
             <View style={styles.half}>
-              <Field label="To">
+              <Field label="To" compact>
                 <Input
+                  compact
                   value={arrivedAt}
                   onChangeText={(text) => setArrivedAt(text.toUpperCase())}
                   placeholder="KHAF"
@@ -479,7 +588,13 @@ export default function LogFlight() {
 
         {/* Fuel -------------------------------------------------------- */}
         <Card style={styles.group}>
-          <SectionHeading>Fuel</SectionHeading>
+          {/*
+            The unit said once, in the heading. Four fields each repeating it
+            underneath was four lines saying what the heading already says —
+            and the labels stay short, because "At shutdown (required)" wraps
+            to two lines in a half-width column and costs more than it saves.
+          */}
+          <CardHeading>Fuel · {units}</CardHeading>
           {/*
             §3.4: two different things, and they must not be one field.
             Remaining is aircraft *state* — the next pilot walks out to it.
@@ -488,8 +603,9 @@ export default function LogFlight() {
           */}
           <View style={styles.pair}>
             <View style={styles.half}>
-              <Field label="Before" hint={`${unit} at start-up`}>
+              <Field label="Before" compact>
                 <Input
+                  compact
                   value={fuelBefore}
                   onChangeText={setFuelBefore}
                   keyboardType="decimal-pad"
@@ -497,8 +613,9 @@ export default function LogFlight() {
               </Field>
             </View>
             <View style={styles.half}>
-              <Field label="After" required hint={`${unit} at shutdown`}>
+              <Field label="After" required compact>
                 <Input
+                  compact
                   value={fuelAfter}
                   onChangeText={setFuelAfter}
                   keyboardType="decimal-pad"
@@ -509,8 +626,9 @@ export default function LogFlight() {
 
           <View style={styles.pair}>
             <View style={styles.half}>
-              <Field label="Added" hint={unit}>
+              <Field label="Added" compact>
                 <Input
+                  compact
                   value={fuelAdded}
                   onChangeText={setFuelAdded}
                   keyboardType="decimal-pad"
@@ -518,8 +636,9 @@ export default function LogFlight() {
               </Field>
             </View>
             <View style={styles.half}>
-              <Field label="Price" hint={`per ${unit}`}>
+              <Field label={`Price/${unit}`} compact>
                 <Input
+                  compact
                   value={fuelPrice}
                   onChangeText={setFuelPrice}
                   keyboardType="decimal-pad"
@@ -532,7 +651,7 @@ export default function LogFlight() {
 
         {/* What it was for --------------------------------------------- */}
         <Card style={styles.group}>
-          <SectionHeading>What this flight was</SectionHeading>
+          <CardHeading>What this flight was</CardHeading>
           <Choice options={CATEGORIES} value={category} onChange={setCategory} />
           {category === 'maintenance' ? (
             // Said out loud, because a club might reasonably expect otherwise
@@ -545,7 +664,7 @@ export default function LogFlight() {
         {squawks.map((draft, index) => (
           <Card key={draft.key} style={styles.group}>
             <View style={styles.squawkHead}>
-              <SectionHeading>Squawk {squawks.length > 1 ? index + 1 : ''}</SectionHeading>
+              <CardHeading>Squawk {squawks.length > 1 ? index + 1 : ''}</CardHeading>
               <Pressable
                 onPress={() => setSquawks((all) => all.filter((one) => one.key !== draft.key))}
                 accessibilityRole="button"
@@ -557,7 +676,7 @@ export default function LogFlight() {
               </Pressable>
             </View>
 
-            <Field label="What is wrong" required>
+            <Field label="What is wrong" required compact>
               <Input
                 value={draft.summary}
                 onChangeText={(text) => edit(draft.key, { summary: text })}
@@ -567,7 +686,7 @@ export default function LogFlight() {
               />
             </Field>
 
-            <Field label="Details">
+            <Field label="Details" compact>
               <Input
                 value={draft.details}
                 onChangeText={(text) => edit(draft.key, { details: text })}
@@ -678,8 +797,9 @@ export default function LogFlight() {
 
         {/* Remarks ------------------------------------------------------ */}
         <Card style={styles.group}>
-          <Field label="Remarks">
+          <Field label="Remarks" compact>
             <Input
+              compact
               value={remarks}
               onChangeText={setRemarks}
               placeholder="Landing light intermittent on taxi."
@@ -705,13 +825,44 @@ export default function LogFlight() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: color.mist },
-  container: { padding: space.base, gap: space.base, paddingBottom: space.xxl },
-  registration: { ...type.pageTitle, color: color.navy, textTransform: 'uppercase' },
-  group: { gap: space.base },
+  // 12 between cards rather than 16: there are five of them, and this screen
+  // is one a pilot scrolls with a thumb while standing at a wing.
+  container: { padding: space.base, gap: space.md, paddingBottom: space.xxl },
+
+  head: { flexDirection: 'row', alignItems: 'center', gap: space.md },
+  // sectionHeading, not pageTitle: the registration is a label on this form,
+  // not the form's own title — the navigation bar already names the screen.
+  registration: { ...type.sectionHeading, textTransform: 'uppercase', flex: 1 },
+  date: { ...type.label },
+
+  group: { gap: space.md },
+
+  /**
+   * The meter grid: name, Out, In, Hours.
+   *
+   * Fixed widths on the two outside columns so the inputs line up down the
+   * card and the digits in the Hours column line up with each other, which is
+   * what makes a wrong reading visible at a glance.
+   */
+  meterHead: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  meterRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  meterName: { ...type.label, width: 46 },
+  meterInput: { flex: 1, textAlign: 'center' },
+  columnLabel: { ...type.supporting, color: color.secondary, flex: 1, textAlign: 'center' },
+  hoursLabel: { ...type.supporting, color: color.secondary, width: 44, textAlign: 'right' },
+  hoursValue: {
+    ...type.label,
+    width: 44,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
+
   pair: { flexDirection: 'row', gap: space.md },
   half: { flex: 1 },
   place: { ...type.supporting, color: color.secondary, marginTop: space.xs },
-  details: { height: 96, paddingTop: space.sm, textAlignVertical: 'top' },
+  // 72, not 96: three lines is more than anybody types standing at a wing,
+  // and the field grows under the keyboard anyway once it is focused.
+  details: { height: 72, paddingTop: space.sm, textAlignVertical: 'top' },
   pressed: { opacity: 0.7 },
 
   squawkHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

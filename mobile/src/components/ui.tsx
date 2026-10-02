@@ -36,6 +36,18 @@ export function SectionHeading({ children }: { children: ReactNode }) {
   return <Text style={styles.sectionHeading}>{children}</Text>;
 }
 
+/**
+ * 16px, for a heading *inside* a card.
+ *
+ * §11's scale distinguishes a section heading (20-24) from a card heading
+ * (16-18), and until now only the first had a component — so every card in the
+ * app headed itself with a section heading one step too large. On a form with
+ * five cards that is most of a screenful of nothing.
+ */
+export function CardHeading({ children }: { children: ReactNode }) {
+  return <Text style={styles.cardHeading}>{children}</Text>;
+}
+
 export function Body({ children, muted }: { children: ReactNode; muted?: boolean }) {
   return <Text style={[styles.body, muted && styles.muted]}>{children}</Text>;
 }
@@ -82,16 +94,27 @@ export function Field({
   label,
   hint,
   required,
+  compact,
   children,
 }: {
   label: string;
   hint?: string;
   required?: boolean;
+  /**
+   * For a form with a dozen fields on it.
+   *
+   * A 14px label and an 8px gap is right for a form somebody fills in once.
+   * The post-flight entry has ten fields and §3.4 says it is the screen to
+   * optimise over everything else — "if it takes more than a minute, people
+   * skip it" — and a minute is mostly scrolling. This drops the label to the
+   * 13px supporting size and halves the gap, which is 11px a field.
+   */
+  compact?: boolean;
   children: ReactNode;
 }) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.label}>
+    <View style={compact ? styles.fieldCompact : styles.field}>
+      <Text style={compact ? styles.labelCompact : styles.label}>
         {label}
         {required ? <Text style={styles.labelHint}> (required)</Text> : null}
       </Text>
@@ -101,12 +124,16 @@ export function Field({
   );
 }
 
-export function Input({ style, ...props }: TextInputProps) {
+export function Input({
+  compact,
+  style,
+  ...props
+}: TextInputProps & { compact?: boolean }) {
   return (
     <TextInput
       placeholderTextColor={color.secondary}
       {...props}
-      style={[styles.input, style]}
+      style={[styles.input, compact && styles.inputCompact, style]}
     />
   );
 }
@@ -269,6 +296,7 @@ const styles = StyleSheet.create({
   },
   pageTitle: { ...type.pageTitle, color: color.navy },
   sectionHeading: { ...type.sectionHeading, color: color.navy },
+  cardHeading: { ...type.cardHeading, color: color.navy },
   body: { ...type.body, color: color.navy },
   muted: { color: color.secondary },
 
@@ -307,15 +335,36 @@ const styles = StyleSheet.create({
     borderColor: color.control,
     borderRadius: radius.control,
   },
-  // §11 §13 asks for 44 even where the control is dense.
-  pickerCompact: { minHeight: 44, gap: space.sm, paddingHorizontal: space.sm },
+  /**
+   * §11 §13 asks for 44 even where the control is dense.
+   *
+   * `flexShrink: 0` because a chip lives in a row beside other controls, and a
+   * control squeezed to nothing by its neighbours is the same empty box as one
+   * with a zero-width body — just arrived at from the other direction. It
+   * keeps its width and the row wraps or scrolls instead.
+   */
+  pickerCompact: {
+    minHeight: 44,
+    gap: space.sm,
+    paddingHorizontal: space.sm,
+    flexShrink: 0,
+  },
   pickerPressed: { backgroundColor: color.subtle },
   // `flex: 1` so the chevron is pushed to the far edge of a full-width control,
   // and `flexShrink` so it keeps its place when the registration is long.
   pickerBody: { flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.md },
-  // A chip hugs its content instead: it sits in a row beside other controls,
-  // so growing to fill would make it as wide as the screen.
-  pickerBodyCompact: { flexGrow: 0, gap: space.sm },
+  /**
+   * A chip hugs its content instead: it sits in a row beside other controls,
+   * so growing to fill would make it as wide as the screen.
+   *
+   * `flexBasis: 'auto'` is load-bearing, not tidiness. `flex: 1` above is
+   * shorthand for `flexGrow: 1, flexShrink: 1, flexBasis: 0`, so turning the
+   * grow off on its own leaves a basis of zero with nothing to grow it — the
+   * body collapsed to no width at all and its contents vanished. The border
+   * and the chevron still drew, which is what made it look like a blank
+   * control rather than a broken one.
+   */
+  pickerBodyCompact: { flexGrow: 0, flexBasis: 'auto', gap: space.sm },
   // Nothing to pick: content, not a control.
   pickerPlain: {
     flexDirection: 'row',
@@ -327,7 +376,9 @@ const styles = StyleSheet.create({
   pickerCompactPlain: { minHeight: 44, gap: space.sm },
 
   field: { gap: space.sm },
+  fieldCompact: { gap: space.xs },
   label: { ...type.label, color: color.navy },
+  labelCompact: { ...type.supporting, color: color.secondary },
   labelHint: { ...type.bodySmall, color: color.secondary },
   hint: { ...type.supporting, color: color.secondary },
 
@@ -340,6 +391,11 @@ const styles = StyleSheet.create({
     backgroundColor: color.surface,
     ...type.input,
   },
+  // 44, which is §11 §13's floor rather than a number picked for looks — the
+  // dense form is still a form somebody taps with a thumb. The text stays at
+  // 16px, because iOS zooms a field under that and shrinking it to gain four
+  // pixels would cost the whole layout.
+  inputCompact: { height: 44, paddingHorizontal: space.sm },
 
   meter: { ...type.body, color: color.navy, fontVariant: ['tabular-nums'] },
   meterUnit: { ...type.supporting, color: color.secondary },

@@ -9,7 +9,7 @@ import {
   type AircraftResponse,
   type ConflictBody,
 } from '@flightsquare/shared';
-import { dayLabel, timeIn, zonedToInstant } from '@flightsquare/shared/time';
+import { dayLabel, plainDate, timeIn, zonedToInstant } from '@flightsquare/shared/time';
 
 import { AircraftThumbnail } from '@/components/aircraft';
 import { Body, Button, Card, Field, Input, Notice, Picker, SectionHeading } from '@/components/ui';
@@ -362,13 +362,6 @@ function pickerValue(day: string, time: string): Date {
     .map(Number);
   const [hour, minute] = time.split(':').map(Number);
   return new Date(year!, month! - 1, date!, hour ?? 9, minute ?? 0, 0, 0);
-}
-
-/** The picker's wall-clock date, as `YYYY-MM-DD`. Never its instant. */
-function plainDate(picked: Date): string {
-  const month = String(picked.getMonth() + 1).padStart(2, '0');
-  const date = String(picked.getDate()).padStart(2, '0');
-  return `${picked.getFullYear()}-${month}-${date}`;
 }
 
 /** The picker's wall-clock time, as `HH:MM`. Never its instant. */
