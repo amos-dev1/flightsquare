@@ -1156,11 +1156,23 @@ async function recordCompliance(
   admin: Session,
   fleet: Map<string, { id: string; spec: AircraftSpec }>,
 ): Promise<void> {
-  const schedule: Record<string, { template: string; daysAgo: number }[]> = {
+  /*
+    `hoursAgo` is the point of this whole function for the oil change.
+
+    An oil change is due on tach hours, not on a date, so a compliance record
+    with no meter reading on it anchors the interval at nothing — and
+    `next_due_for` then rolls it forward from zero, which puts the item several
+    thousand hours overdue the moment it is seeded. The dates alone are enough
+    for an annual; an hours-based item needs the reading as well.
+
+    The numbers are staggered on purpose, so the screens have one of each state
+    to draw: 12 hours left, 28, 6, and 42 on a 50-hour interval.
+  */
+  const schedule: Record<string, { template: string; daysAgo: number; hoursAgo?: number }[]> = {
     // The 172 flies the most and its annual is the one coming up.
     N4521G: [
       { template: 'annual', daysAgo: 351 },
-      { template: 'oil_change', daysAgo: 38 },
+      { template: 'oil_change', daysAgo: 38, hoursAgo: 38 },
       { template: 'elt_battery', daysAgo: 420 },
       { template: 'elt_inspection', daysAgo: 351 },
       { template: 'transponder', daysAgo: 560 },
@@ -1168,25 +1180,28 @@ async function recordCompliance(
     ],
     N738TR: [
       { template: 'annual', daysAgo: 142 },
-      { template: 'oil_change', daysAgo: 22 },
+      { template: 'oil_change', daysAgo: 22, hoursAgo: 22 },
       { template: 'elt_battery', daysAgo: 142 },
       { template: 'elt_inspection', daysAgo: 142 },
       { template: 'transponder', daysAgo: 300 },
       { template: 'pitot_static', daysAgo: 300 },
     ],
-    // The leaseback, whose ELT battery has quietly gone past its date. A real
-    // and very ordinary thing to find on a shared aeroplane.
+    // The leaseback, whose ELT battery has quietly gone past its date and whose
+    // oil change is nearly on it. Both are very ordinary things to find on a
+    // shared aeroplane, and between them they give the screens a `due_soon` and
+    // an `overdue` to draw — 760 days was comfortably inside the placeholder
+    // 60-month interval, so the case the comment described never appeared.
     N91BK: [
       { template: 'annual', daysAgo: 95 },
-      { template: 'oil_change', daysAgo: 61 },
-      { template: 'elt_battery', daysAgo: 760 },
+      { template: 'oil_change', daysAgo: 61, hoursAgo: 48 },
+      { template: 'elt_battery', daysAgo: 1900 },
       { template: 'elt_inspection', daysAgo: 95 },
       { template: 'transponder', daysAgo: 420 },
       { template: 'pitot_static', daysAgo: 420 },
     ],
     N220SR: [
       { template: 'annual', daysAgo: 24 },
-      { template: 'oil_change', daysAgo: 24 },
+      { template: 'oil_change', daysAgo: 24, hoursAgo: 8 },
       { template: 'elt_battery', daysAgo: 24 },
       { template: 'elt_inspection', daysAgo: 24 },
       { template: 'transponder', daysAgo: 24 },
@@ -1213,12 +1228,21 @@ async function recordCompliance(
     // its own history and this is not the place to invent a crisis in it.
     const plan = schedule[registration] ?? [
       { template: 'annual', daysAgo: 118 },
-      { template: 'oil_change', daysAgo: 30 },
+      { template: 'oil_change', daysAgo: 30, hoursAgo: 30 },
       { template: 'elt_battery', daysAgo: 118 },
       { template: 'elt_inspection', daysAgo: 118 },
       { template: 'transponder', daysAgo: 260 },
       { template: 'pitot_static', daysAgo: 260 },
     ];
+
+    // The meters as they now stand, after every seeded flight. Read rather than
+    // assumed: the flights advanced them and the spec's figures are where they
+    // started.
+    const current = await admin.call<{ tach: string | null; hobbs: string | null }>(
+      'GET',
+      `/aircraft/${aircraft.id}`,
+    );
+    const tachNow = Number(current.tach ?? 0);
 
     for (const entry of plan) {
       const item = items.find((row) => row.template_code === entry.template);
@@ -1233,6 +1257,11 @@ async function recordCompliance(
         method: entry.template.endsWith('battery') ? 'replacement' : 'inspection',
         title: titles[entry.template] ?? entry.template,
         complied_on: isoDate(dayOffset(-entry.daysAgo)),
+        // Only where the interval is counted in hours, and never guessed where
+        // it is not: a calendar item with a meter reading on it is noise.
+        ...(entry.hoursAgo !== undefined && tachNow > entry.hoursAgo
+          ? { complied_at_hours: (tachNow - entry.hoursAgo).toFixed(1), hours_meter: 'tach' }
+          : {}),
         signed_by: pick(['R. Castellano', 'J. Moreau', 'D. Abernathy']),
         signed_certificate: `A&P ${Math.floor(between(2800000, 3900000, 0))}`,
       });
