@@ -236,9 +236,19 @@ describe('the mail queue', () => {
   // -------------------------------------------------------------------------
 
   it('reports what has come due, once, and not again', async () => {
-    // Adding an aircraft seeds its intervals from the preset library and
-    // nobody has recorded when any of them were last done, so they are all
-    // outstanding from the moment it exists.
+    /*
+      The intervals come from the preset library, which is an explicit choice
+      since Phase 1D rather than something adding an aircraft does — SPEC §1:
+      "Empty by default." Nobody has recorded when any of them were last done,
+      so they are all outstanding from the moment they exist, which is what
+      gives the sweep something to report.
+    */
+    const seeded = await app.inject({
+      method: 'POST',
+      url: `/aircraft/${aircraftId}/maintenance-items/from-library`,
+    });
+    expect(seeded.statusCode).toBe(200);
+
     const first = await sweepTenant(club.tenant_id);
     expect(first.items).toBeGreaterThan(0);
     expect(first.notified).toBe(1);

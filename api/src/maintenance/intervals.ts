@@ -45,6 +45,17 @@ export interface RuleDraft {
   fixed_date?: string | null;
   warn_at: string;
   critical_at: string;
+  /**
+   * Where this rule counts from, when it differs from the item's.
+   *
+   * The Add form asks "last completed" per rule, because they genuinely differ:
+   * an oil change done at 1,225.0 tach on a day somebody wrote down is two
+   * anchors, not one. `writeRules` has always honoured these; the preview must
+   * too, or the footer answers a different question from the one Save answers.
+   */
+  anchor_on?: string | null;
+  anchor_hours?: string | null;
+  anchor_cycles?: number | null;
 }
 
 /** Where the rule is counting from. */
@@ -100,8 +111,10 @@ export async function previewRules(
       }>`
         SELECT * FROM public.next_due_for(
           ${rule.kind}, ${rule.every ?? null}::numeric,
-          ${rule.end_of_month ?? false}, ${anchor.on ?? null}::date,
-          ${anchor.hours ?? null}::numeric, ${anchor.cycles ?? null}::integer)
+          ${rule.end_of_month ?? false},
+          ${rule.anchor_on ?? anchor.on ?? null}::date,
+          ${rule.anchor_hours ?? anchor.hours ?? null}::numeric,
+          ${rule.anchor_cycles ?? anchor.cycles ?? null}::integer)
       `.execute(trx);
 
       const next = due.rows[0] ?? { due_on: null, due_at_hours: null, due_at_cycles: null };

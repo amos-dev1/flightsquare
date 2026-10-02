@@ -151,6 +151,43 @@ describe('interval arithmetic', () => {
     expect(await state(-500, 10, 3, null, false)).toBe('inactive');
   });
 
+  it('counts each rule from its own anchor', async () => {
+    /*
+      An oil change done at 1,225.0 tach on 2 August is two anchors, not one:
+      the Add form asks "last completed" per rule because they genuinely differ.
+
+      The preview dropped them on the way through and answered with nulls for
+      everything, which is the one bug 1D's end-to-end check turned up — a
+      footer that said nothing while Save would have said 1,275.0.
+    */
+    const [hours, months] = await previewRules(
+      db,
+      [
+        {
+          kind: 'tach_hr',
+          every: '50.0',
+          warn_at: '10.0',
+          critical_at: '3.0',
+          anchor_hours: '1225.0',
+        },
+        {
+          kind: 'cal_month',
+          every: '4',
+          warn_at: '30',
+          critical_at: '7',
+          anchor_on: '2026-08-02',
+        },
+      ],
+      // Deliberately empty: everything has to come from the rules themselves.
+      {},
+      { tach: '1270.4', today: '2026-10-01' },
+    );
+
+    expect(hours!.due_at_hours).toBe('1275.0');
+    expect(hours!.remaining).toBe('4.6');
+    expect(months!.due_on).toBe('2026-12-02');
+  });
+
   it('gives the preview the same answers as the trigger would', async () => {
     /*
       §13: "preview matches saved result". It holds by construction — both call

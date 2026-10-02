@@ -17,6 +17,9 @@ import type {
   FlightSummaryResponse,
   LoginResponse,
   MaintenanceItemResponse,
+  MaintenanceSummaryResponse,
+  PreviewMaintenanceRequest,
+  PreviewMaintenanceResponse,
   MeResponse,
   MembershipSummaryResponse,
   MeterReadingResponse,
@@ -188,6 +191,28 @@ export function createClient(options: ClientOptions) {
     availability: () => request<AircraftAvailabilityResponse[]>('GET', '/availability'),
     aircraftAvailability: (aircraftId: string) =>
       request<AircraftAvailabilityResponse>('GET', `/aircraft/${aircraftId}/availability`),
+
+    /**
+     * What a pilot is told: fit to fly, and what is coming up (SPEC §3).
+     *
+     * `maintenance.summary: read`, which a pilot holds and which stops short of
+     * the record. The admin screens use `listMaintenanceItems` instead.
+     */
+    maintenanceSummary: (aircraftId: string) =>
+      request<MaintenanceSummaryResponse>(
+        'GET',
+        `/aircraft/${aircraftId}/maintenance/summary`,
+      ),
+
+    /**
+     * What a rule would be, before anything is saved.
+     *
+     * §8.2: the client never computes anything that matters, and a due date is
+     * very much something that matters. The form sends what the pilot typed and
+     * renders what comes back.
+     */
+    previewMaintenance: (input: PreviewMaintenanceRequest) =>
+      request<PreviewMaintenanceResponse>('POST', '/maintenance-items/preview', input),
 
     listMaintenanceItems: (query: { aircraftId?: string } = {}) =>
       request<MaintenanceItemResponse[]>(

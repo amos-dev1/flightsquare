@@ -356,7 +356,9 @@ compliance_records    AD / SB compliance — append-only, never edited
 
 `squawks.grounding` is the boolean that feeds §3.3. An overdue `maintenance_item` with `grounds_aircraft = true` does the same. Both resolve through `aircraft_availability`.
 
-**Interval presets.** Adding an aircraft should not mean typing in fifteen maintenance intervals from scratch. A global reference library (§2.2) holds suggested schedules keyed by aircraft and engine type — annual, 100-hour, oil change, oil filter, spark plugs, ELT battery, transponder and pitot-static checks, ADs — and adding an aircraft instantiates the applicable ones.
+**Interval presets, offered and never assumed.** A global reference library (§2.2) holds suggested schedules keyed by aircraft and engine type — annual, 100-hour, oil change, oil filter, spark plugs, ELT battery, transponder and pitot-static checks, ADs.
+
+**A new aircraft tracks nothing until an admin says so.** Adding one used to instantiate the applicable presets, on the grounds that nobody should have to type in fifteen intervals from scratch. That argument lost to a better one: an item nobody approved is the app asserting an obligation it cannot know applies — a 100-hour on a private aeroplane, an ELT inspection on one with no ELT — and every seeded item arrives due today with no compliance behind it, so a brand-new aircraft opened on a screen full of red. Instantiating from the library is now an explicit choice (`POST /aircraft/:id/maintenance-items/from-library`), and template chips on the Add screen are what stops it being fifteen intervals of typing.
 
 **Instantiate a copy; never reference the template.** The tenant's `maintenance_items` are their own rows from the moment they are created, freely editable, with no live link back. If they pointed at the global library, editing a preset would silently rewrite thousands of tenants' compliance data — the same class of bug as a mutable billing rate (§3.7), and worse, because this one has regulatory consequences. Record which template version seeded a row for provenance, and nothing more.
 

@@ -734,6 +734,60 @@ export type SignoffKind = 'a_and_p' | 'ia' | 'repairman' | 'owner' | 'other';
  * never computes anything that matters, and "is this aeroplane legal to fly"
  * is as close to mattering as this product gets.
  */
+/** The bases an item can be due on (§3.6, SPEC §4.2). */
+export type MaintenanceRuleKind =
+  | 'tach_hr'
+  | 'hobbs_hr'
+  | 'airframe_hr'
+  | 'cycles'
+  | 'cal_month'
+  | 'cal_day'
+  | 'fixed_date';
+
+export type MaintenanceCategory = 'airframe' | 'engine' | 'prop' | 'avionics' | 'other';
+/** §4.7: whether the next interval runs from the completion or from the due point. */
+export type MaintenanceNextFrom = 'completion' | 'previous_due';
+
+/**
+ * One basis an item is due on. Up to three, combined whichever-comes-first.
+ *
+ * `remaining` is in the rule's own units — hours for a meter rule, days for a
+ * calendar one, cycles for cycles — and never mixed, because ten of one is not
+ * ten of the other.
+ */
+export interface MaintenanceRuleResponse {
+  id: string;
+  kind: MaintenanceRuleKind;
+  /** Null for `fixed_date`, which happens once and does not recur. */
+  every: string | null;
+  /** §4.2: a 12-month annual signed 12 March is due 31 March. Months only. */
+  end_of_month: boolean;
+  due_on: string | null;
+  due_at_hours: string | null;
+  due_at_cycles: number | null;
+  warn_at: string;
+  critical_at: string;
+  remaining: string | null;
+  state: MaintenanceState;
+  /** §4.3: when this runs out at the pace actually flown, or null rather than
+   *  a forecast nobody should plan around. */
+  projected_date: string | null;
+}
+
+/** A rule as a form has it, before anything is saved. */
+export interface MaintenanceRuleInput {
+  kind: MaintenanceRuleKind;
+  every?: string;
+  end_of_month?: boolean;
+  fixed_date?: string;
+  /** Where this rule is counting from. Defaults to the item's last compliance. */
+  anchor_on?: string;
+  anchor_hours?: string;
+  anchor_cycles?: number;
+  warn_at?: string;
+  critical_at?: string;
+}
+
 export interface MaintenanceItemResponse {
   id: string;
   aircraft_id: string;
@@ -751,9 +805,28 @@ export interface MaintenanceItemResponse {
   hours_meter: MaintenanceMeter;
   current_hours: string | null;
 
+  /**
+   * Superseded by `rules` below. Kept because §8.1 is additive-only and a
+   * shipped build reads them; a single-interval item still reports them.
+   */
   interval_months: number | null;
   interval_hours: string | null;
   interval_cycles: number | null;
+
+  /** Every basis this item is due on, each with its own state (§4.2). */
+  rules: MaintenanceRuleResponse[];
+  /** Which one is deciding — the number that belongs on the card. */
+  governing_rule_id: string | null;
+  governing_kind: MaintenanceRuleKind | null;
+  /** In the governing rule's own units. */
+  governing_remaining: string | null;
+  projected_date: string | null;
+
+  category: MaintenanceCategory;
+  /** §4.5: shown as a restriction when overdue, and never blocks a booking. */
+  restriction_label: string | null;
+  tolerance_hours: string | null;
+  next_from: MaintenanceNextFrom;
 
   days_remaining: number | null;
   hours_remaining: string | null;
@@ -786,11 +859,88 @@ export interface CreateMaintenanceItemRequest {
   interval_cycles?: number;
   warn_within_days?: number;
   warn_within_hours?: string;
+
+  /**
+   * The bases this item is due on (§4.2). One to three.
+   *
+   * The `interval_*` and `due_*` fields above still work and still create a
+   * single rule each — §8.1 is additive-only and a shipped build posts them.
+   * Sending `rules` replaces that shape entirely rather than adding to it, so
+   * a form that knows about rules does not have to also fill in the old
+   * fields and hope they agree.
+   */
+  rules?: MaintenanceRuleInput[];
+  category?: MaintenanceCategory;
+  position?: string;
+  restriction_label?: string;
+  tolerance_hours?: string;
+  next_from?: MaintenanceNextFrom;
 }
 
 export type UpdateMaintenanceItemRequest = Partial<CreateMaintenanceItemRequest> & {
   status?: MaintenanceItemStatus;
 };
+
+/**
+ * What a rule would be, for a form nobody has saved (SPEC §8).
+ *
+ * Drives the live footer in mockups 03 and 05 — "Next due 1,275.0 tach or
+ * Dec 2, 2026 · 4.6 hr from now · Upcoming". §13 requires it to match what
+ * saving would produce, which it does by construction: the preview and the
+ * completion trigger call the same two database functions.
+ */
+export interface PreviewMaintenanceRequest {
+  aircraft_id: string;
+  rules: MaintenanceRuleInput[];
+  /** Falls back to each rule's own anchor, then to today and the live meters. */
+  anchor_on?: string;
+  anchor_hours?: string;
+  anchor_cycles?: number;
+  tolerance_hours?: string;
+}
+
+export interface PreviewMaintenanceResponse {
+  rules: {
+    kind: MaintenanceRuleKind;
+    due_on: string | null;
+    due_at_hours: string | null;
+    due_at_cycles: number | null;
+    remaining: string | null;
+    state: MaintenanceState;
+  }[];
+  /** The worst of them, which is what the footer leads with. */
+  state: MaintenanceState;
+}
+
+/**
+ * What a pilot is told (SPEC §3, §5 screen 02).
+ *
+ * `maintenance.summary: read`, which a pilot holds and which stops short of the
+ * record. Everything here answers "may I fly it, and what is coming up" — never
+ * "what was done to it".
+ */
+export interface MaintenanceSummaryResponse {
+  aircraft_id: string;
+  registration: string;
+  /** From `aircraft_availability`: the one answer three causes resolve into. */
+  available: boolean;
+  grounding_reasons: string[];
+  /** §4.5: overdue items that restrict rather than ground. */
+  restrictions: string[];
+  tach: string | null;
+  hobbs: string | null;
+  totals_updated_at: string | null;
+  /** The next five, worst first. Name and remaining, and nothing else. */
+  upcoming: {
+    id: string;
+    name: string;
+    state: MaintenanceState;
+    governing_kind: MaintenanceRuleKind | null;
+    governing_remaining: string | null;
+    due_on: string | null;
+    ever_complied: boolean;
+  }[];
+}
 
 /** One entry in the preset library (§3.6), offered before it is instantiated. */
 export interface MaintenanceTemplateResponse {

@@ -369,18 +369,23 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
             .execute();
         }
 
-        // §3.6: adding an aircraft instantiates the applicable presets, as
-        // copies with no link back to the library. They arrive due *now*
-        // with no compliance date behind them — the system knows nothing
-        // about this airframe's history yet, and dating an annual twelve
-        // months out would assert that it is in annual.
-        //
-        // Gated on the flag rather than assumed: seeding rows for a module
-        // the tenant does not have would be creating data they cannot see.
-        if (entitlements.flag('maintenance_module')) {
-          await sql`SELECT public.instantiate_maintenance_templates(${aircraft.id}::uuid)`
-            .execute(trx);
-        }
+        /*
+          A new aircraft tracks nothing until somebody says so.
+
+          This used to instantiate the preset library here, on §3.6's grounds
+          that "adding an aircraft should not mean typing in fifteen intervals
+          from scratch". SPEC §1 reverses it, and the argument is better: items
+          nobody approved are the app asserting obligations it cannot know apply
+          — a 100-hour on a private aeroplane, an ELT on one with no ELT — and
+          every one of them arrives due today with no compliance behind it, so
+          a brand-new aircraft opens on a screen full of red.
+
+          The library has not gone anywhere. `POST /aircraft/:id/maintenance-
+          items/from-library` is the same function behind an explicit choice,
+          and Phase 3 turns it into the suggestions inbox it was always shaped
+          for. The template chips on the Add screen are the Phase 1 answer to
+          not typing fifteen intervals.
+        */
 
         return selectAircraft(trx, aircraft.id);
       }).catch(rethrowAircraftWriteError);

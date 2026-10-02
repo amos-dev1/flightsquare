@@ -2,6 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import type {
   AircraftAvailabilityResponse,
+  MaintenanceSummaryResponse,
+  PreviewMaintenanceRequest,
+  PreviewMaintenanceResponse,
+  MaintenanceRuleInput,
+  MaintenanceRuleKind,
+  MaintenanceRuleResponse,
+  MaintenanceState,
   ComplianceRecordResponse,
   CreateComplianceRecordRequest,
   CreateMaintenanceItemRequest,
@@ -14,6 +21,7 @@ import type {
 } from '@flightsquare/shared';
 
 import { ownMembership } from '../../db/membership.js';
+import { previewRules } from '../../maintenance/intervals.js';
 import { ConflictError, NotFoundError } from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
@@ -36,6 +44,34 @@ import type { Tx } from '../../db/context.js';
 const decimal = { type: 'string', pattern: '^[0-9]{1,7}(\\.[0-9])?$' } as const;
 const meter = { type: 'string', enum: ['hobbs', 'tach', 'airframe'] } as const;
 
+/** §4.2: up to three, combined whichever-comes-first. More than three is not a
+ *  richer item, it is a form nobody can read. */
+const itemFieldsRules = {
+  type: 'array',
+  minItems: 1,
+  maxItems: 3,
+  items: {
+    type: 'object',
+    required: ['kind'],
+    additionalProperties: false,
+    properties: {
+      kind: {
+        type: 'string',
+        enum: ['tach_hr', 'hobbs_hr', 'airframe_hr', 'cycles',
+               'cal_month', 'cal_day', 'fixed_date'],
+        },
+      every: decimal,
+      end_of_month: { type: 'boolean' },
+      fixed_date: { type: 'string', format: 'date' },
+      anchor_on: { type: 'string', format: 'date' },
+      anchor_hours: decimal,
+      anchor_cycles: { type: 'integer', minimum: 0 },
+      warn_at: decimal,
+      critical_at: decimal,
+    },
+  },
+} as const;
+
 const itemFields = {
   name: { type: 'string', minLength: 1, maxLength: 200 },
   description: { type: 'string', maxLength: 2000 },
@@ -50,6 +86,29 @@ const itemFields = {
   interval_cycles: { type: 'integer', minimum: 1 },
   warn_within_days: { type: 'integer', minimum: 0, maximum: 365 },
   warn_within_hours: decimal,
+  category: { type: 'string', enum: ['airframe', 'engine', 'prop', 'avionics', 'other'] },
+  position: { type: 'string', maxLength: 50 },
+  restriction_label: { type: 'string', maxLength: 100 },
+  tolerance_hours: decimal,
+  next_from: { type: 'string', enum: ['completion', 'previous_due'] },
+  rules: itemFieldsRules,
+} as const;
+
+
+const previewSchema = {
+  body: {
+    type: 'object',
+    required: ['aircraft_id', 'rules'],
+    additionalProperties: false,
+    properties: {
+      aircraft_id: { type: 'string', format: 'uuid' },
+      rules: itemFieldsRules,
+      anchor_on: { type: 'string', format: 'date' },
+      anchor_hours: decimal,
+      anchor_cycles: { type: 'integer', minimum: 0 },
+      tolerance_hours: decimal,
+    },
+  },
 } as const;
 
 const createItemSchema = {
@@ -186,13 +245,217 @@ function selectItems(trx: Tx) {
       's.state',
       's.last_complied_on',
       's.ever_complied',
+      's.governing_rule_id',
+      's.governing_kind',
+      's.governing_remaining',
+      's.projected_date',
+      'i.category',
+      'i.restriction_label',
+      'i.tolerance_hours',
+      'i.next_from',
     ]);
 }
 
 type ItemRow = Awaited<ReturnType<ReturnType<typeof selectItems>['execute']>>[number];
 
-function toItem(row: ItemRow): MaintenanceItemResponse {
-  return row;
+/**
+ * Every rule for a set of items, in one query.
+ *
+ * One query rather than one per item: the maintenance home lists a whole
+ * fleet's items and each has up to three rules, which is an N+1 that grows
+ * with the club.
+ */
+async function rulesFor(trx: Tx, itemIds: string[]): Promise<Map<string, MaintenanceRuleResponse[]>> {
+  const byItem = new Map<string, MaintenanceRuleResponse[]>();
+  if (itemIds.length === 0) return byItem;
+
+  const rows = await trx
+    .selectFrom('maintenance_rule_status')
+    .select([
+      'rule_id',
+      'maintenance_item_id',
+      'kind',
+      'every',
+      'end_of_month',
+      'due_on',
+      'due_at_hours',
+      'due_at_cycles',
+      'warn_at',
+      'critical_at',
+      'remaining',
+      'state',
+      'projected_date',
+    ])
+    .where('maintenance_item_id', 'in', itemIds)
+    .orderBy('kind')
+    .execute();
+
+  for (const row of rows) {
+    const list = byItem.get(row.maintenance_item_id) ?? [];
+    list.push({
+      id: row.rule_id,
+      kind: row.kind,
+      every: row.every,
+      end_of_month: row.end_of_month,
+      due_on: row.due_on,
+      due_at_hours: row.due_at_hours,
+      due_at_cycles: row.due_at_cycles,
+      warn_at: row.warn_at,
+      critical_at: row.critical_at,
+      remaining: row.remaining,
+      state: row.state,
+      projected_date: row.projected_date,
+    });
+    byItem.set(row.maintenance_item_id, list);
+  }
+  return byItem;
+}
+
+async function toItems(trx: Tx, rows: ItemRow[]): Promise<MaintenanceItemResponse[]> {
+  const rules = await rulesFor(trx, rows.map((row) => row.id));
+  return rows.map((row) => ({ ...row, rules: rules.get(row.id) ?? [] }));
+}
+
+async function toItem(trx: Tx, row: ItemRow): Promise<MaintenanceItemResponse> {
+  return (await toItems(trx, [row]))[0]!;
+}
+
+/**
+ * Write an item's rules, replacing whatever was there.
+ *
+ * Replace rather than merge: a form that sends two rules means the item has
+ * two, and reconciling "which of these is the one I already had" through a
+ * client that may be six months old (§8.1) is a guess nobody needs to make.
+ *
+ * The old `interval_*` and `due_*` fields still work — a shipped build posts
+ * them — and translate to one rule each, exactly as 0023's backfill did.
+ */
+async function writeRules(
+  trx: Tx,
+  tenantId: string,
+  itemId: string,
+  body: CreateMaintenanceItemRequest | UpdateMaintenanceItemRequest,
+  anchor: { on?: string | null; hours?: string | null; cycles?: number | null },
+): Promise<void> {
+  const drafts: MaintenanceRuleInput[] = [];
+  if (body.rules) {
+    drafts.push(...body.rules);
+  } else {
+    // The fields that predate rules, one rule each — exactly as 0023's
+    // backfill translated them.
+    if (body.interval_months != null) {
+      drafts.push({
+        kind: 'cal_month',
+        every: String(body.interval_months),
+        // A caller that wants calendar months says so. These fields never
+        // carried the distinction, and assuming it would roll an oil change
+        // to the end of the month for no reason.
+        end_of_month: false,
+        warn_at: String(body.warn_within_days ?? 30),
+      });
+    }
+    if (body.interval_hours) {
+      drafts.push({
+        kind:
+          body.hours_meter === 'hobbs' ? 'hobbs_hr'
+          : body.hours_meter === 'airframe' ? 'airframe_hr'
+          : 'tach_hr',
+        every: body.interval_hours,
+        warn_at: body.warn_within_hours ?? '10.0',
+      });
+    }
+    if (body.interval_cycles != null) {
+      drafts.push({ kind: 'cycles', every: String(body.interval_cycles), warn_at: '25' });
+    }
+  }
+
+  // Nothing to say about the rules: leave them exactly as they are. A PATCH
+  // that only renames an item must not silently drop its intervals.
+  if (drafts.length === 0) return;
+
+  await trx.deleteFrom('maintenance_item_rules').where('maintenance_item_id', '=', itemId).execute();
+
+  for (const draft of drafts) {
+    const warnAt = draft.warn_at ?? defaultWarn(draft.kind);
+    // The due point comes from the same function the completion trigger uses,
+    // so an item created today and an item completed today land identically.
+    const due = await sql<{
+      due_on: string | null;
+      due_at_hours: string | null;
+      due_at_cycles: number | null;
+    }>`
+      SELECT * FROM public.next_due_for(
+        ${draft.kind}, ${draft.every ?? null}::numeric, ${draft.end_of_month ?? false},
+        ${draft.anchor_on ?? anchor.on ?? null}::date,
+        ${draft.anchor_hours ?? anchor.hours ?? null}::numeric,
+        ${draft.anchor_cycles ?? anchor.cycles ?? null}::integer)
+    `.execute(trx);
+    const next = due.rows[0]!;
+
+    await trx
+      .insertInto('maintenance_item_rules')
+      .values({
+        tenant_id: tenantId,
+        maintenance_item_id: itemId,
+        kind: draft.kind,
+        every: draft.every ?? null,
+        end_of_month: draft.end_of_month ?? false,
+        fixed_date: draft.fixed_date ?? null,
+        // A fixed date is its own due point and does not roll forward.
+        due_on: draft.kind === 'fixed_date' ? (draft.fixed_date ?? null) : next.due_on,
+        due_at_hours: next.due_at_hours,
+        due_at_cycles: next.due_at_cycles,
+        warn_at: warnAt,
+        critical_at: draft.critical_at ?? defaultCritical(draft.kind, warnAt),
+      })
+      .execute();
+  }
+
+  // The item's own due columns are the soonest of its rules. Everything
+  // downstream still reads them: 0017's notice trigger, the due index, and
+  // the response above.
+  await sql`SELECT public.restate_item_due_points(${itemId}::uuid)`.execute(trx);
+}
+
+/**
+ * The parts of a request body that are actually columns on the item.
+ *
+ * `rules` is a child table and the due points are derived from it, so handing
+ * the whole body to `.set()` would both fail on the one and lie with the other.
+ */
+function columnsOf(
+  body: UpdateMaintenanceItemRequest,
+): Record<string, unknown> {
+  const { rules: _rules, due_on: _on, due_at_hours: _hours, due_at_cycles: _cycles,
+          ...columns } = body;
+  return columns;
+}
+
+/** §4.4's states, worst first — the same order the status view ranks them in. */
+const SEVERITY = ['overdue', 'due_soon', 'upcoming', 'ok', 'inactive'] as const;
+
+function worstState(states: MaintenanceState[]): MaintenanceState {
+  for (const state of SEVERITY) {
+    if (states.includes(state)) return state;
+  }
+  return 'ok';
+}
+
+/** §4.4's defaults, which a caller may override per rule. */
+function defaultWarn(kind: MaintenanceRuleKind): string {
+  return kind === 'cycles' ? '25'
+    : kind === 'tach_hr' || kind === 'hobbs_hr' || kind === 'airframe_hr' ? '10.0'
+    : '30';
+}
+
+function defaultCritical(kind: MaintenanceRuleKind, warnAt: string): string {
+  const floor =
+    kind === 'cycles' ? 10
+    : kind === 'tach_hr' || kind === 'hobbs_hr' || kind === 'airframe_hr' ? 3
+    : 7;
+  // Never above the warning: a critical threshold wider than its warning
+  // would mean the item went orange before it went amber.
+  return String(Math.min(Number(warnAt), floor));
 }
 
 async function requireAircraft(trx: Tx, aircraftId: string): Promise<void> {
@@ -228,7 +491,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      const rows = await request.withTenant(async (trx) => {
+      const items: MaintenanceItemResponse[] = await request.withTenant(async (trx) => {
         let query = selectItems(trx).where('i.status', '=', 'active');
         if (request.query.aircraft_id) {
           query = query.where('i.aircraft_id', '=', request.query.aircraft_id);
@@ -236,17 +499,19 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
         if (request.query.state) {
           query = query.where('s.state', '=', request.query.state as 'overdue');
         }
-        return query
-          // Overdue, then due soon, then the rest — and within each, the
-          // nearest date first. Ordering by name would bury a grounded
-          // aeroplane under an oil change.
+        const rows = await query
+          // Overdue, then due soon, then upcoming, then the rest — and within
+          // each, the nearest date first. Ordering by name would bury a
+          // grounded aeroplane under an oil change.
           .orderBy(
-            sql`case s.state when 'overdue' then 0 when 'due_soon' then 1 else 2 end`,
+            sql`case s.state when 'overdue' then 0 when 'due_soon' then 1
+                             when 'upcoming' then 2 else 3 end`,
           )
           .orderBy('s.due_on', (ob) => ob.asc().nullsLast())
           .execute();
+        return toItems(trx, rows);
       });
-      return rows.map(toItem);
+      return items;
     },
   );
 
@@ -260,15 +525,175 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      const rows = await request.withTenant(async (trx) => {
+      const items: MaintenanceItemResponse[] = await request.withTenant(async (trx) => {
         await requireAircraft(trx, request.params.id);
-        return selectItems(trx)
+        const rows = await selectItems(trx)
           .where('i.aircraft_id', '=', request.params.id)
           .orderBy('i.status')
           .orderBy('i.name')
           .execute();
+        return toItems(trx, rows);
       });
-      return rows.map(toItem);
+      return items;
+    },
+  );
+
+  /**
+   * What a rule would be, for a form nobody has saved (SPEC §8).
+   *
+   * Drives the live footer in mockups 03 and 05. §13 requires it to match what
+   * saving produces, and it does by construction rather than by agreement: this
+   * and the completion trigger call the same two database functions.
+   *
+   * A POST because it carries a body, not because it changes anything — and
+   * `maintenance.items: write`, because the only people who see it are the ones
+   * who are about to save.
+   */
+  app.post<{ Body: PreviewMaintenanceRequest }>(
+    '/maintenance-items/preview',
+    {
+      schema: previewSchema,
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'write'],
+      },
+    },
+    async (request) => {
+      const body = request.body;
+
+      const result = await request.withTenant(async (trx) => {
+        const aircraft = await trx
+          .selectFrom('aircraft as a')
+          .leftJoin('tenants as t', 't.id', 'a.tenant_id')
+          .select([
+            'a.tach', 'a.hobbs', 'a.airframe_hours', 'a.cycles',
+            // §4.2: the aeroplane's own today, never the server's.
+            sql<string>`(now() AT TIME ZONE coalesce(a.timezone, t.timezone, 'UTC'))::date`
+              .as('today'),
+          ])
+          .where('a.id', '=', body.aircraft_id)
+          .executeTakeFirst();
+        if (!aircraft) throw new NotFoundError();
+
+        return previewRules(
+          trx,
+          body.rules.map((rule) => ({
+            kind: rule.kind,
+            every: rule.every ?? null,
+            end_of_month: rule.end_of_month ?? false,
+            fixed_date: rule.fixed_date ?? null,
+            anchor_on: rule.anchor_on ?? null,
+            anchor_hours: rule.anchor_hours ?? null,
+            anchor_cycles: rule.anchor_cycles ?? null,
+            warn_at: rule.warn_at ?? defaultWarn(rule.kind),
+            critical_at:
+              rule.critical_at ?? defaultCritical(rule.kind, rule.warn_at ?? defaultWarn(rule.kind)),
+          })),
+          {
+            on: body.anchor_on ?? null,
+            hours: body.anchor_hours ?? null,
+            cycles: body.anchor_cycles ?? null,
+          },
+          {
+            tach: aircraft.tach,
+            hobbs: aircraft.hobbs,
+            airframe_hours: aircraft.airframe_hours,
+            cycles: aircraft.cycles,
+            today: aircraft.today,
+          },
+          body.tolerance_hours ?? null,
+        );
+      });
+
+      return {
+        rules: result.map((rule) => ({
+          kind: rule.kind,
+          due_on: rule.due_on,
+          due_at_hours: rule.due_at_hours,
+          due_at_cycles: rule.due_at_cycles,
+          remaining: rule.remaining,
+          state: rule.state,
+        })),
+        // The worst of them, which is what the footer leads with — the same
+        // rule the saved item would report as governing.
+        state: worstState(result.map((rule) => rule.state)),
+      } satisfies PreviewMaintenanceResponse;
+    },
+  );
+
+  /**
+   * What a pilot is told (SPEC §3, §5 screen 02).
+   *
+   * `maintenance.summary: read`, which is the half of maintenance a pilot
+   * holds. Everything here answers "may I fly it, and what is coming up" and
+   * nothing answers "what was done to it" — no history, no notes, no rules, and
+   * five items rather than the list.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/aircraft/:id/maintenance/summary',
+    {
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.summary', 'read'],
+      },
+    },
+    async (request) => {
+      return request.withTenant(async (trx) => {
+        const aircraft = await trx
+          .selectFrom('aircraft')
+          .select(['id', 'registration', 'tach', 'hobbs', 'totals_updated_at'])
+          .where('id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!aircraft) throw new NotFoundError();
+
+        // §3.3: the one view three causes resolve into. The summary reports it
+        // rather than re-deciding, so a pilot and the booking path can never
+        // disagree about whether the aeroplane flies.
+        const dispatch = await selectAvailability(trx)
+          .where('aircraft_id', '=', request.params.id)
+          .executeTakeFirst();
+
+        const items = await trx
+          .selectFrom('maintenance_item_status')
+          .select([
+            'maintenance_item_id', 'name', 'state', 'governing_kind',
+            'governing_remaining', 'due_on', 'ever_complied', 'restriction_label',
+          ])
+          .where('aircraft_id', '=', request.params.id)
+          .where('status', '=', 'active')
+          .orderBy(
+            sql`case state when 'overdue' then 0 when 'due_soon' then 1
+                           when 'upcoming' then 2 else 3 end`,
+          )
+          .orderBy('due_on', (ob) => ob.asc().nullsLast())
+          .execute();
+
+        return {
+          aircraft_id: aircraft.id,
+          registration: aircraft.registration,
+          available: dispatch?.available ?? true,
+          grounding_reasons: dispatch?.grounding_reasons ?? [],
+          // §4.5: a lapsed pitot-static does not stop the aeroplane flying, it
+          // stops it flying IFR. Said as a restriction, never as a grounding.
+          restrictions: items
+            .filter((item) => item.state === 'overdue' && item.restriction_label)
+            .map((item) => item.restriction_label!),
+          tach: aircraft.tach,
+          hobbs: aircraft.hobbs,
+          totals_updated_at: aircraft.totals_updated_at?.toISOString() ?? null,
+          upcoming: items.slice(0, 5).map((item) => ({
+            id: item.maintenance_item_id,
+            name: item.name,
+            state: item.state,
+            governing_kind: item.governing_kind,
+            governing_remaining: item.governing_remaining,
+            due_on: item.due_on,
+            ever_complied: item.ever_complied,
+          })),
+        } satisfies MaintenanceSummaryResponse;
+      });
     },
   );
 
@@ -326,10 +751,19 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
           .returning('id')
           .executeTakeFirstOrThrow();
 
-        return selectItems(trx).where('i.id', '=', created.id).executeTakeFirstOrThrow();
+        await writeRules(trx, request.ctx!.tenantId!, created.id, body, {
+          on: body.due_on ?? null,
+          hours: body.due_at_hours ?? null,
+          cycles: body.due_at_cycles ?? null,
+        });
+
+        const saved = await selectItems(trx)
+          .where('i.id', '=', created.id)
+          .executeTakeFirstOrThrow();
+        return toItem(trx, saved);
       });
 
-      return reply.status(201).send(toItem(row));
+      return reply.status(201).send(row);
     },
   );
 
@@ -350,17 +784,18 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
-      const rows = await request.withTenant(async (trx) => {
+      const items: MaintenanceItemResponse[] = await request.withTenant(async (trx) => {
         await requireAircraft(trx, request.params.id);
         await sql`SELECT public.instantiate_maintenance_templates(${request.params.id}::uuid)`
           .execute(trx);
-        return selectItems(trx)
+        const rows = await selectItems(trx)
           .where('i.aircraft_id', '=', request.params.id)
           .where('i.status', '=', 'active')
           .orderBy('i.name')
           .execute();
+        return toItems(trx, rows);
       });
-      return rows.map(toItem);
+      return items;
     },
   );
 
@@ -382,14 +817,39 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       const row = await request.withTenant(async (trx) => {
         const result = await trx
           .updateTable('maintenance_items')
-          .set(request.body)
+          // `rules` is not a column, and the due points are derived from them.
+          .set(columnsOf(request.body))
           .where('id', '=', request.params.id)
           .executeTakeFirst();
         if (result.numUpdatedRows === 0n) throw new NotFoundError();
-        return selectItems(trx).where('i.id', '=', request.params.id).executeTakeFirst();
+
+        /*
+          The trap 0022 set, closed.
+
+          `maintenance_items.due_on` and `due_at_hours` are the soonest of the
+          item's rules since 0022, restated by `restate_item_due_points`.
+          Writing them here — which this handler did, because they are columns
+          and `.set(body)` wrote whatever arrived — moved the number the API
+          returns and nothing the status view reads. An admin would correct a
+          due date, see it change, and the aeroplane would go on counting down
+          to the old one.
+
+          So an edit that mentions intervals or a due point rewrites the rules,
+          and the columns follow from them.
+        */
+        await writeRules(trx, request.ctx!.tenantId!, request.params.id, request.body, {
+          on: request.body.due_on ?? null,
+          hours: request.body.due_at_hours ?? null,
+          cycles: request.body.due_at_cycles ?? null,
+        });
+
+        const saved = await selectItems(trx)
+          .where('i.id', '=', request.params.id)
+          .executeTakeFirst();
+        return saved ? await toItem(trx, saved) : null;
       });
       if (!row) throw new NotFoundError();
-      return toItem(row);
+      return row;
     },
   );
 
@@ -548,7 +1008,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(201).send({
         id: created.id,
         recorded_at: created.recorded_at,
-        maintenance_item: created.item ? toItem(created.item) : null,
+        maintenance_item: created.item,
       });
     },
   );

@@ -151,7 +151,7 @@ Works on free tier — a solo owner tracking their own annual is a real use case
   - Last complied: date and meter reading
   - Next due: computed, on whichever basis arrives first
   - `grounds_aircraft` flag
-- **Preset library** instantiated at aircraft creation (§3.6): annual, 100-hour, oil change, oil filter, ELT battery, transponder check, pitot-static check. Copied into the tenant, never referenced (§3.6).
+- **Preset library**, instantiated when an admin asks for it rather than at aircraft creation: annual, 100-hour, oil change, oil filter, ELT battery, transponder check, pitot-static check. Copied into the tenant, never referenced (§3.6). A new aircraft tracks nothing until somebody approves it — an item nobody approved is an obligation the app cannot know applies.
 - Add, edit, and remove items freely after instantiation.
 - Status: `ok` / `due soon` / `overdue`. "Due soon" threshold is per-item config, defaulting to 10 hours or 30 days.
 - Mark complied: records date, meter, who, and a note; recomputes next due. Append-only (§3.6).

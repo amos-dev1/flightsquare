@@ -93,6 +93,21 @@ describe('maintenance', () => {
     });
   }
 
+  /**
+   * Instantiate the preset library on the suite's aircraft.
+   *
+   * Explicit since Phase 1D, where SPEC §1's "empty by default" replaced
+   * seeding on aircraft creation. Idempotent, so tests that both want presets
+   * do not fight.
+   */
+  async function seedFromLibrary(): Promise<void> {
+    const seeded = await app.inject({
+      method: 'POST',
+      url: `/aircraft/${aircraftId}/maintenance-items/from-library`,
+    });
+    expect(seeded.statusCode).toBe(200);
+  }
+
   async function items() {
     const response = await app.inject({
       method: 'GET',
@@ -105,8 +120,31 @@ describe('maintenance', () => {
     return list.find((row) => row.template_code === template)!;
   }
 
-  it('seeds the applicable presets when an aircraft is added, and invents nothing', async () => {
+  it('tracks nothing on a new aircraft until somebody says so', async () => {
+    /*
+      SPEC §1: "Empty by default. A new aircraft has zero tracked items."
+
+      This assertion is inverted from what it said until Phase 1D, and the
+      argument that changed it is better than the one it replaced. Items nobody
+      approved are the app asserting obligations it cannot know apply — a
+      100-hour on a private aeroplane, an ELT inspection on one with no ELT —
+      and every seeded item arrives due today with no compliance behind it, so a
+      brand-new aircraft used to open on a screen full of red.
+    */
     asAdmin();
+    // The suite's own aircraft, created in beforeAll and not touched since.
+    // This has to be the first assertion in the file, because it is the only
+    // moment the aeroplane is as a real one would be on the day it is added —
+    // and the free tier's one-aircraft quota means there is no second one to
+    // make the point with.
+    expect(await items()).toEqual([]);
+  });
+
+  it('seeds the applicable presets when asked, and invents nothing', async () => {
+    asAdmin();
+    // The library is still there; it is a choice now rather than a default,
+    // and Phase 3 turns it into the suggestions inbox it was shaped for.
+    await seedFromLibrary();
     const list = await items();
 
     expect(list.map((row: Record<string, unknown>) => row.template_code).sort()).toEqual([
@@ -123,6 +161,10 @@ describe('maintenance', () => {
     // for, and then ground the aircraft over it.
     expect(list.some((row: Record<string, unknown>) => row.template_code === '100_hour'))
       .toBe(false);
+
+    // And every one arrives with the rules that make it count down (0026).
+    const annual = list.find((row: Record<string, unknown>) => row.template_code === 'annual');
+    expect((annual as unknown as { rules: unknown[] }).rules).toHaveLength(1);
   });
 
   it('says "not recorded" rather than claiming the aircraft is in annual', async () => {
