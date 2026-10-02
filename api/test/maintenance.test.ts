@@ -1,12 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { closeDatabase } from '../src/db/pool.js';
+import { closeDatabase, db } from '../src/db/pool.js';
 import { buildServer } from '../src/http/server.js';
 import type { ResolvedSession } from '../src/http/session.js';
 import { UnauthorizedError } from '../src/http/errors.js';
 import { addTestMember, cleanupTestTenants, provisionTestTenant } from './helpers/fixtures.js';
 import { withTenant } from '../src/db/context.js';
+import { previewRules } from '../src/maintenance/intervals.js';
 
 const SESSION_ID = '01920000-0000-7000-8000-0000000000d0';
 
@@ -295,6 +296,75 @@ describe('maintenance', () => {
       payload: { grounding: false },
     });
     expect(clear.statusCode).toBe(403);
+  });
+
+  it('previews a rule exactly as the view will report it once saved', async () => {
+    /*
+      §13: "preview matches saved result".
+
+      The due point and the state come from `next_due_for` and `rule_state`, so
+      both callers are reading one implementation and cannot disagree. The one
+      piece of arithmetic that is written twice is the subtraction — the view
+      does it in SQL over columns, the preview does it in TypeScript over form
+      values that have no row yet — and this is what holds those two together.
+    */
+    asAdmin();
+
+    const item = await withTenant(
+      { tenantId: tenant.tenant_id, userId: tenant.user_id },
+      async (trx) => {
+        const created = await trx
+          .insertInto('maintenance_items')
+          .values({
+            tenant_id: tenant.tenant_id,
+            aircraft_id: aircraftId,
+            name: 'Parity check',
+            due_at_hours: '1275.0',
+            warn_within_days: 30,
+            warn_within_hours: '10.0',
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+
+        await trx
+          .insertInto('maintenance_item_rules')
+          .values({
+            tenant_id: tenant.tenant_id,
+            maintenance_item_id: created.id,
+            kind: 'tach_hr',
+            every: '50.0',
+            due_at_hours: '1275.0',
+            warn_at: '10.0',
+            critical_at: '3.0',
+          })
+          .execute();
+
+        return created.id;
+      },
+    );
+
+    // Where the view says the aeroplane is, so both sides measure from the
+    // same number rather than from two readings taken a moment apart.
+    const saved = await withTenant(
+      { tenantId: tenant.tenant_id, userId: tenant.user_id },
+      (trx) =>
+        trx
+          .selectFrom('maintenance_rule_status')
+          .select(['remaining', 'state', 'current_value', 'due_at_hours'])
+          .where('maintenance_item_id', '=', item)
+          .executeTakeFirstOrThrow(),
+    );
+
+    const [preview] = await previewRules(
+      db,
+      [{ kind: 'tach_hr', every: '50.0', warn_at: '10.0', critical_at: '3.0' }],
+      { hours: String(Number(saved.due_at_hours) - 50) },
+      { tach: saved.current_value, today: '2026-10-01' },
+    );
+
+    expect(preview!.due_at_hours).toBe(saved.due_at_hours);
+    expect(Number(preview!.remaining)).toBeCloseTo(Number(saved.remaining), 1);
+    expect(preview!.state).toBe(saved.state);
   });
 
   it('shuts a pilot out of the maintenance record, not out of the aeroplane', async () => {
