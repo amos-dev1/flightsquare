@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Suggestions inbox</title>
+</head>
+<body>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;display:flex;justify-content:center;background:#C9CFD6;padding:24px 0}
+.m{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;cursor:pointer}
+a{color:#1D3A5F}a:hover{color:#0F1B2A}
+</style>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #F4F5F2; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #0F1B2A">
+
+<header style="display: flex; align-items: center; justify-content: space-between; padding: 18px 12px 4px">
+<a href="01-maintenance-home-admin.html" style="display: flex; align-items: center; gap: 2px; font-size: 15px; text-decoration: none; padding: 10px 4px"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>N4521K</a>
+<span style="font-size: 13px; color: #4A5566; padding-right: 4px">Dismissed (2)</span>
+</header>
+
+<div style="padding: 0 16px; display: flex; flex-direction: column; gap: 12px">
+<div>
+<h1 style="margin: 0; font-size: 24px; font-weight: 700">Suggestions</h1>
+<div style="font-size: 13px; color: #4A5566; margin-top: 2px">Nothing is tracked until you approve it.</div>
+</div>
+
+<div style="display: flex; gap: 6px">
+<button type="button" style="border: none; background: #0F1B2A; color: #fff; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600">All 6</button>
+<button type="button" style="border: 1px solid #DDE1E6; background: #fff; color: #0F1B2A; border-radius: 999px; padding: 6px 12px; font-size: 13px">Required 3</button>
+<button type="button" style="border: 1px solid #DDE1E6; background: #fff; color: #0F1B2A; border-radius: 999px; padding: 6px 12px; font-size: 13px">ADs 1</button>
+<button type="button" style="border: 1px solid #DDE1E6; background: #fff; color: #0F1B2A; border-radius: 999px; padding: 6px 12px; font-size: 13px">Logbook 2</button>
+</div>
+
+<article style="background: #fff; border: 1px solid #DDE1E6; border-radius: 14px; padding: 14px">
+<div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #1D3A5F">From logbook · Engine</div>
+<div style="font-size: 16px; font-weight: 600; margin-top: 4px">Magneto inspection · every 500 tach hr</div>
+<div style="display: flex; gap: 10px; margin-top: 10px; padding: 10px; background: #F4F5F2; border-radius: 10px">
+<div aria-hidden="true" style="width: 44px; height: 56px; flex-shrink: 0; border-radius: 4px; background: #E9E4D8; border: 1px solid #D6CFBF"></div>
+<div style="font-size: 13px; line-height: 1.45; color: #2A3646">Engine log p. 14: magnetos replaced at <span class="m">870.4</span> tach. Now <span class="m">1,270.4</span> → <strong class="m">100.0 hr remaining</strong>.</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px">
+<button type="button" style="height: 40px; border: 1px solid #DDE1E6; background: #fff; border-radius: 10px; font-size: 14px; color: #4A5566">Decline</button>
+<button type="button" style="height: 40px; border: 1px solid #1D3A5F; background: #fff; border-radius: 10px; font-size: 14px; font-weight: 600; color: #1D3A5F">Edit</button>
+<button type="button" style="height: 40px; border: none; background: #1D3A5F; border-radius: 10px; font-size: 14px; font-weight: 600; color: #fff">Approve</button>
+</div>
+</article>
+
+<article style="background: #fff; border: 1px solid #DDE1E6; border-radius: 14px; padding: 14px">
+<div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #9A3412">AD · possibly applicable</div>
+<div style="font-size: 16px; font-weight: 600; margin-top: 4px">AD [number] — [subject]</div>
+<div style="font-size: 13px; line-height: 1.45; color: #2A3646; margin-top: 6px">Matched on engine model and serial range. Recurring every 100 hr. <a href="#">View on FAA DRS</a></div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px">
+<button type="button" style="height: 40px; border: 1px solid #DDE1E6; background: #fff; border-radius: 10px; font-size: 13px; color: #4A5566">Not applicable</button>
+<button type="button" style="height: 40px; border: 1px solid #1D3A5F; background: #fff; border-radius: 10px; font-size: 13px; font-weight: 600; color: #1D3A5F">Complied</button>
+<button type="button" style="height: 40px; border: none; background: #1D3A5F; border-radius: 10px; font-size: 13px; font-weight: 600; color: #fff">Track</button>
+</div>
+</article>
+
+<article style="background: #fff; border: 1px solid #DDE1E6; border-radius: 14px; padding: 14px">
+<div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #2E7D4F">Required · AVIATES</div>
+<div style="font-size: 16px; font-weight: 600; margin-top: 4px">Transponder check · 24 calendar months</div>
+<div style="font-size: 13px; line-height: 1.45; color: #2A3646; margin-top: 6px">14 CFR 91.413. Enter the last check date to start tracking.</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px">
+<button type="button" style="height: 40px; border: 1px solid #DDE1E6; background: #fff; border-radius: 10px; font-size: 14px; color: #4A5566">Decline</button>
+<button type="button" style="height: 40px; border: 1px solid #1D3A5F; background: #fff; border-radius: 10px; font-size: 14px; font-weight: 600; color: #1D3A5F">Edit</button>
+<button type="button" style="height: 40px; border: none; background: #1D3A5F; border-radius: 10px; font-size: 14px; font-weight: 600; color: #fff">Approve</button>
+</div>
+</article>
+
+<article style="background: #fff; border: 1px solid #DDE1E6; border-radius: 14px; padding: 14px">
+<div style="font-size: 11.5px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase; color: #1D3A5F">From logbook · Engine · Informational</div>
+<div style="font-size: 16px; font-weight: 600; margin-top: 4px">Engine TBO · 2,000 hr / 12 yr</div>
+<div style="font-size: 13px; line-height: 1.45; color: #2A3646; margin-top: 6px">1,240.0 hr since major overhaul → 760 hr to manufacturer TBO. Recommended, not required under Part 91.</div>
+</article>
+</div>
+</div>
+</body>
+</html>

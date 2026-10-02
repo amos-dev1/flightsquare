@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Add tracked item</title>
+</head>
+<body>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;display:flex;justify-content:center;background:#C9CFD6;padding:24px 0}
+.m{font-family:'IBM Plex Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button,input,textarea{font:inherit}
+button{cursor:pointer}
+a{color:#1D3A5F}a:hover{color:#0F1B2A}
+</style>
+<div style="width: 390px; height: 844px; position: relative; overflow: hidden; background: #F4F5F2; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #0F1B2A">
+
+<header style="display: flex; align-items: center; justify-content: space-between; padding: 18px 16px 10px; background: #F4F5F2">
+<a href="01-maintenance-home-admin.html" style="font-size: 15px; text-decoration: none; padding: 10px 0">Cancel</a>
+<h1 style="margin: 0; font-size: 16px; font-weight: 600">New tracked item</h1>
+<button type="button" style="border: none; background: none; color: #1D3A5F; font-size: 15px; font-weight: 700; padding: 10px 0">Save</button>
+</header>
+
+<div style="padding: 4px 16px 0; display: flex; flex-direction: column; gap: 14px">
+
+<div>
+<label for="nm" style="display: block; font-size: 12px; font-weight: 600; color: #4A5566; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 6px">Name</label>
+<input id="nm" value="Oil &amp; filter change" style="width: 100%; box-sizing: border-box; height: 46px; border: 1px solid #C9CFD6; border-radius: 10px; padding: 0 12px; font-size: 16px; background: #fff; color: #0F1B2A">
+<div style="display: flex; gap: 6px; margin-top: 8px; overflow: hidden">
+<button type="button" style="flex-shrink: 0; border: 1px solid #1D3A5F; background: #E6EDF6; color: #1D3A5F; border-radius: 999px; padding: 5px 11px; font-size: 13px; font-weight: 600">Oil change</button>
+<button type="button" style="flex-shrink: 0; border: 1px solid #DDE1E6; background: #fff; color: #0F1B2A; border-radius: 999px; padding: 5px 11px; font-size: 13px">Annual</button>
+<button type="button" style="flex-shrink: 0; border: 1px solid #DDE1E6; background: #fff; color: #0F1B2A; border-radius: 999px; padding: 5px 11px; font-size: 13px">100-hour</button>
+<button type="button" style="flex-shrink: 0; border: 1px solid #DDE1E6; background: #fff; color: #0F1B2A; border-radius: 999px; padding: 5px 11px; font-size: 13px">ELT</button>
+<button type="button" style="flex-shrink: 0; border: 1px solid #DDE1E6; background: #fff; color: #0F1B2A; border-radius: 999px; padding: 5px 11px; font-size: 13px">Transponder</button>
+</div>
+</div>
+
+<div>
+<div style="font-size: 12px; font-weight: 600; color: #4A5566; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 6px">Applies to</div>
+<div role="group" aria-label="Category" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); background: #E4E7EB; border-radius: 10px; padding: 3px">
+<button type="button" style="border: none; background: none; padding: 8px 0; font-size: 13px; color: #4A5566">Airframe</button>
+<button type="button" style="border: none; background: #fff; border-radius: 8px; padding: 8px 0; font-size: 13px; font-weight: 600; color: #0F1B2A">Engine</button>
+<button type="button" style="border: none; background: none; padding: 8px 0; font-size: 13px; color: #4A5566">Prop</button>
+<button type="button" style="border: none; background: none; padding: 8px 0; font-size: 13px; color: #4A5566">Avionics</button>
+<button type="button" style="border: none; background: none; padding: 8px 0; font-size: 13px; color: #4A5566">Other</button>
+</div>
+</div>
+
+<section style="background: #fff; border: 1px solid #DDE1E6; border-radius: 14px; padding: 4px 14px">
+<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0 6px">
+<span style="font-size: 12px; font-weight: 600; color: #4A5566; letter-spacing: 0.5px; text-transform: uppercase">Interval</span>
+<span style="font-size: 12px; color: #4A5566">Whichever comes first</span>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #EEF0F2">
+<span style="width: 74px; font-size: 13px; color: #4A5566">Tach hours</span>
+<span style="flex-grow: 1; font-size: 15px">Every <span class="m" style="font-weight: 600">50.0</span> hr</span>
+<span style="font-size: 13px; color: #4A5566">Last <span class="m" style="color: #0F1B2A; font-weight: 600">1,225.0</span></span>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #EEF0F2">
+<span style="width: 74px; font-size: 13px; color: #4A5566">Calendar</span>
+<span style="flex-grow: 1; font-size: 15px">Every <span class="m" style="font-weight: 600">4</span> months</span>
+<span style="font-size: 13px; color: #4A5566">Last <span class="m" style="color: #0F1B2A; font-weight: 600">Aug 2</span></span>
+</div>
+<button type="button" style="display: flex; align-items: center; gap: 6px; width: 100%; border: none; border-top: 1px solid #EEF0F2; background: none; padding: 12px 0; color: #1D3A5F; font-size: 14px; font-weight: 600; text-align: left">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>Add rule (Hobbs, date, fixed date)</button>
+</section>
+
+<section style="background: #fff; border: 1px solid #DDE1E6; border-radius: 14px; padding: 4px 14px">
+<div style="padding: 10px 0 6px; font-size: 12px; font-weight: 600; color: #4A5566; letter-spacing: 0.5px; text-transform: uppercase">Warnings</div>
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid #EEF0F2; font-size: 15px"><span>Remind at</span><span class="m" style="font-weight: 600">10 hr · 30 days</span></div>
+<div style="display: flex; justify-content: space-between; padding: 10px 0; border-top: 1px solid #EEF0F2; font-size: 15px"><span>Urgent at</span><span class="m" style="font-weight: 600; color: #C2410C">3 hr · 7 days</span></div>
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #EEF0F2">
+<label for="gr" style="font-size: 15px">Ground aircraft if not completed by due<span style="display: block; font-size: 12.5px; color: #4A5566">Blocks new bookings once overdue</span></label>
+<button id="gr" type="button" role="switch" aria-checked="false" style="flex-shrink: 0; width: 51px; height: 31px; border-radius: 16px; border: none; background: #C9CFD6; position: relative; padding: 0"><span style="position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 14px; background: #fff; box-shadow: 0 1px 3px rgba(15,27,42,0.3)"></span></button>
+</div>
+</section>
+</div>
+
+<div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 14px 16px 30px; background: #0F1B2A; color: #fff">
+<div style="font-size: 11px; color: #B8C2D0; letter-spacing: 0.6px; text-transform: uppercase">Next due</div>
+<div style="font-size: 15px; margin-top: 4px; line-height: 1.4"><span class="m" style="font-weight: 600">1,275.0 tach</span> or <span class="m" style="font-weight: 600">Dec 2, 2026</span></div>
+<div style="font-size: 13px; color: #FFB38A; margin-top: 2px">4.6 hr from now · Due soon</div>
+</div>
+</div>
+</body>
+</html>

@@ -232,10 +232,22 @@ export function Picker({
         pressed && styles.pickerPressed,
       ]}
     >
-      <View style={[styles.pickerBody, compact && styles.pickerBodyCompact]}>{children}</View>
-      {/* 24, and the same on every screen it appears on. The three it replaced
-          were 22, 20 and 16, which is how a shared affordance stops being one. */}
-      <Feather name="chevron-down" size={compact ? 20 : 24} color={color.navy} />
+      {children}
+      {/*
+        24, and the same on every screen it appears on. The three it replaced
+        were 22, 20 and 16, which is how a shared affordance stops being one.
+
+        `marginLeft: 'auto'` rather than a wrapper around the children. The
+        wrapper existed only to push this to the far edge of a full-width
+        control, and it is what made the compact chip render empty — an auto
+        margin does the same job with nothing to collapse.
+      */}
+      <Feather
+        name="chevron-down"
+        size={compact ? 20 : 24}
+        color={color.navy}
+        style={styles.pickerChevron}
+      />
     </Pressable>
   );
 }
@@ -350,21 +362,9 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   pickerPressed: { backgroundColor: color.subtle },
-  // `flex: 1` so the chevron is pushed to the far edge of a full-width control,
-  // and `flexShrink` so it keeps its place when the registration is long.
-  pickerBody: { flex: 1, flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: space.md },
-  /**
-   * A chip hugs its content instead: it sits in a row beside other controls,
-   * so growing to fill would make it as wide as the screen.
-   *
-   * `flexBasis: 'auto'` is load-bearing, not tidiness. `flex: 1` above is
-   * shorthand for `flexGrow: 1, flexShrink: 1, flexBasis: 0`, so turning the
-   * grow off on its own leaves a basis of zero with nothing to grow it — the
-   * body collapsed to no width at all and its contents vanished. The border
-   * and the chevron still drew, which is what made it look like a blank
-   * control rather than a broken one.
-   */
-  pickerBodyCompact: { flexGrow: 0, flexBasis: 'auto', gap: space.sm },
+  // Pushed to the far edge of a full-width control, and sitting right beside
+  // the label on one that hugs its content.
+  pickerChevron: { marginLeft: 'auto' },
   // Nothing to pick: content, not a control.
   pickerPlain: {
     flexDirection: 'row',
