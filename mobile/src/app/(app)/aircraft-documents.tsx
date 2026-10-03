@@ -110,7 +110,14 @@ export default function AircraftDocuments() {
     setFiling(null);
     if (!aircraftId) return;
 
-    const picked = await pickFile(source);
+    let picked;
+    try {
+      picked = await pickFile(source);
+    } catch (problem) {
+      setError(messageFor(problem));
+      return;
+    }
+    // Backed out, or declined the permission. Not a failure.
     if (!picked) return;
 
     try {

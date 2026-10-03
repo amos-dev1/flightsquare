@@ -478,18 +478,26 @@ function CompleteSheet({
     setPicking(null);
     if (!kind) return;
 
-    const picked = await pickFile(source);
-    if (!picked) return;
-    setFiles((current) => [
-      ...current,
-      {
-        key: `${picked.uri}-${current.length}`,
-        uri: picked.uri,
-        contentType: picked.contentType,
-        ...(picked.name ? { name: picked.name } : {}),
-        fileKind: kind,
-      },
-    ]);
+    try {
+      const picked = await pickFile(source);
+      // Backed out, or declined the permission. Not a failure.
+      if (!picked) return;
+
+      setFiles((current) => [
+        ...current,
+        {
+          key: `${picked.uri}-${current.length}`,
+          uri: picked.uri,
+          contentType: picked.contentType,
+          ...(picked.name ? { name: picked.name } : {}),
+          fileKind: kind,
+        },
+      ]);
+    } catch (problem) {
+      // A picker that fails silently is indistinguishable from a dead button,
+      // which is exactly how the file chooser presented itself.
+      setError(messageFor(problem));
+    }
   }
 
   return (

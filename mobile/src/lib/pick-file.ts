@@ -25,12 +25,35 @@ export interface PickedFile {
 }
 
 /**
+ * How long to wait for the sheet that offered this choice to finish closing.
+ *
+ * `components/sheet.tsx` animates its dismissal over 200ms, and every call here
+ * comes from inside one. iOS will not present a view controller from one that is
+ * mid-transition: `UIDocumentPickerViewController` is simply never shown, with
+ * no error and no rejected promise — the sheet closes and nothing happens, which
+ * is precisely what it looked like.
+ *
+ * `expo-image-picker` survives the same race, which is why the camera and the
+ * photo library appeared to work and this did not. One wait for all three, so
+ * the picker that is most forgiving is not the only one that is correct.
+ */
+const SHEET_DISMISS_MS = 320;
+
+const settle = (): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, SHEET_DISMISS_MS));
+
+/**
  * Returns nothing when the person backed out or said no to the permission.
  *
  * Permission is asked at the moment it is needed rather than at launch, which
  * is the only version of the prompt that explains itself.
+ *
+ * Throws when the picker itself fails. The callers surface it: a file chooser
+ * that does nothing and says nothing is indistinguishable from a broken button.
  */
 export async function pickFile(source: FileSource): Promise<PickedFile | null> {
+  await settle();
+
   if (source === 'files') {
     const result = await DocumentPicker.getDocumentAsync({
       type: ['application/pdf', 'image/*'],
