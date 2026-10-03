@@ -10,6 +10,7 @@ import {
   type FormState,
 } from '@/app/actions';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
+import { FileUpload } from '@/components/upload';
 import type { MaintenanceItemResponse } from '@flightsquare/shared';
 
 /**
@@ -31,6 +32,18 @@ export function CompletionForm({ item }: { item: MaintenanceItemResponse }) {
 
   const today = new Date().toISOString().slice(0, 10);
 
+  /*
+    One uuid, minted once per mounted form, used as the completion's id and as
+    its idempotency key.
+
+    The id is what lets an invoice name the completion; the key is what stops a
+    retry after a dropped connection logging the work twice and rolling an
+    annual forward twice. Held in state rather than regenerated on render, so a
+    validation error and a resubmit are the same request.
+  */
+  const [completionId] = useState(() => crypto.randomUUID());
+  const saved = state.values?.completion_id;
+
   return (
     <Card className="px-5 py-4">
       <details className="group" open={Boolean(state.error)}>
@@ -40,6 +53,8 @@ export function CompletionForm({ item }: { item: MaintenanceItemResponse }) {
         </summary>
 
         <form action={action} className="mt-3 space-y-4 border-t border-line pt-4">
+          <input type="hidden" name="completion_id" value={completionId} />
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Date done" required>
               <Input
@@ -116,11 +131,39 @@ export function CompletionForm({ item }: { item: MaintenanceItemResponse }) {
           </p>
 
           {state.error ? <Alert>{state.error}</Alert> : null}
-          {state.saved ? <Alert tone="info">Logged. The due points above have moved on.</Alert> : null}
 
-          <Button type="submit" disabled={pending}>
-            {pending ? 'Saving…' : 'Save and reset counter'}
-          </Button>
+          {saved ? (
+            <div className="space-y-3 rounded-xl border border-line bg-subtle px-4 py-3">
+              <p className="text-sm">
+                Logged. The due points above have moved on. Attach the invoice or the logbook entry
+                now, or leave it — the completion stands either way.
+              </p>
+              {/*
+                Mockup 05's two tiles, as two controls: these are *kinds*, and
+                where the file comes from is the browser's question. Both accept
+                a photograph or a PDF, because a shop emails one and a club
+                photographs the other.
+              */}
+              <div className="flex flex-wrap gap-3">
+                <FileUpload
+                  owner={{ kind: 'completion', id: saved }}
+                  label="Attach invoice"
+                  fileKind="invoice"
+                  revalidate={`/maintenance/${item.id}`}
+                />
+                <FileUpload
+                  owner={{ kind: 'completion', id: saved }}
+                  label="Attach logbook entry"
+                  fileKind="logbook_entry"
+                  revalidate={`/maintenance/${item.id}`}
+                />
+              </div>
+            </div>
+          ) : (
+            <Button type="submit" disabled={pending}>
+              {pending ? 'Saving…' : 'Save and reset counter'}
+            </Button>
+          )}
         </form>
       </details>
     </Card>

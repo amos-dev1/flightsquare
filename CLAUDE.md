@@ -263,7 +263,8 @@ A user with no memberships is valid (just invited, or removed from their last or
 aircraft              registration, type_code → aircraft_types, serial,
                       year, home_base → aerodromes, status, ownership
 aircraft_config       seating, equipment, MEL reference, performance profile
-aircraft_documents    airworthiness cert, registration, insurance, W&B
+aircraft_documents    airworthiness cert, registration, operating limitations,
+                      W&B, insurance — kind, dates, and what a renewal replaced
 meter_readings        hobbs, tach, airframe hours, cycles — append-only
 ```
 
@@ -421,6 +422,27 @@ attachments           object-store pointers, tenant-scoped metadata
 notifications         per-user, per-tenant
 ```
 
+**An attachment names exactly one owner, and the list is closed.** A squawk's
+photograph, a completion's invoice, an aircraft document's file — three nullable
+columns, each with a composite foreign key to its owner's `(tenant_id, id)`.
+Not `(owner_type, owner_id)`: a polymorphic pair cannot carry a foreign key, so
+nothing would stop a row naming a record in another tenant, which is the one
+thing the composite keys exist to make unrepresentable. A fourth owner is a
+migration; a fifth is where this shape stops being the answer.
+
+The owner is written first and the upload names it — which is why the key points
+from the file to the document and never back. It is also what makes the offline
+queue correct: it orders an attachment one millisecond behind its owner, so the
+owner exists by the time the upload refers to it.
+
+**The bytes are never returned by a removal.** There is no `DELETE` grant and no
+purge job, so a file filed by mistake is `status = 'removed'` with an actor, a
+time and a reason, and it keeps saying what it was filed against. `storage.bytes`
+goes on counting it, because the object is still in the bucket — if a removal
+decremented the counter, upload-and-remove in a loop would hold unbounded
+storage while reading zero. The screens say "it still counts toward your
+storage"; "freed 2.4 MB" would be an unsupported claim (§11).
+
 ---
 
 ## 4. Entitlements: flags and quotas
@@ -572,6 +594,7 @@ Items 5 and 6 are not optional. A policy without a test proving it denies is an 
 - [ ] New table classified for `admin_role` under §7.2 — metadata or content, with a policy either way (default is deny)
 - [ ] Any new destructive or data-hiding path checks `legal_hold`
 - [ ] Booking paths consult `aircraft_availability` rather than querying squawks directly
+- [ ] A new attachment owner is a nullable composite FK plus a widened CHECK, never a polymorphic pair (§3.8)
 
 ---
 
@@ -609,7 +632,7 @@ aircraft (registration, type, status — not squawk or log detail)
 squawks  work_orders  compliance_records  maintenance_items
 flights  flight_times  flight_meters
 member_credentials  member_aircraft_authorizations
-attachments
+attachments  aircraft_documents
 ```
 
 The metadata tier answers nearly every real support ticket. Content access is for a customer saying "come look at this with me," and it should feel like a deliberate act: a grant row with an expiry, visible to the tenant, written to the audit log on creation and on every read it authorizes.
@@ -764,6 +787,27 @@ Mobile dev:     npx expo start          (from mobile/)
 **Impersonation: deferred, with the seam kept open** (2026-09-20). Not built in v1 — §7.2's time-boxed, logged, tenant-consented content grant covers the actual support need. But §7.5's warning about retrofitting a second session type binds: **the sessions table carries a `session_type` discriminator and the audit log carries an acting-admin column from the migration that creates them**, even though only one value of each is ever written today.
 
 **FlightSquare produces statements; it does not move members' money** (2026-09-21). §3.7's ledger records what a pilot owes their club and what they have paid, and a treasurer settles it by cheque, transfer or cash at the hangar — a payment recorded as an adjustment. Processing pilot payments would mean platform accounts, refunds, chargebacks and tax reporting, which is a different product. The ledger is shaped so recorded payments could become real ones without restructuring. Platform billing (§8.3) is the only money the product moves, it is the tenant's subscription, and it is Stripe on the web.
+
+**A removal does not return the bytes** (2026-10-02). Records (SPEC Phase 2)
+made `storage.bytes` the only limit on attachments and aircraft documents, and
+the obvious convenience — decrement the counter when a file is removed — is a
+hole: nothing deletes the object, so upload-and-remove in a loop would hold
+unbounded storage while the tenant read zero. The counter measures what
+FlightSquare is actually storing. A purge job is deliberately out of scope: it
+needs a `DELETE` grant or a §2.3 helper, a `legal_hold` check (§7.4), and a
+sweep, against the table §7.2 names among what is read back after an accident.
+Until it exists, the UI says a removed file still counts.
+
+**Document expiry never reaches `aircraft_availability`** (2026-10-02). §11
+forbids inferring airworthiness from an absence of maintenance warnings, and the
+mirror binds just as hard: an aeroplane is not unflyable because a scan is stale.
+The club may have renewed and not uploaded it, a registration may have a renewal
+pending with the FAA, and a standard airworthiness certificate does not expire at
+all. The view keeps its three inputs — aircraft status, grounding squawks,
+overdue grounding items — and an expiring certificate is a notice in the feed to
+whoever can renew it, worded "this does not affect bookings". This is also the
+first time a record-keeping fact was offered a route into the booking path, and
+declining it is the precedent.
 
 **`deleted_at` is a control-plane marker, not an application verb** (2026-09-20). §6 asks for a `deleted_at IS NULL` predicate in the RLS policy *and* for soft deletion; Postgres will not give both, because on UPDATE it re-checks the new row against the policies that apply to SELECT — so a row that sets `deleted_at` stops satisfying the policy that made it visible, and the write is refused. Resolved in favour of the invariant: `deleted_at` means account closure and purge (§7.3), written by the admin plane. **An application-facing "delete" is a status column** — a removed member is `status = 'removed'`, an archived aircraft will be an aircraft status. §5.5 requires archived records to keep their history and return on re-upgrade, so hiding them at the database level would have been wrong anyway.
 

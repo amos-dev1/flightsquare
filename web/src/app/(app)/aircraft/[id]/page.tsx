@@ -272,6 +272,28 @@ export default async function AircraftPage({
         />
       </section>
 
+      {/*
+        §3.2's paperwork, which a pilot is responsible for being aboard and has
+        had no way to check. Everyone reads it — `documents: read` is in the
+        Pilot bundle — and filing is the admin's.
+      */}
+      {entitlements.permissions.documents === 'none' ? null : (
+        <section className="space-y-3">
+          <SectionHeading>Documents</SectionHeading>
+          <Card className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+            <p className="text-sm text-secondary">
+              Airworthiness certificate, registration, weight and balance, insurance.
+            </p>
+            <Link
+              href={`/aircraft/${aircraft.id}/documents`}
+              className="text-sm font-semibold underline decoration-1 underline-offset-4"
+            >
+              See what is on file
+            </Link>
+          </Card>
+        </section>
+      )}
+
       {canWrite ? (
         <section className="space-y-3">
           <SectionHeading>Settings</SectionHeading>

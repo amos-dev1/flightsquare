@@ -1,3 +1,5 @@
+import { FileText } from 'lucide-react';
+
 import { apiFetch } from '@/lib/api';
 import { Card, Empty, PageTitle, SectionHeading, Status } from '@/components/ui';
 import type {
@@ -135,15 +137,30 @@ function SquawkCard({ squawk, canClose }: { squawk: SquawkResponse; canClose: bo
           {squawk.attachments.map((photo) => (
             <li key={photo.id}>
               <a href={photo.url} target="_blank" rel="noreferrer">
-                {/* Not next/image: the host is object storage, the URL is
-                    signed and expires, and neither is something to configure
-                    a remote-image loader around. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photo.url}
-                  alt={`Photograph of: ${squawk.summary}`}
-                  className="h-20 w-20 rounded-lg border border-line bg-subtle object-cover"
-                />
+                {/*
+                  A PDF cannot render in an `<img>`, and one can reach a squawk
+                  now that the allowed types include it — somebody attaching a
+                  shop report to a defect is a reasonable thing to do. So the
+                  non-image case is a tile that says what it is.
+                */}
+                {photo.content_type === 'application/pdf' ? (
+                  <span className="flex h-20 w-20 flex-col items-center justify-center gap-1 rounded-lg border border-line bg-subtle text-xs font-semibold text-secondary">
+                    <FileText aria-hidden size={20} strokeWidth={1.75} />
+                    PDF
+                  </span>
+                ) : (
+                  <>
+                    {/* Not next/image: the host is object storage, the URL is
+                        signed and expires, and neither is something to configure
+                        a remote-image loader around. */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={photo.url}
+                      alt={`Photograph of: ${squawk.summary}`}
+                      className="h-20 w-20 rounded-lg border border-line bg-subtle object-cover"
+                    />
+                  </>
+                )}
               </a>
             </li>
           ))}

@@ -621,18 +621,188 @@ export async function logMaintenanceCompletion(
   }
   if (text('next_from')) body.next_from = text('next_from');
 
+  /*
+    The id comes from the form so the invoice can name the completion, and the
+    key makes a retry safe.
+
+    Both are the same field: the form mints one uuid, sends it as the record's
+    id and as the idempotency key, and reuses it on a retry. A second post
+    after a dropped connection is then the same request rather than a second
+    completion — and a mark-complete applied twice rolls an annual forward
+    twice, in a table §3.6 will not let anybody correct by editing.
+  */
+  const id = text('completion_id');
+  if (id) body.id = id;
+
+  let completionId: string;
   try {
-    await apiFetch(`/maintenance-items/${itemId}/completions`, {
-      method: 'POST',
-      body: JSON.stringify(body),
-    });
+    const created = await apiFetch<{ id: string }>(
+      `/maintenance-items/${itemId}/completions`,
+      {
+        method: 'POST',
+        headers: { 'idempotency-key': id || crypto.randomUUID() },
+        body: JSON.stringify(body),
+      },
+    );
+    completionId = created.id;
   } catch (error) {
     return { error: messageFor(error), values };
   }
 
   revalidatePath('/maintenance');
   revalidatePath(`/maintenance/${itemId}`);
-  return { saved: true };
+  return { saved: true, values: { completion_id: completionId } };
+}
+
+/**
+ * Web's first upload, in the three steps the API has always wanted.
+ *
+ * This signs a PUT and hands it back to the browser, which sends the bytes
+ * straight to object storage and then calls `finishUpload`. The bytes do not
+ * pass through the Next.js server either, for the same reason they do not pass
+ * through the API: a server that handles uploads needs a body limit, a parser
+ * and a retry story, and object storage already has all three.
+ */
+export async function startUpload(
+  owner:
+    | { kind: 'completion'; id: string }
+    | { kind: 'document'; id: string }
+    | { kind: 'squawk'; id: string },
+  input: { content_type: string; byte_size: number; kind?: string },
+): Promise<{ id?: string; upload_url?: string; error?: string }> {
+  const path =
+    owner.kind === 'completion'
+      ? `/maintenance-completions/${owner.id}/attachments`
+      : owner.kind === 'document'
+        ? `/aircraft-documents/${owner.id}/attachments`
+        : '/attachments';
+
+  try {
+    const created = await apiFetch<{ id: string; upload_url?: string }>(path, {
+      method: 'POST',
+      body: JSON.stringify(
+        owner.kind === 'squawk' ? { ...input, squawk_id: owner.id } : input,
+      ),
+    });
+    return { id: created.id, ...(created.upload_url ? { upload_url: created.upload_url } : {}) };
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+}
+
+/** The bytes arrived. The server reads back what storage actually holds. */
+export async function finishUpload(
+  owner:
+    | { kind: 'completion'; id: string }
+    | { kind: 'document'; id: string }
+    | { kind: 'squawk'; id: string },
+  attachmentId: string,
+  revalidate?: string,
+): Promise<ActionResult> {
+  const path =
+    owner.kind === 'completion'
+      ? `/maintenance-completions/${owner.id}/attachments/${attachmentId}/complete`
+      : owner.kind === 'document'
+        ? `/aircraft-documents/${owner.id}/attachments/${attachmentId}/complete`
+        : `/attachments/${attachmentId}/complete`;
+
+  try {
+    await apiFetch(path, { method: 'POST' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  if (revalidate) revalidatePath(revalidate);
+  return {};
+}
+
+/**
+ * A wrong invoice, taken off a signed record.
+ *
+ * Not a delete. The row stays, keeps saying what it was filed against, and
+ * records who removed it and why — and the bytes stay counted against
+ * `storage.bytes`, because they are still in the bucket. The screens say so;
+ * "freed 2.4 MB" would be an unsupported claim (§11).
+ */
+export async function removeCompletionAttachment(
+  recordId: string,
+  attachmentId: string,
+  reason: string,
+  revalidate: string,
+): Promise<ActionResult> {
+  if (reason.trim().length < 5) {
+    return { error: 'Say why in a few words. This stays on the record.' };
+  }
+  try {
+    await apiFetch(
+      `/maintenance-completions/${recordId}/attachments/${attachmentId}/remove`,
+      { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) },
+    );
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath(revalidate);
+  return {};
+}
+
+// ---- aircraft documents (§3.2) --------------------------------------------
+
+/**
+ * The document, written before its file.
+ *
+ * That order is what the foreign key enforces — the owner exists and the upload
+ * names it — and it means a club can record that the insurance expires on 31
+ * March before anybody has scanned the certificate.
+ */
+export async function createAircraftDocument(
+  aircraftId: string,
+  _state: FormState,
+  form: FormData,
+): Promise<FormState> {
+  const text = (key: string) => String(form.get(key) ?? '').trim();
+  const values: Record<string, string> = {};
+  for (const [key, value] of form.entries()) {
+    if (typeof value === 'string') values[key] = value;
+  }
+
+  if (!text('kind')) return { error: 'Say which document it is.', values };
+  if (!text('title')) return { error: 'Give it a title.', values };
+
+  const body: Record<string, unknown> = { kind: text('kind'), title: text('title') };
+  for (const key of ['reference', 'issued_on', 'expires_on', 'notes', 'supersedes_id'] as const) {
+    if (text(key)) body[key] = text(key);
+  }
+
+  let documentId: string;
+  try {
+    const created = await apiFetch<{ id: string }>(`/aircraft/${aircraftId}/documents`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    documentId = created.id;
+  } catch (error) {
+    return { error: messageFor(error), values };
+  }
+
+  revalidatePath(`/aircraft/${aircraftId}/documents`);
+  // Handed back so the form can upload the file against it without a reload.
+  return { saved: true, values: { document_id: documentId } };
+}
+
+export async function updateAircraftDocument(
+  documentId: string,
+  aircraftId: string,
+  input: Record<string, unknown>,
+): Promise<ActionResult> {
+  try {
+    await apiFetch(`/aircraft-documents/${documentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  revalidatePath(`/aircraft/${aircraftId}/documents`);
+  return {};
 }
 
 /**

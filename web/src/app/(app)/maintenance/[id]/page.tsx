@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { FileText, Paperclip } from 'lucide-react';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Card, KeyMetric, PageTitle, SectionHeading, Status } from '@/components/ui';
@@ -217,6 +218,34 @@ export default async function MaintenanceItemPage({ params }: { params: Promise<
                   ) : record.superseded ? (
                     <p className="mt-1 text-sm text-secondary">Corrected by a later record</p>
                   ) : null}
+
+                  {/*
+                    Mockup 04's paperclip. The files arrive inline with the
+                    history, so a list of ten does not make ten more requests —
+                    and a PDF opens rather than rendering, because an `<img>`
+                    cannot show one.
+                  */}
+                  {(record.attachments ?? []).length > 0 ? (
+                    <ul className="mt-2 flex flex-wrap gap-3">
+                      {(record.attachments ?? []).map((file) => (
+                        <li key={file.id}>
+                          <a
+                            href={file.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 text-sm font-semibold underline decoration-1 underline-offset-4"
+                          >
+                            {file.content_type === 'application/pdf' ? (
+                              <FileText aria-hidden size={16} strokeWidth={2} />
+                            ) : (
+                              <Paperclip aria-hidden size={16} strokeWidth={2} />
+                            )}
+                            {FILE_LABEL[file.kind ?? 'document']}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
                 {canWrite && !record.voided && !record.superseded ? (
                   <VoidButton itemId={item.id} recordId={record.id} on={record.complied_on} />
@@ -272,6 +301,14 @@ function Setting({ label, value, hint }: { label: string; value: string; hint?: 
 function capitalise(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+/** What a file is called where it is listed, which is all `kind` is for. */
+const FILE_LABEL: Record<string, string> = {
+  invoice: 'Invoice',
+  logbook_entry: 'Logbook entry',
+  document: 'Document',
+  photo: 'Photo',
+};
 
 const CATEGORY: Record<MaintenanceItemResponse['category'], string> = {
   airframe: 'Airframe',

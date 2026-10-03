@@ -461,6 +461,9 @@ async function main(): Promise<void> {
   step('maintenance');
   await recordCompliance(admin, fleet);
 
+  step('documents');
+  await fileDocuments(admin, fleet);
+
   step('squawks');
   await fileSquawks(admin, fleet, members);
 
@@ -1267,6 +1270,70 @@ async function recordCompliance(
       });
     }
     console.log(`  · ${registration} compliance recorded`);
+  }
+}
+
+/**
+ * The paperwork (§3.2), without the files.
+ *
+ * Document rows and no attachments, which is a real state and the honest one
+ * for a seeder: a club knows the insurance expires on 31 March long before
+ * anybody has scanned the certificate, and the API's upload is three steps with
+ * actual bytes in the middle — inventing a PDF here would be inventing a
+ * document, not seeding one.
+ *
+ * The dates are staggered so the screens have something to draw: one insurance
+ * certificate coming up for renewal inside the reminder window, one registration
+ * comfortably out, and the two that do not expire carrying no date at all.
+ *
+ * **None of it affects dispatch.** An expired certificate is a notice (§11), and
+ * `aircraft_availability` never looks at this table.
+ */
+async function fileDocuments(
+  admin: Session,
+  fleet: Map<string, { id: string; spec: AircraftSpec }>,
+): Promise<void> {
+  const plan: Record<string, { kind: string; title: string; issued: number; expires?: number }[]> = {
+    // The leaseback's insurance is the one coming due — the owner pays it and
+    // the club is the one that notices.
+    N91BK: [
+      { kind: 'airworthiness', title: 'Standard airworthiness certificate', issued: -4800 },
+      { kind: 'registration', title: 'Certificate of registration', issued: -1100, expires: 1450 },
+      { kind: 'insurance', title: 'Hull and liability', issued: -320, expires: 44 },
+      { kind: 'weight_balance', title: 'Weight and balance, as weighed', issued: -620 },
+    ],
+    N4521G: [
+      { kind: 'airworthiness', title: 'Standard airworthiness certificate', issued: -7200 },
+      { kind: 'registration', title: 'Certificate of registration', issued: -900, expires: 1650 },
+      { kind: 'insurance', title: 'Hull and liability', issued: -200, expires: 165 },
+      { kind: 'weight_balance', title: 'Weight and balance, as weighed', issued: -900 },
+      { kind: 'operating_limitations', title: 'Operating limitations (POH supplement)', issued: -7200 },
+    ],
+    N738TR: [
+      { kind: 'airworthiness', title: 'Standard airworthiness certificate', issued: -9000 },
+      { kind: 'registration', title: 'Certificate of registration', issued: -1400, expires: 1150 },
+      { kind: 'insurance', title: 'Hull and liability', issued: -240, expires: 125 },
+    ],
+    N220SR: [
+      { kind: 'airworthiness', title: 'Standard airworthiness certificate', issued: -1500 },
+      { kind: 'registration', title: 'Certificate of registration', issued: -1500, expires: 1050 },
+      { kind: 'insurance', title: 'Hull and liability', issued: -60, expires: 305 },
+      { kind: 'weight_balance', title: 'Weight and balance, as delivered', issued: -1500 },
+    ],
+  };
+
+  for (const [registration, aircraft] of fleet) {
+    for (const entry of plan[registration] ?? []) {
+      await admin.call('POST', `/aircraft/${aircraft.id}/documents`, {
+        kind: entry.kind,
+        title: entry.title,
+        issued_on: isoDate(dayOffset(entry.issued)),
+        ...(entry.expires === undefined
+          ? {}
+          : { expires_on: isoDate(dayOffset(entry.expires)) }),
+      });
+    }
+    console.log(`  · ${registration} documents on file`);
   }
 }
 

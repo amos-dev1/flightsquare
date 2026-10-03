@@ -32,9 +32,12 @@ async function pass(): Promise<void> {
     try {
       const result = await sweepTenant(tenantId);
       queued += result.notified;
-      if (result.items > 0) {
+      // Paperwork is counted separately because it is told differently: the
+      // feed only, and only to whoever can renew it (no email, no pilots).
+      if (result.items > 0 || result.documents > 0) {
         console.log(
-          `[sweep] ${tenantId}: ${result.items} item(s) changed, ${result.notified} told`,
+          `[sweep] ${tenantId}: ${result.items} item(s) changed, ${result.notified} told` +
+            (result.documents > 0 ? `, ${result.documents} document notice(s)` : ''),
         );
       }
     } catch (error) {

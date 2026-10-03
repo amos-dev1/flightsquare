@@ -24,7 +24,7 @@ Build and ship in order. Each phase is independently shippable. **Start with Pha
 | Phase | Scope |
 | --- | --- |
 | 1 — Core tracking | Aircraft picker, tracked items with interval rules, counters and projection, status thresholds, ground flag + restriction flag, mark complete / reset, history, pilot read-only view, booking warnings, push + in-app notifications |
-| 2 — Records | Attach invoice / logbook-entry photo or PDF to a completion; per-aircraft document storage (S3, tenant-prefixed) |
+| 2 — Records | Attach invoice / logbook-entry photo or PDF to a completion; per-aircraft document storage (S3, tenant-prefixed); expiry reminders for the documents that have one |
 | 3 — Regulatory assist | AVIATES starter library as suggestions; aircraft component tree; AD ingest + matching + per-AD compliance status; suggestions inbox |
 | 4 — Logbook intelligence | Upload Airframe / Engine / Prop / Avionics logbooks; transcription; "Ask your logbooks" chat; logbook-derived suggestions |
 
@@ -36,7 +36,8 @@ Build and ship in order. Each phase is independently shippable. **Start with Pha
 | Full item list, item detail, history | ✓ | — | `maintenance.items` · read |
 | Add / edit / delete items, mark complete, void completion | ✓ | — | `maintenance.items` · write |
 | Grounding override | ✓ | — | `maintenance.items` · write |
-| Attach records (P2) | ✓ | — | `maintenance.records` · write |
+| Attach records (P2) | ✓ | — | `maintenance.items` · write (a completion's invoice) |
+| Aircraft documents (P2) | ✓ | read | `documents` · write |
 | Suggestions inbox (P3/P4) | ✓ | — | `maintenance.suggestions` · write |
 | Upload logbooks (P4) | ✓ | — | `logbooks` · write |
 | Ask logbooks (P4) | ✓ | account setting, off by default | `logbooks.ask` · read |
@@ -49,7 +50,7 @@ Feature flags / quotas (resolve tenant → plan → global, never by tenant id):
 | --- | --- | --- | --- |
 | `maintenance.core` | on | on | on |
 | `maintenance.items_per_aircraft` (quota) | 10 | unlimited | unlimited |
-| `maintenance.records` | off | on | on |
+| ~~`maintenance.records`~~ | — | — | **not built** |
 | `maintenance.regulatory_assist` | off | on | on |
 | `maintenance.logbooks` | off | off | on |
 | `maintenance.logbook_pages_per_aircraft` (quota) | 0 | 0 | 2,000 (tunable) |
@@ -147,7 +148,7 @@ Navigation: the Maintenance tab in the bottom tab bar (Schedule · Flights · Ma
 2. **Pilot view** (`02-pilot-view-grounded.html`) — picker; red grounded banner with cause and "New bookings are blocked until an admin logs it complete"; Tach/Hobbs card; "Coming up" next 5 items with remaining or Overdue pill; note "Full maintenance records are kept by your account admin"; "Report a squawk" button (existing squawk flow).
 3. **Add / edit tracked item** (`03-add-tracked-item.html`) — Cancel / title / Save; name with template chips (Oil change, Annual, 100-hour, ELT, Transponder, Pitot-static, VOR, Magneto, Custom) that prefill rules + defaults; "Applies to" segmented (Airframe / Engine / Prop / Avionics / Other); Interval card: rule rows (type, every N, last completed value), "+ Add rule", "Whichever comes first"; Warnings card (Remind at, Urgent at, Ground-if-overdue switch with helper "Blocks new bookings once overdue", optional restriction label); notes. Sticky dark footer: live preview "Next due {tach} or {date} · {remaining} from now · {status}".
 4. **Item detail** (`04-item-detail.html`) — back to aircraft, Edit; title + category/component; countdown ring (remaining fraction, status color) with "hr left" / "days left", status pill, "About N days at current pace", "Avg X tach hr / day, last 90 days"; rules list with next due each, "Governs" tag on governing rule; ground flag; next-from setting; primary "Mark complete"; History list (date · tach · performed by · notes; attachment icon P2). Delete in Edit.
-5. **Mark complete** (`05-mark-complete.html`) — modal sheet: Cancel / "Log completion"; item name; Date done, Tach (prefilled, "Latest reading prefilled"), Hobbs, Performed by, cert no.; attach Invoice / Logbook entry tiles (P2; hidden in P1); next-from segmented; green preview "Resets to {tach} or {date}, whichever first."; "Save & reset counter".
+5. **Mark complete** (`05-mark-complete.html`) — modal sheet: Cancel / "Log completion"; item name; Date done, Tach (prefilled, "Latest reading prefilled"), Hobbs, Performed by, cert no.; attach Invoice / Logbook entry tiles (P2 — the two tiles are *kinds*, and each then asks for a *source*: camera, photo library, or a file, because photographing a paper invoice is the common case and a shop emails a PDF); next-from segmented; green preview "Resets to {tach} or {date}, whichever first."; "Save & reset counter".
 6. **Suggestions inbox** (P3/P4, `06-suggestions-inbox.html`) — "Nothing is tracked until you approve it."; filter chips All / Required / ADs / Logbook; cards by source:
    - Logbook: evidence snippet + page thumbnail; Decline / Edit / Approve.
    - AD possibly applicable: AD number + subject, match reason, interval, "View on FAA DRS" link; Not applicable / Complied / Track.
@@ -189,7 +190,8 @@ Navigation: the Maintenance tab in the bottom tab bar (Schedule · Flights · Ma
 | `item_status` | tracked_item_id, per-rule next_due + remaining, governing_rule_id, status, projected_date, last_notified_status, computed_at | 1 (table, recomputed) |
 | `grounding_event` | aircraft_id, cause (`item`/`squawk`/`manual`), tracked_item_id, started_at, override_reason, override_until, cleared_at | 1 |
 | `item_history` | tracked_item_id, actor, action, before jsonb, after jsonb, at | 1 |
-| `attachment` | owner_type (`completion`/`tracked_item`/`logbook_page`), owner_id, s3_key, kind, mime, size | 2 |
+| `attachments` | squawk_id / compliance_record_id / aircraft_document_id (at most one, each a composite FK), storage_key, kind, content_type, byte_size, status | 2 |
+| `aircraft_documents` | aircraft_id, kind, title, reference, issued_on, expires_on, supersedes_id, status, notified_state | 2 |
 | `aircraft_component` | aircraft_id, parent_id, kind (`airframe`/`engine`/`prop`/`appliance`), make, model, serial, position | 3 |
 | `suggestion` | aircraft_id, source (`regulatory`/`ad`/`logbook`), payload jsonb, evidence jsonb, state (`open`/`approved`/`edited`/`declined`), decided_by, decided_at | 3 |
 | `interval_library` (global, no tenant) | key, name, rules, applicability flags, cfr_ref, source_doc | 3 |
@@ -199,6 +201,33 @@ Navigation: the Maintenance tab in the bottom tab bar (Schedule · Flights · Ma
 | `logbook`, `logbook_page`, `logbook_entry` | book kind, page image key, entry date, tach/TT, text, tags, confidence, embedding | 4 |
 
 Global library tables are read-only to the app role.
+
+### Phase 2 as built — three deviations from the tables above (2026-10-02)
+
+1. **No `maintenance.records` resource.** A completion's invoice is
+   `maintenance.items: write` — the invoice *is* the record, and whoever may log
+   the work may file what proves it — and aircraft documents use `documents`,
+   which has been in the resource list since `0005` and in both role bundles
+   since `0027` with nothing using it. A resource nothing else would ever
+   reference is a column in the permission model, not a resource.
+
+2. **No feature flag, on any tier.** CLAUDE.md §8.3 is explicit that
+   "deliberately crippling the free tier to push people to the web is itself
+   grounds for rejection", and a solo owner who cannot keep the invoice for
+   their own oil change has a crippled free tier. `storage.bytes` — 1 GiB free,
+   25 GiB Pro — is the only limit, and it is already counted and enforced.
+
+3. **`attachment` is not polymorphic.** The `(owner_type, owner_id)` shape above
+   cannot carry a foreign key, so nothing would stop a row naming a record in
+   another tenant; CLAUDE.md §1.1 makes that unrepresentable with composite
+   keys, and three nullable columns with three composite FKs are three
+   constraints the database enforces rather than none. A document also turned
+   out not to be "the same shape" as a stored object — it has a kind and two
+   dates — so it is its own table, and the file points at it.
+
+Pilots read aircraft documents, which SPEC §3's "no records" line above reads
+against. A pilot is responsible for the AROW set being aboard and the weight and
+balance is operationally theirs; `0027` had already seeded the grant.
 
 ## 8. API (illustrative; follow existing API conventions)
 

@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { AlertTriangle, Bell, CalendarClock, Clock, Wrench } from 'lucide-react';
+import { AlertTriangle, Bell, CalendarClock, Clock, FileText, Wrench } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
 import { Card, Empty, PageTitle } from '@/components/ui';
@@ -113,6 +113,10 @@ function destinationFor(row: NotificationResponse): string | null {
       return `/aircraft/${row.subject_id}`;
     case 'squawk':
       return '/squawks';
+    case 'aircraft_document':
+      // The document's own page knows which aeroplane it belongs to, which a
+      // notice from the bell does not carry.
+      return `/aircraft-documents/${row.subject_id}`;
     case 'reservation':
       return '/schedule';
     default:
@@ -128,4 +132,10 @@ const ICON: Record<NotificationResponse['kind'], typeof Bell> = {
   aircraft_returned: Bell,
   booking_needs_review: CalendarClock,
   squawk_filed: Wrench,
+  /*
+    A certificate coming up for renewal. The restrained icon is deliberate: a
+    lapsed document is a thing to renew and never a grounding, and an alert
+    triangle here is how somebody would read one into it (§11).
+  */
+  document_expiring: FileText,
 };
