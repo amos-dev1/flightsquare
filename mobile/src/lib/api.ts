@@ -3,10 +3,38 @@ import { ApiError, createClient } from '@flightsquare/shared';
 
 import { clearSession, readSession, writeSession } from './auth';
 
+/**
+ * Where the API is, which is a different answer on a phone than on a laptop.
+ *
+ * `127.0.0.1` is correct in a simulator, where localhost *is* the development
+ * machine, and wrong on a physical device, where it is the phone — the app then
+ * reaches nothing and every screen says it is offline, which is true and
+ * unhelpful.
+ *
+ * So the fallback is Expo's own dev-server host. `hostUri` is the address this
+ * bundle was downloaded from (`192.168.4.156:8081` on a device, `127.0.0.1:8081`
+ * in a simulator), and the API is on the same machine at a different port. That
+ * is self-maintaining: joining a different network changes both at once, with
+ * no file to remember to edit.
+ *
+ * An explicit `EXPO_PUBLIC_API_URL` still wins, for pointing a device at a
+ * deployed API.
+ */
+function developmentApiUrl(): string {
+  const host = Constants.expoConfig?.hostUri ?? Constants.experienceUrl;
+  const address = host?.replace(/^\w+:\/\//, '').split(':')[0];
+  // Not a loopback address, and not a tunnel hostname that would not have the
+  // API on it either way.
+  if (address && address !== 'localhost' && !address.endsWith('.exp.direct')) {
+    return `http://${address}:3000`;
+  }
+  return 'http://127.0.0.1:3000';
+}
+
 const BASE_URL =
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
   process.env.EXPO_PUBLIC_API_URL ??
-  'http://127.0.0.1:3000';
+  developmentApiUrl();
 
 /**
  * The shared client (§9), wired to this device's keychain and its own
