@@ -155,6 +155,7 @@ BEGIN
                             'user_isolation', 'user_self_write'))
      IS DISTINCT FROM ARRAY['aircraft.tenant_isolation',
                             'aircraft_config.tenant_isolation',
+                            'aircraft_documents.tenant_isolation',
                             'aircraft_rates.tenant_isolation',
                             'attachments.tenant_isolation',
                             'audit_log.tenant_isolation',
@@ -488,7 +489,12 @@ BEGIN
 
   -- Content tier: a maintenance discrepancy history is litigation-grade and
   -- needs a time-boxed, logged, tenant-consented grant, which does not exist.
-  FOREACH t IN ARRAY ARRAY['meter_readings', 'aircraft_config'] LOOP
+  --
+  -- `attachments` and `aircraft_documents` are here for a related reason: a
+  -- photograph of a defect is not less sensitive than the sentence describing
+  -- it, and an insurance certificate is the tenant's commercial business.
+  FOREACH t IN ARRAY ARRAY['meter_readings', 'aircraft_config',
+                           'attachments', 'aircraft_documents'] LOOP
     IF has_any_column_privilege('admin_role', 'public.' || t, 'SELECT') THEN
       RAISE EXCEPTION 'admin_role can read % — that is content, not metadata (§7.2)', t;
     END IF;
