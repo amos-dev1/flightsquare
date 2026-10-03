@@ -935,12 +935,20 @@ export interface NotificationResponse {
     | 'aircraft_grounded'
     | 'aircraft_returned'
     | 'booking_needs_review'
-    | 'squawk_filed';
+    | 'squawk_filed'
+    /** A certificate coming up for renewal (0038). Never a grounding. */
+    | 'document_expiring';
   title: string;
   body: string | null;
   /** Where it points, as a kind and an id — never a path a stale build
    *  cannot route (§8.1). */
-  subject_type: 'maintenance_item' | 'aircraft' | 'reservation' | 'squawk' | null;
+  subject_type:
+    | 'maintenance_item'
+    | 'aircraft'
+    | 'reservation'
+    | 'squawk'
+    | 'aircraft_document'
+    | null;
   subject_id: string | null;
   read_at: string | null;
   created_at: string;

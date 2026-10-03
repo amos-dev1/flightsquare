@@ -91,17 +91,19 @@ export async function saveSquawk(payload: CreateSquawkRequest): Promise<string> 
  * is a squawk that arrives without the picture somebody took specifically so
  * it would arrive.
  *
- * `recordedAt` is nudged one millisecond past the squawk's, which is what
- * keeps the ordering honest: `flushQueue` sorts by recorded-at, and a
- * photograph that sorts ahead of its own squawk would be sent to a squawk id
- * the server has never seen.
+ * `recordedAt` is nudged one millisecond past the owner's, which is what
+ * keeps the ordering honest: `flushQueue` sorts by recorded-at, and a file
+ * that sorts ahead of its own owner would be sent to an id the server has
+ * never seen.
  */
 export async function saveAttachment(input: {
-  squawkId: string;
+  /** What it belongs to: a squawk's photograph or a completion's invoice. */
+  owner: QueuedAttachment['payload']['owner'];
   /** Where the picker left it. Copied, not referenced. */
   uri: string;
   contentType: string;
-  /** The squawk's recorded-at, so this sorts immediately behind it. */
+  fileKind?: QueuedAttachment['payload']['fileKind'];
+  /** The owner's recorded-at, so this sorts immediately behind it. */
   after: string;
 }): Promise<string> {
   const id = uuidv7();
@@ -116,10 +118,11 @@ export async function saveAttachment(input: {
     id,
     idempotencyKey: id,
     payload: {
-      squawkId: input.squawkId,
+      owner: input.owner,
       localUri: kept.uri,
       contentType: input.contentType,
       byteSize: kept.size ?? 0,
+      ...(input.fileKind ? { fileKind: input.fileKind } : {}),
     },
     recordedAt: new Date(new Date(input.after).getTime() + 1).toISOString(),
     queuedAt: now,
@@ -137,8 +140,23 @@ function attachmentDirectory(): Directory {
   return directory;
 }
 
+/**
+ * What to call the local copy.
+ *
+ * `pdf` is on the list because records arrived: a three-branch ternary that
+ * fell through to `.jpg` would have written an invoice to the device's own
+ * storage under a name that lied about it, which is the kind of thing that only
+ * shows up when somebody opens the file months later.
+ */
 function extensionFor(contentType: string): string {
-  return contentType === 'image/png' ? 'png' : contentType === 'image/heic' ? 'heic' : 'jpg';
+  const known: Record<string, string> = {
+    'image/png': 'png',
+    'image/heic': 'heic',
+    'image/webp': 'webp',
+    'application/pdf': 'pdf',
+    'image/jpeg': 'jpg',
+  };
+  return known[contentType] ?? 'bin';
 }
 
 /** Which endpoint a queued write belongs to. The queue does not decide it. */
@@ -166,12 +184,23 @@ function submit(entry: QueuedWrite): Promise<unknown> {
  * the beginning. Retrying the beginning costs one abandoned row.
  */
 async function uploadAttachment(entry: QueuedAttachment): Promise<unknown> {
+  const { owner } = entry.payload;
+
+  // One door per owner, because each needs a different permission (§1.5) and
+  // the API declares its gate per route rather than reading the body.
   const created = await withAuth(() =>
-    api.createAttachment({
-      squawk_id: entry.payload.squawkId,
-      content_type: entry.payload.contentType,
-      byte_size: entry.payload.byteSize,
-    }),
+    owner.kind === 'squawk'
+      ? api.createAttachment({
+          squawk_id: owner.squawkId,
+          ...(entry.payload.fileKind ? { kind: entry.payload.fileKind } : {}),
+          content_type: entry.payload.contentType,
+          byte_size: entry.payload.byteSize,
+        })
+      : api.createCompletionAttachment(owner.complianceRecordId, {
+          ...(entry.payload.fileKind ? { kind: entry.payload.fileKind } : {}),
+          content_type: entry.payload.contentType,
+          byte_size: entry.payload.byteSize,
+        }),
   );
 
   const file = new File(entry.payload.localUri);
@@ -184,7 +213,11 @@ async function uploadAttachment(entry: QueuedAttachment): Promise<unknown> {
     throw new Error(`the upload was refused (${response.status})`);
   }
 
-  const completed = await withAuth(() => api.completeAttachment(created.id));
+  const completed = await withAuth(() =>
+    owner.kind === 'squawk'
+      ? api.completeAttachment(created.id)
+      : api.completeCompletionAttachment(owner.complianceRecordId, created.id),
+  );
 
   // The local copy existed to survive the queue, and the queue is done with
   // it. Leaving it behind fills the device with photographs of defects that

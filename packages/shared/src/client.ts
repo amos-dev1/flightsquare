@@ -299,6 +299,9 @@ export function createClient(options: ClientOptions) {
      */
     listAircraftDocuments: (aircraftId: string) =>
       request<AircraftDocumentResponse[]>('GET', `/aircraft/${aircraftId}/documents`),
+    /** One by id, for a tap from the bell that has a document and no aeroplane. */
+    aircraftDocument: (documentId: string) =>
+      request<AircraftDocumentResponse>('GET', `/aircraft-documents/${documentId}`),
     /** The document first, then its file — the owner exists before the upload. */
     createAircraftDocument: (aircraftId: string, input: CreateAircraftDocumentRequest) =>
       request<AircraftDocumentResponse>(

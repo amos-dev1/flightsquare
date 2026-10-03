@@ -124,6 +124,33 @@ export async function documentRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
+   * One document by id, for a deep link.
+   *
+   * A notice about a certificate coming up for renewal carries the document's
+   * id and no aircraft id, and asking for every aeroplane's paperwork to find
+   * which one it belongs to is how a tap from the bell gets slow. The same
+   * reason `GET /maintenance-items/:id` exists.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/aircraft-documents/:id',
+    { config: { requiresTenant: true, permission: ['documents', 'read'] } },
+    async (request) => {
+      return request.withTenant<AircraftDocumentResponse>(async (trx) => {
+        const row = await trx
+          .selectFrom('aircraft_documents')
+          .select('aircraft_id')
+          .where('id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!row) throw new NotFoundError();
+
+        const [found] = await listDocuments(trx, row.aircraft_id, request.params.id);
+        if (!found) throw new NotFoundError();
+        return found;
+      });
+    },
+  );
+
+  /**
    * The document, written before its file.
    *
    * That order is the whole reason the foreign key points from the attachment

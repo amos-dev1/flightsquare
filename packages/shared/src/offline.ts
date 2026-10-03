@@ -56,10 +56,11 @@ export interface QueuedSquawk extends QueuedWriteBase {
  * queue. What is stored here is where to find the file and what to say about
  * it.
  *
- * `squawkId` is the squawk's client-generated id, which is the whole reason
- * `CreateSquawkRequest` grew one. Both writes are made on the same walk back
- * from the aeroplane and neither has reached the server; without a device-side
- * id the photograph would have nothing to point at until the squawk synced.
+ * The owner's id is client-generated, which is the whole reason
+ * `CreateSquawkRequest` and `CreateCompletionRequest` both grew one. Both
+ * writes are made in the same place at the same time and neither has reached
+ * the server; without a device-side id the file would have nothing to point at
+ * until its owner synced.
  *
  * Ordering does the rest. `flushQueue` sends oldest-recorded first and stops
  * at the first transient failure, so the squawk is created before the
@@ -70,12 +71,34 @@ export interface QueuedSquawk extends QueuedWriteBase {
 export interface QueuedAttachment extends QueuedWriteBase {
   kind: 'attachment';
   payload: {
-    /** The squawk this belongs to, named on the device (§8.2). */
-    squawkId: string;
+    /**
+     * What this belongs to, named on the device (§8.2).
+     *
+     * Two owners queue: a squawk's photograph and a completion's invoice. The
+     * second is why `CreateCompletionRequest` grew an id — a mark-complete is
+     * filled in beside an open cowling with a paper invoice in hand, and a
+     * hangar at the far end of a field is worse for signal than a tiedown, not
+     * better.
+     *
+     * The failure mode is worse too. A squawk whose photograph fails is a
+     * filed defect with no picture; a completion whose invoice fails after the
+     * completion posted is a compliance record claiming paperwork that is not
+     * there — and it cannot be fixed by re-saving the sheet, because
+     * `compliance_records` takes inserts only and a second post would roll the
+     * item forward twice.
+     *
+     * Aircraft documents do not queue. An insurance certificate arrives as an
+     * email attachment from a broker and is filed at a desk, not on one bar.
+     */
+    owner:
+      | { kind: 'squawk'; squawkId: string }
+      | { kind: 'completion'; complianceRecordId: string };
     /** A file:// URI in the app's own document directory, not the picker cache. */
     localUri: string;
     contentType: string;
     byteSize: number;
+    /** What the file is, for the UI that renders it later (0038). */
+    fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document';
   };
 }
 

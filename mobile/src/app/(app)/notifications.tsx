@@ -153,20 +153,31 @@ export default function Notifications() {
  */
 function destinationFor(
   row: NotificationResponse,
-): { pathname: '/(app)/maintenance-item' | '/(app)/reservation'; params: { id: string } } | null {
+):
+  | {
+      pathname: '/(app)/maintenance-item' | '/(app)/reservation' | '/(app)/aircraft-documents';
+      params: { id: string } | { aircraft: string };
+    }
+  | null {
   if (row.subject_id === null) return null;
   switch (row.subject_type) {
     case 'maintenance_item':
       return { pathname: '/(app)/maintenance-item', params: { id: row.subject_id } };
     case 'reservation':
       return { pathname: '/(app)/reservation', params: { id: row.subject_id } };
+    case 'aircraft_document':
+      // The list rather than the row: a renewal is filed beside the one it
+      // replaces, and that is what somebody needs to see.
+      return { pathname: '/(app)/aircraft-documents', params: { id: row.subject_id } };
     default:
       // `aircraft` and `squawk` have no detail screen a pilot can reach yet.
       return null;
   }
 }
 
-function iconFor(kind: NotificationResponse['kind']): 'alert-triangle' | 'clock' | 'calendar' | 'tool' {
+function iconFor(
+  kind: NotificationResponse['kind'],
+): 'alert-triangle' | 'clock' | 'calendar' | 'tool' | 'file-text' {
   switch (kind) {
     case 'maintenance_overdue':
     case 'aircraft_grounded':
@@ -175,6 +186,8 @@ function iconFor(kind: NotificationResponse['kind']): 'alert-triangle' | 'clock'
       return 'calendar';
     case 'squawk_filed':
       return 'tool';
+    case 'document_expiring':
+      return 'file-text';
     default:
       return 'clock';
   }
@@ -188,6 +201,15 @@ function toneOf(kind: NotificationResponse['kind']): { surface: string; ink: str
     case 'maintenance_due_soon':
     case 'booking_needs_review':
       return statusColor.urgent;
+    /*
+      Amber, never red, and this is deliberate.
+
+      A lapsed certificate is a thing to renew, not a grounding — §11 forbids
+      inferring airworthiness from a filing gap, and a red dot beside an
+      aeroplane is exactly how somebody would infer one.
+    */
+    case 'document_expiring':
+      return statusColor.warn;
     case 'aircraft_returned':
       return statusColor.good;
     default:

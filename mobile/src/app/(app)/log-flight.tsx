@@ -356,7 +356,7 @@ export default function LogFlight() {
         // names it (§8.2).
         for (const photo of draft.photos) {
           await saveAttachment({
-            squawkId,
+            owner: { kind: 'squawk', squawkId },
             uri: photo.uri,
             contentType: photo.contentType,
             after: reportedAt,

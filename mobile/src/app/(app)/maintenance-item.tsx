@@ -3,6 +3,7 @@ import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -26,6 +27,9 @@ import type {
 import { Body, Button, Choice, Field, Input, Notice, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
 import { api, messageFor, withAuth } from '@/lib/api';
+import { pickFile, type FileSource } from '@/lib/pick-file';
+import { saveAttachment } from '@/lib/sync';
+import { uuidv7 } from '@flightsquare/shared/uuidv7';
 import { usePermission } from '@/lib/entitlements';
 import { color, radius, space, statusColor, type } from '@/theme';
 
@@ -232,6 +236,28 @@ export default function MaintenanceItem() {
                 ) : record.superseded ? (
                   <Text style={styles.meta}>Corrected by a later record</Text>
                 ) : null}
+
+                {/*
+                  Mockup 04's paperclip. The files come inline with the history,
+                  so a list of ten does not make ten more requests on a tiedown.
+                */}
+                {(record.attachments ?? []).map((file) => (
+                  <Pressable
+                    key={file.id}
+                    onPress={() => file.url && void Linking.openURL(file.url)}
+                    disabled={!file.url}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open the ${LABEL[file.kind ?? 'document']}`}
+                    style={({ pressed }) => [styles.fileRow, pressed && styles.pressed]}
+                  >
+                    <Feather
+                      name={file.content_type === 'application/pdf' ? 'file-text' : 'paperclip'}
+                      size={14}
+                      color={color.tealText}
+                    />
+                    <Text style={styles.fileLabel}>{LABEL[file.kind ?? 'document']}</Text>
+                  </Pressable>
+                ))}
               </View>
               {canWrite && !record.voided && !record.superseded ? (
                 <Pressable
@@ -345,6 +371,11 @@ function CompleteSheet({
   const [preview, setPreview] = useState<PreviewMaintenanceResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Mockup 05's two tiles: what was picked, and which tile picked it. */
+  const [files, setFiles] = useState<
+    { key: string; uri: string; contentType: string; name?: string; fileKind: 'invoice' | 'logbook_entry' }[]
+  >([]);
+  const [picking, setPicking] = useState<'invoice' | 'logbook_entry' | null>(null);
 
   // Prefilled with the latest reading, and editable: work is logged days late
   // more often than not, and the meters then were not the meters now.
@@ -354,6 +385,7 @@ function CompleteSheet({
     setTach(item.hours_meter === 'tach' ? (item.current_hours ?? '') : '');
     setHobbs(item.hours_meter === 'hobbs' ? (item.current_hours ?? '') : '');
     setNextFrom(item.next_from);
+    setFiles([]);
     setError(null);
   }, [visible, item]);
 
@@ -384,24 +416,80 @@ function CompleteSheet({
   async function submit() {
     setBusy(true);
     setError(null);
+
+    /*
+      The completion names itself (§8.2), and the key makes a retry safe.
+
+      Both exist for the paperwork. The invoices queue — a mark-complete is
+      filled in beside an open cowling and a hangar at the far end of a field is
+      worse for signal than a tiedown — and a queued upload has to be able to
+      name the completion before the server has heard of it. The key is what
+      stops the retry that follows a dropped connection from rolling an annual
+      forward twice, in a table §3.6 will not let anybody correct by editing.
+
+      The completion itself is sent rather than queued, because this sheet's
+      footer is a live preview and the screen it returns to shows the new due
+      date — both of which the server computes (§8.2). A fully offline
+      mark-complete is its own piece of work.
+    */
+    const completionId = uuidv7();
+    const recordedAt = new Date().toISOString();
+
     try {
       const result = await withAuth(() =>
-        api.logCompletion(item.id, {
-          done_on: doneOn,
-          ...(tach.trim() ? { tach: tach.trim() } : {}),
-          ...(hobbs.trim() ? { hobbs: hobbs.trim() } : {}),
-          ...(performedBy.trim() ? { performed_by: performedBy.trim() } : {}),
-          ...(certNo.trim() ? { cert_no: certNo.trim() } : {}),
-          ...(notes.trim() ? { notes: notes.trim() } : {}),
-          next_from: nextFrom,
-        }),
+        api.logCompletion(
+          item.id,
+          {
+            id: completionId,
+            done_on: doneOn,
+            ...(tach.trim() ? { tach: tach.trim() } : {}),
+            ...(hobbs.trim() ? { hobbs: hobbs.trim() } : {}),
+            ...(performedBy.trim() ? { performed_by: performedBy.trim() } : {}),
+            ...(certNo.trim() ? { cert_no: certNo.trim() } : {}),
+            ...(notes.trim() ? { notes: notes.trim() } : {}),
+            next_from: nextFrom,
+          },
+          completionId,
+        ),
       );
+
+      // Each file is its own queue entry, ordered just behind the completion it
+      // belongs to, so the record exists by the time the upload names it.
+      for (const file of files) {
+        await saveAttachment({
+          owner: { kind: 'completion', complianceRecordId: result.id },
+          uri: file.uri,
+          contentType: file.contentType,
+          fileKind: file.fileKind,
+          after: recordedAt,
+        });
+      }
+
       onDone(result.maintenance_item);
     } catch (problem) {
       setError(messageFor(problem));
     } finally {
       setBusy(false);
     }
+  }
+
+  async function attach(source: FileSource) {
+    const kind = picking;
+    setPicking(null);
+    if (!kind) return;
+
+    const picked = await pickFile(source);
+    if (!picked) return;
+    setFiles((current) => [
+      ...current,
+      {
+        key: `${picked.uri}-${current.length}`,
+        uri: picked.uri,
+        contentType: picked.contentType,
+        ...(picked.name ? { name: picked.name } : {}),
+        fileKind: kind,
+      },
+    ]);
   }
 
   return (
@@ -483,6 +571,65 @@ function CompleteSheet({
             />
           </Field>
 
+          {/*
+            Mockup 05's two dashed tiles. Kinds, not sources — the chooser below
+            asks where the file is, and photographing a paper invoice at the
+            aeroplane is the common case.
+          */}
+          <Field label="Paperwork" compact hint="Optional. It stays with this completion.">
+            <View style={styles.tiles}>
+              {(['invoice', 'logbook_entry'] as const).map((kind) => (
+                <Pressable
+                  key={kind}
+                  onPress={() => setPicking(kind)}
+                  accessibilityRole="button"
+                  accessibilityLabel={kind === 'invoice' ? 'Attach an invoice' : 'Attach a logbook entry'}
+                  style={({ pressed }) => [styles.tile, pressed && styles.pressed]}
+                >
+                  <Feather
+                    name={kind === 'invoice' ? 'file-text' : 'book-open'}
+                    size={20}
+                    color={color.secondary}
+                  />
+                  <Text style={styles.tileLabel}>
+                    {kind === 'invoice' ? 'Attach invoice' : 'Logbook entry'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </Field>
+
+          {files.length > 0 ? (
+            <View style={styles.rows}>
+              {files.map((file) => (
+                <View key={file.key} style={styles.row}>
+                  <Feather
+                    name={file.contentType === 'application/pdf' ? 'file-text' : 'image'}
+                    size={16}
+                    color={color.secondary}
+                  />
+                  <View style={styles.rowText}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {file.name ?? (file.fileKind === 'invoice' ? 'Invoice' : 'Logbook entry')}
+                    </Text>
+                    <Text style={styles.meta}>
+                      {file.fileKind === 'invoice' ? 'Invoice' : 'Logbook entry'} · uploads after
+                      saving
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => setFiles((all) => all.filter((one) => one.key !== file.key))}
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove this file"
+                    style={({ pressed }) => [styles.void, pressed && styles.pressed]}
+                  >
+                    <Feather name="x" size={18} color={color.secondary} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           <Field
             label="Next interval starts from"
             compact
@@ -511,6 +658,30 @@ function CompleteSheet({
           <Button label="Cancel" variant="secondary" onPress={onClose} />
         </View>
       </KeyboardAvoidingView>
+
+      <Sheet
+        visible={picking !== null}
+        title={picking === 'logbook_entry' ? 'Logbook entry' : 'Invoice'}
+        onClose={() => setPicking(null)}
+      >
+        {(
+          [
+            { source: 'camera', label: 'Take a photo', icon: 'camera' },
+            { source: 'library', label: 'Choose a photo', icon: 'image' },
+            { source: 'files', label: 'Choose a file or PDF', icon: 'file-text' },
+          ] as const
+        ).map((option) => (
+          <Pressable
+            key={option.source}
+            onPress={() => void attach(option.source)}
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.option, pressed && styles.pressed]}
+          >
+            <Feather name={option.icon} size={20} color={color.navy} />
+            <Text style={styles.optionLabel}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </Sheet>
     </Sheet>
   );
 }
@@ -649,6 +820,14 @@ function Setting({ label, value, hint }: { label: string; value: string; hint?: 
     </View>
   );
 }
+
+/** What a file is called where it is listed, which is all `kind` is for. */
+const LABEL: Record<string, string> = {
+  invoice: 'Invoice',
+  logbook_entry: 'Logbook entry',
+  document: 'Document',
+  photo: 'Photo',
+};
 
 const CATEGORY: Record<MaintenanceItemResponse['category'], string> = {
   airframe: 'Airframe',
@@ -825,6 +1004,14 @@ const styles = StyleSheet.create({
   governs: { ...type.supporting },
   voided: { ...type.supporting, color: statusColor.bad.ink },
   void: { minHeight: 44, justifyContent: 'center', paddingHorizontal: space.sm },
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.xs,
+    minHeight: 32,
+    alignSelf: 'flex-start',
+  },
+  fileLabel: { ...type.supporting, color: color.tealText, textDecorationLine: 'underline' },
   voidLabel: { ...type.button, color: statusColor.bad.ink, textDecorationLine: 'underline' },
 
   disclose: {
@@ -836,6 +1023,31 @@ const styles = StyleSheet.create({
   discloseLabel: { ...type.button },
 
   form: { gap: space.md },
+  tiles: { flexDirection: 'row', gap: space.md },
+  tile: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: space.xs,
+    minHeight: 72,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: color.control,
+    borderRadius: radius.card,
+    backgroundColor: color.surface,
+  },
+  tileLabel: { ...type.supporting },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    padding: space.base,
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: radius.card,
+    minHeight: 56,
+  },
+  optionLabel: { ...type.bodySmall },
   pair: { flexDirection: 'row', gap: space.md },
   half: { flex: 1 },
   multiline: { minHeight: 72, paddingTop: space.md, textAlignVertical: 'top' },

@@ -213,6 +213,22 @@ export default function AircraftDetail() {
             />
           </Card>
 
+          {/*
+            §3.2's paperwork, which a pilot is responsible for being aboard and
+            has had no way to check until now. Everyone can read it (`documents:
+            read` is in the Pilot bundle); filing is the admin's.
+          */}
+          <Button
+            label="Documents"
+            variant="secondary"
+            onPress={() =>
+              router.push({
+                pathname: '/(app)/aircraft-documents',
+                params: { aircraft: aircraft.id },
+              })
+            }
+          />
+
           {/* The two things somebody standing at the aeroplane does. */}
           <Button
             label="Log flight"
