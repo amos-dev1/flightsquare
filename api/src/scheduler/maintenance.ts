@@ -29,6 +29,8 @@ export interface SweepResult {
   tenantId: string;
   items: number;
   notified: number;
+  /** Documents whose expiry crossed a threshold this pass. */
+  documents: number;
   /** Rows written to the in-app feed (0036), which is not the email count. */
   posted: number;
   /** Future bookings flagged because the aeroplane went down under them. */
@@ -51,9 +53,19 @@ export async function sweepTenant(tenantId: string): Promise<SweepResult> {
     // same pass that notices the item.
     const flagged = await flagBookingsOverGrounded(trx);
 
+    /*
+      Paperwork, which expires on a calendar and so has to be looked for the
+      same way a date-based item does.
+
+      Done beside the items rather than in a job of its own: it is the same
+      question — what has crossed a threshold since anybody was told — and the
+      per-tenant context loop §1.1 requires already exists here.
+    */
+    const documents = await postDocumentExpiries(trx);
+
     const changed = await dueChanges(trx);
     if (changed.length === 0) {
-      return { tenantId, items: 0, notified: 0, posted: 0, flagged };
+      return { tenantId, items: 0, notified: 0, posted: 0, flagged, documents };
     }
 
     const posted = await postToFeed(trx, changed);
@@ -65,7 +77,7 @@ export async function sweepTenant(tenantId: string): Promise<SweepResult> {
       // forever, and when somebody is given the permission the state they
       // arrive at is the one that matters, not its history.
       await stamp(trx, changed);
-      return { tenantId, items: changed.length, notified: 0, posted, flagged };
+      return { tenantId, items: changed.length, notified: 0, posted, flagged, documents };
     }
 
     /*
@@ -89,6 +101,7 @@ export async function sweepTenant(tenantId: string): Promise<SweepResult> {
       notified: mailable.length > 0 ? recipients.length : 0,
       posted,
       flagged,
+      documents,
     };
   });
 }
@@ -230,6 +243,122 @@ async function flagBookingsOverGrounded(trx: Tx): Promise<number> {
 
   return rows.length;
 }
+
+/**
+ * A certificate coming up for renewal, said once.
+ *
+ * **Two thresholds, and never a grounding.** `aircraft_availability` keeps its
+ * three inputs and the booking path never consults this. §11 forbids inferring
+ * airworthiness from an absence of warnings, and the mirror binds just as hard:
+ * the club may have renewed and not uploaded the scan, a registration may have
+ * a renewal pending with the FAA, and a standard airworthiness certificate does
+ * not expire at all. An aeroplane is not unflyable because a PDF is stale.
+ *
+ * **Only to whoever can act on it.** Holders of `documents: write`, and
+ * deliberately not every pilot — a pilot cannot renew an insurance policy, and
+ * telling them is how the bell becomes noise. That is unlike a maintenance item
+ * going due, which does reach booked pilots, because they can decide not to fly.
+ */
+async function postDocumentExpiries(trx: Tx): Promise<number> {
+  const { rows } = await sql<{
+    id: string;
+    aircraft_id: string;
+    registration: string;
+    kind: string;
+    title: string;
+    expires_on: string;
+    days: number;
+    state: 'expiring_soon' | 'expired';
+  }>`
+    SELECT d.id, d.aircraft_id, a.registration, d.kind, d.title, d.expires_on,
+           (d.expires_on - (now() AT TIME ZONE
+              coalesce(a.timezone, tn.timezone, 'UTC'))::date) AS days,
+           CASE WHEN d.expires_on < (now() AT TIME ZONE
+                   coalesce(a.timezone, tn.timezone, 'UTC'))::date
+                THEN 'expired' ELSE 'expiring_soon' END AS state
+      FROM public.aircraft_documents d
+      JOIN public.aircraft a ON a.id = d.aircraft_id
+      JOIN public.tenants tn ON tn.id = d.tenant_id
+     WHERE d.status = 'active'
+       AND d.expires_on IS NOT NULL
+       -- The aeroplane's own day, not the server's: a certificate good through
+       -- 31 March is good all of 31 March where the aeroplane is (0024).
+       AND d.expires_on <= (now() AT TIME ZONE
+             coalesce(a.timezone, tn.timezone, 'UTC'))::date + 60
+       -- Nothing superseded. A renewal on file answers the question.
+       AND NOT EXISTS (SELECT 1 FROM public.aircraft_documents later
+                        WHERE later.supersedes_id = d.id)
+       -- An archived aeroplane keeps its paperwork and needs no reminders.
+       AND a.status <> 'archived'
+     ORDER BY d.expires_on
+  `.execute(trx);
+
+  // Only what has moved. Two thresholds means two notices for one renewal at
+  // most, which is the difference between a reminder and a thing people filter.
+  const moved = await withChangedState(trx, rows);
+  if (moved.length === 0) return 0;
+
+  const managers = await membershipsWith(trx, 'documents', 'write');
+  let posted = 0;
+
+  for (const row of moved) {
+    const detail =
+      row.state === 'expired'
+        ? `Expired ${row.expires_on}. Upload the renewal when you have it. This does not affect bookings.`
+        : `Expires ${row.expires_on}, in ${row.days} days. This does not affect bookings.`;
+
+    for (const membershipId of managers) {
+      await sql`
+        SELECT public.notify_member(
+          ${membershipId}::uuid, 'document_expiring',
+          ${`${row.registration}: ${DOCUMENT_NOUN[row.kind] ?? row.title}`},
+          ${detail}, 'aircraft_document', ${row.id}::uuid)
+      `.execute(trx);
+      posted += 1;
+    }
+  }
+
+  for (const state of ['expiring_soon', 'expired'] as const) {
+    const ids = moved.filter((row) => row.state === state).map((row) => row.id);
+    if (ids.length === 0) continue;
+    await trx
+      .updateTable('aircraft_documents')
+      .set({ notified_state: state })
+      .where('id', 'in', ids)
+      .execute();
+  }
+
+  return posted;
+}
+
+/** The ones whose threshold is not the one already reported. */
+async function withChangedState<T extends { id: string; state: string }>(
+  trx: Tx,
+  rows: T[],
+): Promise<T[]> {
+  if (rows.length === 0) return [];
+  const known = await trx
+    .selectFrom('aircraft_documents')
+    .select(['id', 'notified_state'])
+    .where(
+      'id',
+      'in',
+      rows.map((row) => row.id),
+    )
+    .execute();
+
+  const reported = new Map(known.map((row) => [row.id, row.notified_state]));
+  return rows.filter((row) => reported.get(row.id) !== row.state);
+}
+
+/** What to call it, so a notice reads like a sentence. */
+const DOCUMENT_NOUN: Record<string, string> = {
+  airworthiness: 'airworthiness certificate',
+  registration: 'registration',
+  operating_limitations: 'operating limitations',
+  weight_balance: 'weight and balance',
+  insurance: 'insurance certificate',
+};
 
 /** Memberships holding a permission, as ids rather than addresses. */
 async function membershipsWith(

@@ -1,11 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import type { AttachmentResponse, CreateAttachmentRequest } from '@flightsquare/shared';
 
-import { assertQuota } from '../../db/entitlements.js';
-import { ownMembership } from '../../db/membership.js';
-import { config } from '../../config.js';
-import { InvalidRequestError, NotFoundError } from '../errors.js';
-import { isAllowedType, objectSize, signDownload, signUpload, storageKey } from '../../storage/index.js';
+import {
+  ATTACHMENT_COLUMNS,
+  assertUploadable,
+  recordArrival,
+  signAttachmentUpload,
+  toAttachment,
+} from '../../attachments/upload.js';
+import { NotFoundError } from '../errors.js';
 
 /**
  * Attachments (§3.8) — photographs of a defect, to begin with.
@@ -31,6 +34,19 @@ import { isAllowedType, objectSize, signDownload, signUpload, storageKey } from 
  *
  * Gated on `squawks`, not on a resource of its own: the photograph belongs to
  * the defect, and whoever may report one may illustrate it.
+ *
+ * **These four doors stayed squawk-shaped when records arrived.** An invoice on
+ * a completion needs `maintenance.items` and a certificate needs `documents`
+ * (§1.5), so each got a door of its own rather than this one learning to decide
+ * which permission it needed — a route whose gate depends on its body is a
+ * route the boot-time check cannot verify.
+ *
+ * The consequence is a predicate repeated below: the single-row doors refuse a
+ * row owned by a completion or a document. Without it, `squawks: write` would
+ * complete somebody else's upload and the three-door split would collapse back
+ * into one. Squawk-owned *or ownerless* is what they serve, and the second half
+ * is §8.1 — an ownerless attachment is creatable through this door today, so a
+ * rule an old client would now fail does not get tightened.
  */
 export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
   const createSchema = {
@@ -57,75 +73,37 @@ export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const body = request.body;
-
-      if (!isAllowedType(body.content_type)) {
-        return reply.status(400).send({
-          error: 'invalid_request',
-          detail: 'that is not an image type this accepts',
-        });
-      }
-      if (body.byte_size > config.storage.maxUploadBytes) {
-        // Refused before it is signed rather than after it is sent.
-        return reply.status(400).send({
-          error: 'invalid_request',
-          detail: `that file is larger than ${Math.floor(
-            config.storage.maxUploadBytes / (1024 * 1024),
-          )} MB`,
-        });
-      }
+      assertUploadable(body.content_type, body.byte_size);
 
       const { entitlements } = await request.loadGates();
       const tenantId = request.ctx!.tenantId!;
 
-      const created = await request.withTenant(async (trx) => {
-        // §4.5: inside the write transaction, because that is where the row
-        // lock has to live. The limit is what §1.4 resolved; the counting and
-        // the locking are the database's.
-        //
-        // `amount` is what 0021 added the helper for. Every other quota in the
-        // product is a count of things and consumes one; this one consumes as
-        // many units as the file has bytes, and a tenant one byte under 1 GiB
-        // would otherwise upload a ten megabyte photograph without complaint.
-        await assertQuota(trx, 'storage.bytes', entitlements.quota('storage.bytes'), {
-          amount: body.byte_size,
-        });
-
-        if (body.squawk_id) {
-          // RLS would hide another tenant's squawk anyway; this turns the
-          // resulting foreign-key violation into an answer (§6).
-          const squawk = await trx
-            .selectFrom('squawks')
-            .select('id')
-            .where('id', '=', body.squawk_id)
-            .executeTakeFirst();
-          if (!squawk) throw new NotFoundError();
-        }
-
-        const id = body.id ?? crypto.randomUUID();
-        const key = storageKey(tenantId, id, body.content_type);
-
-        return trx
-          .insertInto('attachments')
-          .values({
-            id,
-            tenant_id: tenantId,
-            squawk_id: body.squawk_id ?? null,
-            storage_key: key,
-            content_type: body.content_type,
-            byte_size: body.byte_size,
-            uploaded_by: await ownMembership(trx, request.ctx!.userId),
-          })
-          .returning(['id', 'storage_key', 'content_type'])
-          .executeTakeFirstOrThrow();
-      });
+      const created = await request.withTenant((trx) =>
+        signAttachmentUpload(trx, {
+          tenantId,
+          userId: request.ctx!.userId,
+          quota: entitlements.quota('storage.bytes'),
+          // Still the only owner this door accepts, and still optional — see
+          // the §8.1 note in the header.
+          owner: body.squawk_id ? { squawk_id: body.squawk_id } : null,
+          kind: body.kind ?? 'photo',
+          ...(body.id ? { id: body.id } : {}),
+          contentType: body.content_type,
+          byteSize: body.byte_size,
+        }),
+      );
 
       return reply.status(201).send({
         id: created.id,
         squawk_id: body.squawk_id ?? null,
-        content_type: created.content_type,
+        compliance_record_id: null,
+        aircraft_document_id: null,
+        kind: body.kind ?? 'photo',
+        status: 'active',
+        content_type: body.content_type,
         byte_size: body.byte_size,
         uploaded: false,
-        upload_url: await signUpload(created.storage_key, created.content_type),
+        upload_url: created.uploadUrl,
       } satisfies AttachmentResponse);
     },
   );
@@ -143,18 +121,16 @@ export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
       const row = await request.withTenant((trx) =>
         trx
           .selectFrom('attachments')
-          .select(['id', 'squawk_id', 'storage_key', 'content_type'])
+          .select(ATTACHMENT_COLUMNS)
           .where('id', '=', request.params.id)
+          // Squawk-owned or ownerless, and nothing else — see the header.
+          .where('compliance_record_id', 'is', null)
+          .where('aircraft_document_id', 'is', null)
           .executeTakeFirst(),
       );
       if (!row) throw new NotFoundError();
 
-      const size = await objectSize(row.storage_key);
-      if (size === null) {
-        // The signed URL was never used, or expired unused. Saying so beats
-        // marking an object that is not there as uploaded.
-        throw new InvalidRequestError('nothing has been uploaded for that attachment yet');
-      }
+      const size = await recordArrival(row.storage_key);
 
       await request.withTenant((trx) =>
         trx
@@ -164,13 +140,7 @@ export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
           .execute(),
       );
 
-      return {
-        id: row.id,
-        squawk_id: row.squawk_id,
-        content_type: row.content_type,
-        byte_size: size,
-        uploaded: true,
-      } satisfies AttachmentResponse;
+      return toAttachment({ ...row, byte_size: size, uploaded_at: new Date() });
     },
   );
 
@@ -188,20 +158,16 @@ export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
       const row = await request.withTenant((trx) =>
         trx
           .selectFrom('attachments')
-          .select(['id', 'squawk_id', 'storage_key', 'content_type', 'byte_size', 'uploaded_at'])
+          .select(ATTACHMENT_COLUMNS)
           .where('id', '=', request.params.id)
+          // Squawk-owned or ownerless, and nothing else — see the header.
+          .where('compliance_record_id', 'is', null)
+          .where('aircraft_document_id', 'is', null)
           .executeTakeFirst(),
       );
       if (!row) throw new NotFoundError();
 
-      return {
-        id: row.id,
-        squawk_id: row.squawk_id,
-        content_type: row.content_type,
-        byte_size: Number(row.byte_size),
-        uploaded: row.uploaded_at !== null,
-        ...(row.uploaded_at ? { url: await signDownload(row.storage_key) } : {}),
-      } satisfies AttachmentResponse;
+      return toAttachment(row);
     },
   );
 
@@ -213,22 +179,17 @@ export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
       const rows = await request.withTenant((trx) =>
         trx
           .selectFrom('attachments')
-          .select(['id', 'squawk_id', 'storage_key', 'content_type', 'byte_size', 'uploaded_at'])
+          .select(ATTACHMENT_COLUMNS)
           .where('squawk_id', '=', request.params.id)
+          // A file filed by mistake is not rendered beside the defect. The row
+          // stays and the bytes stay counted; the list is about what is there.
+          .where('status', '=', 'active')
           .orderBy('created_at')
           .execute(),
       );
 
-      return Promise.all(
-        rows.map(async (row) => ({
-          id: row.id,
-          squawk_id: row.squawk_id,
-          content_type: row.content_type,
-          byte_size: Number(row.byte_size),
-          uploaded: row.uploaded_at !== null,
-          ...(row.uploaded_at ? { url: await signDownload(row.storage_key) } : {}),
-        })),
-      ) satisfies Promise<AttachmentResponse[]>;
+      return Promise.all(rows.map(toAttachment)) satisfies Promise<AttachmentResponse[]>;
     },
   );
 }
+

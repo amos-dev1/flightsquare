@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import type {
   AircraftAvailabilityResponse,
+  AttachFileRequest,
+  AttachmentResponse,
   BookingMaintenanceCheckResponse,
   CompletionResponse,
   CreateCompletionRequest,
@@ -27,6 +29,15 @@ import type {
   WorkOrderResponse,
 } from '@flightsquare/shared';
 
+import {
+  ATTACHMENT_COLUMNS,
+  assertUploadable,
+  recordArrival,
+  signAttachmentUpload,
+  toAttachment,
+  type AttachmentRow,
+} from '../../attachments/upload.js';
+import { withIdempotency } from '../../db/idempotency.js';
 import { ownMembership } from '../../db/membership.js';
 import { previewRules } from '../../maintenance/intervals.js';
 import { ConflictError, InvalidRequestError, NotFoundError } from '../errors.js';
@@ -108,6 +119,14 @@ const completionSchema = {
     required: ['done_on'],
     additionalProperties: false,
     properties: {
+      /*
+        §8.2: the device names it.
+
+        A completion logged in a hangar has an invoice to go with it, and the
+        attachment has to be able to name the completion before the server has
+        heard of either. The same reason `CreateSquawkRequest` carries one.
+      */
+      id: { type: 'string', format: 'uuid' },
       // §4.7: dates are frequently in the past, because work is logged days
       // after it was done. Nothing here refuses one.
       done_on: { type: 'string', format: 'date' },
@@ -117,6 +136,21 @@ const completionSchema = {
       cert_no: { type: 'string', maxLength: 100 },
       notes: { type: 'string', maxLength: 2000 },
       next_from: { type: 'string', enum: ['completion', 'previous_due'] },
+    },
+  },
+} as const;
+
+/** A file being attached. No owner field: the owner is the path (§1.5). */
+const attachSchema = {
+  body: {
+    type: 'object',
+    required: ['content_type', 'byte_size'],
+    additionalProperties: false,
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      kind: { type: 'string', enum: ['photo', 'invoice', 'logbook_entry', 'document'] },
+      content_type: { type: 'string', maxLength: 100 },
+      byte_size: { type: 'integer', minimum: 1 },
     },
   },
 } as const;
@@ -705,8 +739,35 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
           .orderBy('c.recorded_at', 'desc')
           .execute();
 
-        return rows.map(
-          (r): ComplianceRecordResponse => ({
+        /*
+          The paperwork, inline (mockup 04's paperclip).
+
+          A request per history row to find out whether it has an invoice is how
+          a list gets slow on a tiedown, and signing a URL is local arithmetic.
+          Additive, so a shipped build that does not know about the field reads
+          the row exactly as it did (§8.1).
+        */
+        const files = rows.length === 0 ? [] : await trx
+          .selectFrom('attachments')
+          .select(ATTACHMENT_COLUMNS)
+          .where(
+            'compliance_record_id',
+            'in',
+            rows.map((r) => r.id),
+          )
+          .where('status', '=', 'active')
+          .orderBy('created_at')
+          .execute();
+
+        const byRecord = new Map<string, AttachmentRow[]>();
+        for (const file of files) {
+          const key = file.compliance_record_id!;
+          byRecord.set(key, [...(byRecord.get(key) ?? []), file]);
+        }
+
+        return Promise.all(rows.map(
+          async (r): Promise<ComplianceRecordResponse> => ({
+            attachments: await Promise.all((byRecord.get(r.id) ?? []).map(toAttachment)),
             id: r.id,
             aircraft_id: r.aircraft_id,
             maintenance_item_id: r.maintenance_item_id,
@@ -730,7 +791,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
             voided: r.void_reason !== null,
             void_reason: r.void_reason,
           }),
-        );
+        ));
       });
     },
   );
@@ -783,7 +844,41 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const body = request.body;
 
-      const result = await request.withTenant(async (trx) => {
+      /*
+        An idempotency key, which this route should have had from the start.
+
+        Phase 1 left it off because the sheet was submitted online, once. Phase 2
+        queues it — a completion is logged beside an open cowling, and a retry is
+        now routine rather than rare — and a retried mark-complete that rolls an
+        annual forward twice is a wrong due date for the next year, in a table
+        §3.6 will not let anybody correct by editing.
+
+        Required, like `POST /squawks`. An optional key is a key nobody sends on
+        the retry that needs it.
+
+        That is a tightening, and §8.1 forbids tightening a rule an old client
+        would now fail — so it is worth saying why it is allowed here. §8.1
+        protects binaries in the wild that cannot be updated, and there are
+        none: hosting is deferred (§9) and nothing has shipped. This is the last
+        moment it is free, and the thing it prevents is a double-rolled annual in
+        a table §3.6 will not let anybody correct by editing.
+      */
+      const key = request.headers['idempotency-key'];
+      if (typeof key !== 'string' || key.length < 8) {
+        return reply.status(400).send({
+          error: 'invalid_request',
+          detail: 'an Idempotency-Key header of at least 8 characters is required',
+        });
+      }
+
+      const ctx = { tenantId: request.ctx!.tenantId!, userId: request.ctx!.userId };
+
+      const outcome = await withIdempotency<CompletionResponse>(
+        ctx,
+        key,
+        'POST /maintenance-items/:id/completions',
+        { ...body, item: request.params.id },
+        async (trx) => {
         const item = await trx
           .selectFrom('maintenance_items')
           .select(['id', 'aircraft_id', 'name', 'hours_meter', 'next_from'])
@@ -807,7 +902,8 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
         const created = await trx
           .insertInto('compliance_records')
           .values({
-            tenant_id: request.ctx!.tenantId!,
+            ...(body.id ? { id: body.id } : {}),
+            tenant_id: ctx.tenantId,
             aircraft_id: item.aircraft_id,
             maintenance_item_id: item.id,
             kind: 'inspection',
@@ -819,7 +915,7 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
             signed_by: body.performed_by ?? null,
             signed_certificate: body.cert_no ?? null,
             note: body.notes ?? null,
-            recorded_by: await ownMembership(trx, request.ctx!.userId),
+            recorded_by: await ownMembership(trx, ctx.userId),
           })
           .returning(['id', 'recorded_at'])
           .executeTakeFirstOrThrow();
@@ -828,14 +924,167 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
           .where('i.id', '=', item.id)
           .executeTakeFirstOrThrow();
 
-        return { created, item: await toItem(trx, saved) };
-      });
+          return {
+            status: 201,
+            body: {
+              id: created.id,
+              recorded_at: created.recorded_at.toISOString(),
+              maintenance_item: await toItem(trx, saved),
+            } satisfies CompletionResponse,
+          };
+        },
+      );
+
+      return reply.status(outcome.status).send(outcome.body);
+    },
+  );
+
+  /**
+   * The paperwork for a completion (SPEC Phase 2, mockup 05's two tiles).
+   *
+   * `maintenance.items: write`, not a resource of its own: the invoice *is* the
+   * record, and whoever may log the work may file what proves it. SPEC §3 asks
+   * for `maintenance.records`; a resource nothing else would ever reference is a
+   * column in the permission model rather than a resource.
+   *
+   * A door of its own rather than teaching `POST /attachments` to decide which
+   * permission it needs — a route whose gate depends on its body is a route the
+   * boot-time check cannot verify (§1.5).
+   */
+  app.post<{ Params: { id: string }; Body: AttachFileRequest }>(
+    '/maintenance-completions/:id/attachments',
+    {
+      schema: attachSchema,
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'write'],
+      },
+    },
+    async (request, reply) => {
+      const body = request.body;
+      assertUploadable(body.content_type, body.byte_size);
+
+      const { entitlements } = await request.loadGates();
+
+      const created = await request.withTenant((trx) =>
+        signAttachmentUpload(trx, {
+          tenantId: request.ctx!.tenantId!,
+          userId: request.ctx!.userId,
+          quota: entitlements.quota('storage.bytes'),
+          owner: { compliance_record_id: request.params.id },
+          kind: body.kind ?? 'invoice',
+          ...(body.id ? { id: body.id } : {}),
+          contentType: body.content_type,
+          byteSize: body.byte_size,
+        }),
+      );
 
       return reply.status(201).send({
-        id: result.created.id,
-        recorded_at: result.created.recorded_at.toISOString(),
-        maintenance_item: result.item,
-      } satisfies CompletionResponse);
+        id: created.id,
+        squawk_id: null,
+        compliance_record_id: request.params.id,
+        aircraft_document_id: null,
+        kind: body.kind ?? 'invoice',
+        status: 'active',
+        content_type: body.content_type,
+        byte_size: body.byte_size,
+        uploaded: false,
+        upload_url: created.uploadUrl,
+      } satisfies AttachmentResponse);
+    },
+  );
+
+  /** The upload landed. The pair is matched in the WHERE, so a mismatch is 404. */
+  app.post<{ Params: { id: string; attachmentId: string } }>(
+    '/maintenance-completions/:id/attachments/:attachmentId/complete',
+    {
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'write'],
+      },
+    },
+    async (request) => {
+      const row = await request.withTenant((trx) =>
+        trx
+          .selectFrom('attachments')
+          .select(ATTACHMENT_COLUMNS)
+          .where('id', '=', request.params.attachmentId)
+          .where('compliance_record_id', '=', request.params.id)
+          .executeTakeFirst(),
+      );
+      if (!row) throw new NotFoundError();
+
+      const size = await recordArrival(row.storage_key);
+
+      await request.withTenant((trx) =>
+        trx
+          .updateTable('attachments')
+          .set({ byte_size: size, uploaded_at: new Date() })
+          .where('id', '=', request.params.attachmentId)
+          .execute(),
+      );
+
+      return toAttachment({ ...row, byte_size: size, uploaded_at: new Date() });
+    },
+  );
+
+  /**
+   * A wrong invoice, taken off a signed record.
+   *
+   * Not a delete and not an unlink: the row stays, keeps saying what it was
+   * filed against, and records who removed it and why. §3.6 will not let the
+   * compliance record be edited, and erasing the link would erase the fact that
+   * an invoice was once filed against one.
+   *
+   * The bytes stay counted against `storage.bytes`, because they are still in
+   * the bucket. "Freed 2.4 MB" would be an unsupported claim (§11).
+   */
+  app.post<{ Params: { id: string; attachmentId: string }; Body: { reason: string } }>(
+    '/maintenance-completions/:id/attachments/:attachmentId/remove',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['reason'],
+          additionalProperties: false,
+          properties: { reason: { type: 'string', minLength: 5, maxLength: 500 } },
+        },
+      },
+      config: {
+        requiresTenant: true,
+        feature: 'maintenance_module',
+        permission: ['maintenance.items', 'write'],
+      },
+    },
+    async (request) => {
+      return request.withTenant<AttachmentResponse>(async (trx) => {
+        const row = await trx
+          .selectFrom('attachments')
+          .select(ATTACHMENT_COLUMNS)
+          .where('id', '=', request.params.attachmentId)
+          .where('compliance_record_id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!row) throw new NotFoundError();
+
+        await trx
+          .updateTable('attachments')
+          .set({
+            status: 'removed',
+            removed_at: new Date(),
+            removed_by: await ownMembership(trx, request.ctx!.userId),
+            removed_reason: request.body.reason,
+          })
+          .where('id', '=', request.params.attachmentId)
+          .execute();
+
+        return toAttachment({
+          ...row,
+          status: 'removed',
+          removed_reason: request.body.reason,
+        });
+      });
     },
   );
 

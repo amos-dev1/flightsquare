@@ -98,8 +98,21 @@ export const config = {
      * API hands one out per request rather than storing a public URL.
      */
     urlTtlSeconds: int('FS_STORAGE_URL_TTL', 300),
-    /** §8.2: a phone photograph, not a video. Refused before it is signed. */
-    maxUploadBytes: int('FS_STORAGE_MAX_UPLOAD', 15 * 1024 * 1024),
+    /**
+     * A phone photograph or a scanned certificate, not a video (§8.2). Refused
+     * before it is signed.
+     *
+     * One limit for every type rather than one per type. A per-type ceiling has
+     * to be explained in the error — "images to 15 MB, PDFs to 25 MB" — and the
+     * explanation buys nothing, because the limit people actually meet is
+     * `storage.bytes`, which they can see in `/entitlements` and act on.
+     *
+     * 25 MiB covers a multi-page scan, and the free-tier arithmetic is worth
+     * saying out loud: 1 GiB is about forty full-size documents, which is ample
+     * for one aeroplane. §8.3 forbids crippling the free tier to drive
+     * upgrades, and that is the number that honours it.
+     */
+    maxUploadBytes: int('FS_STORAGE_MAX_UPLOAD', 25 * 1024 * 1024),
   },
   web: {
     /**

@@ -888,6 +888,16 @@ export type UpdateMaintenanceItemRequest = Partial<CreateMaintenanceItemRequest>
  * logged days later and the dates are frequently in the past.
  */
 export interface CreateCompletionRequest {
+  /**
+   * §8.2: the device names it.
+   *
+   * A completion logged in a hangar has an invoice to go with it, and the
+   * attachment has to be able to name the completion before the server has
+   * heard of either — which is the same reason `CreateSquawkRequest` carries
+   * one. The offline queue then orders the upload behind the completion and the
+   * ordering does the work.
+   */
+  id?: string;
   done_on: string;
   tach?: string;
   hobbs?: string;
@@ -1116,6 +1126,11 @@ export interface ComplianceRecordResponse {
    */
   voided?: boolean;
   void_reason?: string | null;
+  /**
+   * The paperwork filed against it (SPEC Phase 2), inline so mockup 04's
+   * paperclip needs no second request. Additive: a shipped build ignores it.
+   */
+  attachments?: AttachmentResponse[];
 }
 
 /**
@@ -1215,23 +1230,43 @@ export interface CreateSquawkRequest {
  * completes the row is a declaration of intent, and `storage.bytes` counts
  * only what actually arrived.
  */
+/** What a stored file is. A label for the UI, never a hint about its source. */
+export type AttachmentKind = 'photo' | 'invoice' | 'logbook_entry' | 'document';
+
 export interface AttachmentResponse {
   id: string;
   squawk_id: string | null;
+  /**
+   * The other two owners, added with records (SPEC Phase 2). At most one of
+   * the three is ever set, and all three fields are additive — a shipped build
+   * reads `squawk_id` and ignores these (§8.1).
+   */
+  compliance_record_id?: string | null;
+  aircraft_document_id?: string | null;
+  kind?: AttachmentKind;
+  /**
+   * `removed` means filed by mistake. The row stays and keeps saying what it
+   * was filed against, because §3.6 corrects by adding — and the bytes stay
+   * counted against `storage.bytes`, because they are still in the bucket.
+   */
+  status?: 'active' | 'removed';
+  removed_reason?: string;
   content_type: string;
   byte_size: number;
   uploaded: boolean;
   /** Present on create: PUT the file here, once, soon. */
   upload_url?: string;
-  /** Present on read, once uploaded: GET the file here, soon. */
+  /** Present on read, once uploaded and not removed: GET the file here, soon. */
   url?: string;
 }
 
 export interface CreateAttachmentRequest {
   /** §8.2 again: the device names it, so the queue can refer to it. */
   id?: string;
-  /** Optional because §3.2's aircraft documents land on the same table. */
+  /** Optional, and the only owner this door accepts. The newer owners have
+   *  doors of their own, because each needs a different permission (§1.5). */
   squawk_id?: string;
+  kind?: AttachmentKind;
   content_type: string;
   /**
    * What the device is about to send. The quota is asserted against this
@@ -1240,6 +1275,94 @@ export interface CreateAttachmentRequest {
    * from what storage actually received on completion.
    */
   byte_size: number;
+}
+
+/**
+ * A file being attached to something that is not a squawk.
+ *
+ * Same three steps as `CreateAttachmentRequest` and no owner field: the owner
+ * is the path, because the permission depends on it and a gate that reads the
+ * body is a gate the boot-time check cannot see (§1.5).
+ */
+export interface AttachFileRequest {
+  id?: string;
+  kind?: AttachmentKind;
+  content_type: string;
+  byte_size: number;
+}
+
+/** §3.2's paperwork. The AROW set, plus the one a club actually chases. */
+export type AircraftDocumentKind =
+  | 'airworthiness'
+  | 'registration'
+  | 'operating_limitations'
+  | 'weight_balance'
+  | 'insurance'
+  | 'other';
+
+/**
+ * One document on one aeroplane (§3.2).
+ *
+ * The document and its file are separate things: this row carries the kind and
+ * the dates, and the file is an attachment naming it — which is how a two-page
+ * certificate is one document, and how a club can record that the insurance
+ * expires on 31 March before anybody has scanned it.
+ */
+export interface AircraftDocumentResponse {
+  id: string;
+  aircraft_id: string;
+  kind: AircraftDocumentKind;
+  title: string;
+  reference: string | null;
+  issued_on: string | null;
+  /**
+   * Null for the ones that do not expire — a standard airworthiness
+   * certificate is good for as long as the aeroplane is maintained, and a
+   * weight and balance sheet until it is modified.
+   *
+   * **An expired document never grounds an aeroplane.** §11 forbids inferring
+   * airworthiness from an absence of warnings, and the mirror binds just as
+   * hard: the club may have renewed and not uploaded it. It is a notice.
+   */
+  expires_on: string | null;
+  notes: string | null;
+  /** What this one replaced, if it is a renewal. */
+  supersedes_id: string | null;
+  /** Whether anything has replaced it. Derived, so it cannot disagree. */
+  superseded: boolean;
+  status: 'active' | 'removed';
+  removed_reason: string | null;
+  attachments: AttachmentResponse[];
+  created_at: string;
+}
+
+export interface CreateAircraftDocumentRequest {
+  kind: AircraftDocumentKind;
+  title: string;
+  reference?: string;
+  issued_on?: string;
+  expires_on?: string;
+  notes?: string;
+  /** Set when this is a renewal of one already on file. */
+  supersedes_id?: string;
+}
+
+/**
+ * Correcting a document, or taking one off the list.
+ *
+ * `aircraft_id` and `supersedes_id` are absent on purpose: a document that
+ * could be moved to another aeroplane has provenance that is a suggestion, and
+ * a supersession that could be rewritten is not a trail.
+ */
+export interface UpdateAircraftDocumentRequest {
+  title?: string;
+  reference?: string;
+  issued_on?: string;
+  expires_on?: string;
+  notes?: string;
+  status?: 'removed';
+  /** Required when removing. §4.7 asks one for a void, and this is that act. */
+  removed_reason?: string;
 }
 
 /**

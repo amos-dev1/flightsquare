@@ -266,9 +266,21 @@ export async function cleanupTestTenants(): Promise<void> {
     await adminPool.query(`DELETE FROM compliance_records WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
-    // attachments point at squawks, and app_role holds no DELETE on them by
-    // design (0020: a row naming an object somebody has to go and clean up).
+    // attachments point at squawks, completions and documents, and app_role
+    // holds no DELETE on them by design (0020: a row naming an object somebody
+    // has to go and clean up). They go before all three.
     await adminPool.query(`DELETE FROM attachments WHERE tenant_id IN (${tenants})`, [
+      `${TEST_PREFIX}%`,
+    ]);
+    /*
+      Documents point at aircraft and at each other (a renewal names what it
+      replaced), so the self-reference is cleared before the rows are.
+    */
+    await adminPool.query(
+      `UPDATE aircraft_documents SET supersedes_id = NULL WHERE tenant_id IN (${tenants})`,
+      [`${TEST_PREFIX}%`],
+    );
+    await adminPool.query(`DELETE FROM aircraft_documents WHERE tenant_id IN (${tenants})`, [
       `${TEST_PREFIX}%`,
     ]);
     await adminPool.query(`DELETE FROM squawk_deferrals WHERE tenant_id IN (${tenants})`, [

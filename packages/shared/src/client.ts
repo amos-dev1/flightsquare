@@ -1,11 +1,14 @@
 import type {
   AerodromeResponse,
   AircraftAvailabilityResponse,
+  AircraftDocumentResponse,
   AircraftResponse,
   AircraftTypeResponse,
+  AttachFileRequest,
   AttachmentResponse,
   BlackoutResponse,
   BookingMaintenanceCheckResponse,
+  CreateAircraftDocumentRequest,
   CreateAircraftRequest,
   CreateAttachmentRequest,
   ComplianceRecordResponse,
@@ -39,6 +42,7 @@ import type {
   SquawkResponse,
   StatementResponse,
   TenantResponse,
+  UpdateAircraftDocumentRequest,
   UpdateMaintenanceItemRequest,
 } from './index.js';
 
@@ -239,9 +243,82 @@ export function createClient(options: ClientOptions) {
     markAllNotificationsRead: () =>
       request<{ read: number }>('POST', '/notifications/read-all'),
 
-    /** Mockup 05's sheet: a date, the meters, who did it. Returns the item. */
-    logCompletion: (itemId: string, input: CreateCompletionRequest) =>
-      request<CompletionResponse>('POST', `/maintenance-items/${itemId}/completions`, input),
+    /**
+     * Mockup 05's sheet: a date, the meters, who did it. Returns the item.
+     *
+     * The idempotency key is required, not optional. A completion is logged
+     * beside an open cowling and the queue retries — and a retried
+     * mark-complete that rolls an annual forward twice is a wrong due date for
+     * the next year, in a table §3.6 will not let anybody correct by editing.
+     */
+    logCompletion: (
+      itemId: string,
+      input: CreateCompletionRequest,
+      idempotencyKey: string,
+    ) =>
+      request<CompletionResponse>(
+        'POST',
+        `/maintenance-items/${itemId}/completions`,
+        input,
+        { idempotencyKey },
+      ),
+
+    /**
+     * The paperwork for a completion (mockup 05's two tiles).
+     *
+     * Three steps, as every upload here is: this signs a PUT, the device sends
+     * the bytes straight to storage, and `completeCompletionAttachment` reads
+     * back what actually arrived.
+     */
+    createCompletionAttachment: (recordId: string, input: AttachFileRequest) =>
+      request<AttachmentResponse>(
+        'POST',
+        `/maintenance-completions/${recordId}/attachments`,
+        input,
+      ),
+    completeCompletionAttachment: (recordId: string, attachmentId: string) =>
+      request<AttachmentResponse>(
+        'POST',
+        `/maintenance-completions/${recordId}/attachments/${attachmentId}/complete`,
+      ),
+    /** A wrong invoice. Removed with a reason, never deleted — the bytes stay. */
+    removeCompletionAttachment: (recordId: string, attachmentId: string, reason: string) =>
+      request<AttachmentResponse>(
+        'POST',
+        `/maintenance-completions/${recordId}/attachments/${attachmentId}/remove`,
+        { reason },
+      ),
+
+    // ---- aircraft documents (§3.2) --------------------------------------
+    /**
+     * The AROW paperwork, on the `documents` resource rather than a new one.
+     *
+     * A pilot holds `documents: read` and sees the list; filing is the admin's.
+     * Not feature-gated: §8.3 forbids crippling the free tier, so
+     * `storage.bytes` is the only limit.
+     */
+    listAircraftDocuments: (aircraftId: string) =>
+      request<AircraftDocumentResponse[]>('GET', `/aircraft/${aircraftId}/documents`),
+    /** The document first, then its file — the owner exists before the upload. */
+    createAircraftDocument: (aircraftId: string, input: CreateAircraftDocumentRequest) =>
+      request<AircraftDocumentResponse>(
+        'POST',
+        `/aircraft/${aircraftId}/documents`,
+        input,
+      ),
+    updateAircraftDocument: (documentId: string, input: UpdateAircraftDocumentRequest) =>
+      request<AircraftDocumentResponse>('PATCH', `/aircraft-documents/${documentId}`, input),
+    createDocumentAttachment: (documentId: string, input: AttachFileRequest) =>
+      request<AttachmentResponse>(
+        'POST',
+        `/aircraft-documents/${documentId}/attachments`,
+        input,
+      ),
+    completeDocumentAttachment: (documentId: string, attachmentId: string) =>
+      request<AttachmentResponse>(
+        'POST',
+        `/aircraft-documents/${documentId}/attachments/${attachmentId}/complete`,
+      ),
 
     /** §4.7: taking it back. Not a delete — the record stays, voided. */
     voidCompletion: (recordId: string, input: VoidCompletionRequest) =>

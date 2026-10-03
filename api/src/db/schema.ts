@@ -994,13 +994,60 @@ export interface FlightFuelTable {
 export interface AttachmentsTable {
   id: Generated<string>;
   tenant_id: string;
+  /** At most one of the three is set (0038). Never two: see the migration. */
   squawk_id: string | null;
+  compliance_record_id: string | null;
+  aircraft_document_id: string | null;
+  /** What the file is, for mockup 05's tiles. A label, never a source. */
+  kind: Generated<'photo' | 'invoice' | 'logbook_entry' | 'document'>;
   storage_key: string;
   content_type: string;
   /** Declared before upload, replaced by what storage received. */
   byte_size: ColumnType<string, number | string, number | string>;
   uploaded_by: string | null;
   uploaded_at: Timestamp | null;
+  /** Filed by mistake. Not a delete: the bytes are still in the bucket. */
+  status: Generated<'active' | 'removed'>;
+  removed_at: Timestamp | null;
+  removed_by: string | null;
+  removed_reason: string | null;
+  created_at: Generated<Timestamp>;
+}
+
+/**
+ * §3.2's paperwork: the document, not the file.
+ *
+ * The file is an `attachments` row naming this one, and the direction is
+ * deliberate — one document can have several files (a two-page certificate),
+ * and a document can exist before anything has been scanned.
+ */
+export interface AircraftDocumentsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  aircraft_id: string;
+  kind:
+    | 'airworthiness'
+    | 'registration'
+    | 'operating_limitations'
+    | 'weight_balance'
+    | 'insurance'
+    | 'other';
+  title: string;
+  reference: string | null;
+  issued_on: string | null;
+  /** Null for the ones that do not expire. Not enforced per kind — see 0038. */
+  expires_on: string | null;
+  notes: string | null;
+  /** A renewal names what it replaces; "current" is derived from the absence
+   *  of anything naming this row. */
+  supersedes_id: string | null;
+  status: Generated<'active' | 'removed'>;
+  removed_at: Timestamp | null;
+  removed_by: string | null;
+  removed_reason: string | null;
+  /** What the sweep has already said about this expiry. */
+  notified_state: 'expiring_soon' | 'expired' | null;
+  uploaded_by: string;
   created_at: Generated<Timestamp>;
 }
 
@@ -1043,6 +1090,7 @@ export interface Database {
   flights: FlightsTable;
   flight_meters: FlightMetersTable;
   attachments: AttachmentsTable;
+  aircraft_documents: AircraftDocumentsTable;
   flight_fuel: FlightFuelTable;
   idempotency_keys: IdempotencyKeysTable;
   aircraft: AircraftTable;

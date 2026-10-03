@@ -50,12 +50,28 @@ export function storageKey(tenantId: string, attachmentId: string, contentType: 
   return `attachments/${tenantId}/${attachmentId}.${extension}`;
 }
 
-/** The types a squawk photograph can be. Anything else is refused. */
+/**
+ * The types a stored file can be. Anything else is refused.
+ *
+ * One map, so the allowed set and the extension cannot disagree.
+ *
+ * PDF arrived with records (SPEC Phase 2): a shop emails an invoice as a PDF
+ * and a broker emails an insurance certificate as one, and telling somebody to
+ * photograph their screen would be the app's problem becoming theirs. Nothing
+ * else follows from it here — `signUpload` pins the declared content type into
+ * the signature, so a client cannot claim an image and send something else.
+ *
+ * What is *not* checked is magic bytes: `application/pdf` can carry 25 MiB of
+ * anything. That is against the tenant's own quota and their own eyes, and
+ * reading the bytes to find out would mean the API handling them, which the
+ * header above exists to prevent.
+ */
 const EXTENSIONS: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/heic': 'heic',
   'image/webp': 'webp',
+  'application/pdf': 'pdf',
 };
 
 export function isAllowedType(contentType: string): boolean {

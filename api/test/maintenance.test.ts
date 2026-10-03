@@ -436,6 +436,7 @@ describe('maintenance', () => {
     const first = await app.inject({
       method: 'POST',
       url: `/maintenance-items/${itemId}/completions`,
+      headers: { 'idempotency-key': 'completion-first-0001' },
       payload: { done_on: '2026-08-02', tach: '1225.0', performed_by: 'R. Castellano' },
     });
     expect(first.statusCode).toBe(201);
@@ -444,6 +445,7 @@ describe('maintenance', () => {
     const second = await app.inject({
       method: 'POST',
       url: `/maintenance-items/${itemId}/completions`,
+      headers: { 'idempotency-key': 'completion-second-0001' },
       payload: { done_on: '2026-09-30', tach: '1270.4', performed_by: 'R. Castellano' },
     });
     expect(second.statusCode).toBe(201);

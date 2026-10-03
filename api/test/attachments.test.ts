@@ -106,11 +106,26 @@ describe('attachments', () => {
     expect(body.upload_url).toContain('X-Amz-Signature');
   });
 
-  it('refuses a type that is not an image, and one larger than a photograph', async () => {
+  it('takes a PDF now, refuses what it still does not, and refuses the oversized', async () => {
     asTenant();
 
+    /*
+      Inverted deliberately, and this line is the record of why.
+
+      It asserted 400 for a PDF until records arrived (SPEC Phase 2): a shop
+      emails an invoice as a PDF and a broker emails an insurance certificate
+      as one, and telling somebody to photograph their screen would be the
+      app's problem becoming theirs.
+    */
     const pdf = await create({ content_type: 'application/pdf', byte_size: 1024 });
-    expect(pdf.statusCode).toBe(400);
+    expect(pdf.statusCode).toBe(201);
+
+    // The list is still a list. Anything not on it is refused.
+    const doc = await create({
+      content_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      byte_size: 1024,
+    });
+    expect(doc.statusCode).toBe(400);
 
     const huge = await create({ content_type: 'image/jpeg', byte_size: 64 * 1024 * 1024 });
     expect(huge.statusCode).toBe(400);
