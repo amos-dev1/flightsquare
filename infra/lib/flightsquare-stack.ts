@@ -14,7 +14,8 @@ import * as apprunner from '@aws-cdk/aws-apprunner-alpha';
  * FlightSquare dev environment.
  *
  * COST SHAPE (us-east-1, approximate — verify against current pricing):
- *   RDS db.t4g.micro single-AZ, 20GB gp3   ~$15/mo
+ *   RDS db.t4g.small single-AZ, 20GB gp3   ~$23/mo  (micro is not
+ *     offered for RDS PostgreSQL in us-east-1 — see the instance type below)
  *   App Runner 0.25 vCPU / 0.5GB            ~$5-25/mo depending on active time
  *   S3 + ECR + Secrets Manager              ~$2/mo
  *   NAT Gateway                              $0  <- deliberately absent
@@ -98,9 +99,19 @@ export class FlightSquareStack extends cdk.Stack {
       engine: rds.DatabaseInstanceEngine.postgres({
         version: rds.PostgresEngineVersion.VER_16_4,
       }),
+      // db.t4g.small in both environments, and the ternary is gone because
+      // there is nothing to choose between: **db.t4g.micro is not offered for
+      // RDS PostgreSQL in us-east-1 at all** — no engine version, no storage
+      // type, no AZ. The first deploy failed on it with "no Availability Zones
+      // with sufficient capacity", which reads like a transient shortage and
+      // is not one.
+      //
+      // Dev therefore matches prod exactly, which is worth the ~$10/mo on its
+      // own: a dev database on the same family and size actually exercises
+      // what prod will do.
       instanceType: ec2.InstanceType.of(
         ec2.InstanceClass.BURSTABLE4_GRAVITON,
-        isProd ? ec2.InstanceSize.SMALL : ec2.InstanceSize.MICRO,
+        ec2.InstanceSize.SMALL,
       ),
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },

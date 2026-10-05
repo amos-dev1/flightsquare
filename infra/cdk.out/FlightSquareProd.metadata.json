@@ -14,7 +14,7 @@
       },
       "trace": [
         "    ...new Vpc2 in aws-cdk-lib...",
-        "    at new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "    at new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "    at <anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "    ...node internals, ts-node..."
       ]
@@ -30,7 +30,7 @@
         "FlightSquareStack.get availabilityZones [as availabilityZones] (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/stack.js:1:16125)",
         "new Vpc2 (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:19524)",
         "new Vpc2 (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:861)",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "Object.<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "Module._compile (node:internal/modules/cjs/loader:1956:14)",
         "Module.m._compile (/Users/eimissavickas/Projects/flightsquare/node_modules/ts-node/src/index.ts:1618:23)",
@@ -89,7 +89,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:278:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:289:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -103,7 +103,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:282:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:293:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -117,7 +117,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:283:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:294:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -131,7 +131,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:284:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:295:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -145,7 +145,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:285:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:296:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -159,7 +159,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:286:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:297:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -173,7 +173,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:287:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:298:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -187,7 +187,7 @@
     {
       "type": "aws:cdk:creationStack",
       "data": [
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:290:5)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:301:5)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -228,7 +228,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -243,7 +243,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -258,7 +258,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -273,7 +273,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -288,7 +288,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -303,8 +303,8 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Secret2 in aws-cdk-lib...",
-        "mkRoleSecret (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:74:7)",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:85:27)",
+        "mkRoleSecret (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:75:7)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:86:27)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -319,8 +319,8 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Secret2 in aws-cdk-lib...",
-        "mkRoleSecret (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:74:7)",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:86:29)",
+        "mkRoleSecret (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:75:7)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:87:29)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -335,7 +335,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new SecurityGroup2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:91:29)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:92:29)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -350,7 +350,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...PropertyInjectable.<anonymous> in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:209:21)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:220:21)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -365,7 +365,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...PropertyInjectable.<anonymous> in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:221:21)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:232:21)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -380,7 +380,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new DatabaseInstance2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:98:22)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -395,7 +395,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Bucket2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:136:25)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:147:25)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -410,7 +410,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Repository2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:160:24)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:171:24)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -425,7 +425,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Cluster2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:174:21)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:185:21)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -440,7 +440,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new FargateTaskDefinition2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:179:25)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:190:25)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -455,7 +455,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new SecurityGroup2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:205:23)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:216:23)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -470,7 +470,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new SecurityGroup2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:217:19)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:228:19)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -485,7 +485,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new VpcConnector in @aws-cdk/aws-apprunner-alpha...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:223:26)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:234:26)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -500,7 +500,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Role2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:229:26)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:240:26)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -515,7 +515,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Service in @aws-cdk/aws-apprunner-alpha...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:240:21)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:251:21)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -588,7 +588,7 @@
         ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:225 in aws-cdk-lib...",
         "Array.forEach (:)",
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -647,7 +647,7 @@
         ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:225 in aws-cdk-lib...",
         "Array.forEach (:)",
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -746,7 +746,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Vpc2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:50:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -761,7 +761,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...PropertyInjectable.addGatewayEndpoint in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:60:9)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:61:9)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -776,7 +776,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new DatabaseInstance2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:98:22)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -791,7 +791,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new DatabaseInstance2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:98:22)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
       ]
     }
@@ -805,7 +805,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new Bucket2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:136:25)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:147:25)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
       ]
     }
@@ -819,7 +819,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new FargateTaskDefinition2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:179:25)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:190:25)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -847,7 +847,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...PropertyInjectable.grantRead in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:237:19)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:248:19)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
       ]
     }
@@ -861,7 +861,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...aws-cdk-lib, new Service in @aws-cdk/aws-apprunner-alpha...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:240:21)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:251:21)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node, ts-node..."
       ]
@@ -876,7 +876,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...new DatabaseInstance2 in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:98:22)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals, ts-node..."
       ]
@@ -891,7 +891,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...PropertyInjectable.<anonymous> in aws-cdk-lib...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:185:17)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:196:17)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
       ]
     }
@@ -918,7 +918,7 @@
       "type": "aws:cdk:creationStack",
       "data": [
         "...aws-cdk-lib, new Service in @aws-cdk/aws-apprunner-alpha...",
-        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:240:21)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:251:21)",
         "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
         "...node internals..."
       ]
