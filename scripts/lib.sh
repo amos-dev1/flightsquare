@@ -36,6 +36,39 @@ password_for() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# Two things that are not in every image
+#
+# These scripts run on a developer's macOS laptop and inside an alpine
+# container, and the two disagree about which coreutils they ship. Neither
+# difference is interesting enough to deserve a package in the image, and both
+# cost a deploy to discover: a missing command exits 127 from inside a Fargate
+# task, which is a CloudWatch round trip away from telling you why.
+# ---------------------------------------------------------------------------
+
+# sha256 of a file, as bare hex.
+#
+# `sha256sum` on Linux and alpine, `shasum -a 256` on macOS, which has the
+# second and not the first. Same algorithm and same output either way, which
+# matters: `schema_migrations.checksum` holds values computed by whichever one
+# ran first, and §6 treats a changed checksum as an error rather than a no-op.
+fs_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+# A password nobody keeps.
+#
+# node rather than `openssl rand`: the alpine node image links OpenSSL into
+# node and ships no CLI binary for it, and node is already a hard requirement
+# of every script here.
+fs_random_secret() {
+  node -e 'process.stdout.write(require("node:crypto").randomBytes(24).toString("base64url"))'
+}
+
 # Direct mode: a managed database reached over the network, not a container
 # on this machine.
 #

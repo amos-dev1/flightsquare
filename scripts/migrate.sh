@@ -31,7 +31,7 @@ applied_any=0
 
 for file in "$ROOT"/db/migrations/*.sql; do
   version="$(basename "$file" .sql)"
-  checksum="$(shasum -a 256 "$file" | cut -d' ' -f1)"
+  checksum="$(fs_sha256 "$file")"
 
   recorded="$(printf '%s' \
     "SELECT checksum FROM public.schema_migrations WHERE version = :'version';" \

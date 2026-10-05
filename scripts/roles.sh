@@ -45,7 +45,7 @@ secret_field() {
   ' "$1"
 }
 
-unknowable() { openssl rand -base64 24 | tr -d '/+=' ; }
+unknowable() { fs_random_secret; }
 
 if fs_direct_mode; then
   owner_password="$(unknowable)"   # the managed master logs in; this role is SET ROLE'd into
