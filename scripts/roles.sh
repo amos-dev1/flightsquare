@@ -61,9 +61,10 @@ if fs_direct_mode; then
 
   master="$(fs_db_field username)"
 
-  # The master creates the roles and then makes itself a member of the owner,
-  # which is what lets `psql_as flightsquare_owner` become it. Without this
-  # every migration stops on its own first line.
+  # roles.sql makes the caller a member of flightsquare_owner as soon as the
+  # role exists — it has to, for its own ALTER DEFAULT PRIVILEGES statements —
+  # and that same membership is what lets `psql_as flightsquare_owner` become
+  # it. Without it every migration stops on its own first line.
   psql_as "$master" -q \
     -v db="$(fs_db_field dbname)" \
     -v owner_password="$owner_password" \
@@ -72,8 +73,6 @@ if fs_direct_mode; then
     -v mail_password="$mail_password" \
     -v scheduler_password="$scheduler_password" \
     -f - < "$ROOT/db/roles.sql"
-
-  printf '%s' "GRANT flightsquare_owner TO \"$master\";" | psql_as "$master" -q
 
   echo "✓ roles applied (managed database)."
   exit 0

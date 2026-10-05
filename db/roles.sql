@@ -69,6 +69,29 @@ ALTER ROLE flightsquare_owner
   NOCREATEDB NOCREATEROLE NOINHERIT;
 SELECT pg_temp.lock_down('flightsquare_owner');
 
+/*
+  And make the caller a member of it, which is what the rest of this file needs.
+
+  `ALTER DEFAULT PRIVILEGES FOR ROLE flightsquare_owner` further down requires
+  either a superuser or membership of that role. A managed database offers
+  neither by default: the master creates the role and is not in it, so the file
+  got as far as the default privileges and stopped with "permission denied to
+  change default privileges".
+
+  Membership is also what lets the migration runner become the owner
+  (`PGOPTIONS=-c role=flightsquare_owner`), which is what makes every
+  migration's `current_user <> 'flightsquare_owner'` guard pass. A superuser
+  needs none of this and is skipped, so the local container is unchanged.
+*/
+DO $member$
+BEGIN
+  IF current_setting('is_superuser') <> 'on' THEN
+    EXECUTE format('GRANT flightsquare_owner TO %I', current_user);
+    RAISE NOTICE '% is now a member of flightsquare_owner', current_user;
+  END IF;
+END
+$member$;
+
 -- ---------------------------------------------------------------------------
 -- app_role — the application.
 --
