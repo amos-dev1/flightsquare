@@ -193,7 +193,26 @@ GRANT USAGE ON SCHEMA public TO app_role, admin_role, mail_role, scheduler_role;
 -- Holding an owner connection is already enough to disable RLS outright, so
 -- the flag adds no capability to a role that has one.
 -- ---------------------------------------------------------------------------
-GRANT SET ON PARAMETER app.auth_bootstrap TO flightsquare_owner;
+/*
+  Also superuser-only, and also not load-bearing.
+
+  `GRANT SET ON PARAMETER` needs a superuser, which a managed database does not
+  offer. Nothing is lost: `app.auth_bootstrap` is a placeholder custom GUC, and
+  Postgres lets any role set one of those without a grant — which is exactly
+  why `db/tests/040` goes to the trouble of proving that `app_role` setting the
+  flag by hand gains it nothing. The policies are what withhold the access, not
+  the right to set the variable.
+*/
+DO $parameter$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    GRANT SET ON PARAMETER app.auth_bootstrap TO flightsquare_owner;
+  ELSE
+    RAISE NOTICE
+      'app.auth_bootstrap: leaving SET open as Postgres does for a placeholder GUC (no superuser here)';
+  END IF;
+END
+$parameter$;
 
 -- Postgres grants EXECUTE on new functions to PUBLIC by default. Every §2
 -- function also revokes it explicitly, but the default is worth turning off

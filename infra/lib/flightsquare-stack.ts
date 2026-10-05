@@ -14,7 +14,7 @@ import * as apprunner from '@aws-cdk/aws-apprunner-alpha';
  * FlightSquare dev environment.
  *
  * COST SHAPE (us-east-1, approximate — verify against current pricing):
- *   RDS db.t4g.small single-AZ, 20GB gp3   ~$23/mo  (micro is not
+ *   RDS db.t4g.small single-AZ, 20GB gp3   ~$23/mo  (Postgres 18; micro is not
  *     offered for RDS PostgreSQL in us-east-1 — see the instance type below)
  *   App Runner 0.25 vCPU / 0.5GB            ~$5-25/mo depending on active time
  *   S3 + ECR + Secrets Manager              ~$2/mo
@@ -97,7 +97,20 @@ export class FlightSquareStack extends cdk.Stack {
 
     const database = new rds.DatabaseInstance(this, 'Database', {
       engine: rds.DatabaseInstanceEngine.postgres({
-        version: rds.PostgresEngineVersion.VER_16_4,
+        /*
+          18, not 16, and this is not a preference.
+
+          `db/migrations/0001_foundation.sql` opens by refusing to run on
+          anything older: `RAISE EXCEPTION 'PostgreSQL 18+ required for
+          uuidv7()'`. Every primary key in the schema is `DEFAULT uuidv7()`,
+          which is a PostgreSQL 18 built-in — so on 16.4 the very first
+          migration stops dead and the database cannot be created at all.
+
+          `PostgresEngineVersion.of` because this CDK version's enum stops at
+          VER_18_3; 18.6 is what RDS offers in us-east-1 and what local
+          development runs, which is the version worth matching.
+        */
+        version: rds.PostgresEngineVersion.of('18.6', '18'),
       }),
       // db.t4g.small in both environments, and the ternary is gone because
       // there is nothing to choose between: **db.t4g.micro is not offered for
@@ -134,6 +147,16 @@ export class FlightSquareStack extends cdk.Stack {
       credentials: rds.Credentials.fromGeneratedSecret('fsowner', {
         secretName: `${prefix}/db/owner`,
       }),
+      /*
+        Dev may cross a major version; prod may not without someone deciding to.
+
+        Not what moves this instance to 18.6 — `cdk diff` shows a replacement,
+        because the subnet group forces one. It is here for the next time: a dev
+        database that cannot follow the engine version is a dev database that
+        stops matching prod. Prod stays false, where a major upgrade should be a
+        decision with a maintenance window attached.
+      */
+      allowMajorVersionUpgrade: !isProd,
       backupRetention: cdk.Duration.days(isProd ? 14 : 1),
       deletionProtection: isProd,
       removalPolicy: isProd ? cdk.RemovalPolicy.SNAPSHOT : cdk.RemovalPolicy.DESTROY,

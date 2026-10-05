@@ -643,6 +643,7 @@
    "Type": "AWS::RDS::DBInstance",
    "Properties": {
     "AllocatedStorage": "20",
+    "AllowMajorVersionUpgrade": false,
     "BackupRetentionPeriod": 14,
     "CopyTagsToSnapshot": true,
     "DBInstanceClass": "db.t4g.small",
@@ -656,7 +657,7 @@
     ],
     "EnablePerformanceInsights": true,
     "Engine": "postgres",
-    "EngineVersion": "16.4",
+    "EngineVersion": "18.6",
     "MasterUserPassword": {
      "Fn::Join": [
       "",
