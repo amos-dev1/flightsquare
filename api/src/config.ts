@@ -131,13 +131,35 @@ export const config = {
    *
    * `forcePathStyle` is what MinIO needs — bucket-in-the-hostname requires DNS
    * that a container on loopback does not have. Real S3 accepts it too.
+   *
+   * `FS_STORAGE_ENDPOINT` is the one switch between the two worlds, and the
+   * credentials follow it rather than being decided separately:
+   *
+   *   unset  — the MinIO container on loopback, with the development key, so
+   *            `docker compose up` needs no environment at all.
+   *   set    — a real deployment. A key is used only if one was also supplied;
+   *            otherwise none is passed and the SDK's provider chain finds the
+   *            instance role.
+   *
+   * That last part is why they are one decision. Defaulting the key would hand
+   * real S3 the string 'flightsquare' and a development password, which fails
+   * as an authentication error rather than as a configuration one — and the
+   * instance role sitting right there would never be tried.
    */
   storage: {
-    endpoint: process.env.FS_STORAGE_ENDPOINT ?? 'http://127.0.0.1:9000',
-    region: process.env.FS_STORAGE_REGION ?? 'us-east-1',
-    bucket: process.env.FS_STORAGE_BUCKET ?? 'flightsquare',
-    accessKeyId: process.env.FS_STORAGE_KEY ?? 'flightsquare',
-    secretAccessKey: process.env.FS_STORAGE_SECRET ?? 'storage_dev_password',
+    ...(process.env.FS_STORAGE_ENDPOINT
+      ? {
+          endpoint: process.env.FS_STORAGE_ENDPOINT,
+          accessKeyId: process.env.FS_STORAGE_KEY,
+          secretAccessKey: process.env.FS_STORAGE_SECRET,
+        }
+      : {
+          endpoint: 'http://127.0.0.1:9000',
+          accessKeyId: process.env.FS_STORAGE_KEY ?? 'flightsquare',
+          secretAccessKey: process.env.FS_STORAGE_SECRET ?? 'storage_dev_password',
+        }),
+    region: process.env.FS_STORAGE_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
+    bucket: process.env.FS_STORAGE_BUCKET ?? process.env.S3_BUCKET ?? 'flightsquare',
     forcePathStyle: (process.env.FS_STORAGE_PATH_STYLE ?? 'true') === 'true',
     /**
      * How long a signed URL lives.

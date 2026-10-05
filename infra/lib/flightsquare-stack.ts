@@ -285,10 +285,22 @@ export class FlightSquareStack extends cdk.Stack {
           environmentVariables: {
             NODE_ENV: 'production',
             PGSSLMODE: 'require',
+            // Bind every interface. The API defaults to 127.0.0.1, which is
+            // right on a laptop and fatal here: App Runner health-checks the
+            // container from outside it, so a loopback listener is reachable
+            // by nobody and the service never stabilises. That failure looks
+            // like a crash in the console and is a perfectly healthy process
+            // listening on the wrong address.
+            FS_API_HOST: '0.0.0.0',
             DB_HOST: database.dbInstanceEndpointAddress,
             DB_PORT: database.dbInstanceEndpointPort,
             DB_NAME: 'flightsquare',
-            S3_BUCKET: attachments.bucketName,
+            // Setting the endpoint is what tells the API this is not the MinIO
+            // container on loopback. It also means no storage key is passed,
+            // so the SDK uses the instance role granted above.
+            FS_STORAGE_ENDPOINT: `https://s3.${this.region}.amazonaws.com`,
+            FS_STORAGE_REGION: this.region,
+            FS_STORAGE_BUCKET: attachments.bucketName,
             AWS_REGION: this.region,
           },
           environmentSecrets: {

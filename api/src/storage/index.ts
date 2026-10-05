@@ -29,10 +29,18 @@ const client = new S3Client({
   region: config.storage.region,
   endpoint: config.storage.endpoint,
   forcePathStyle: config.storage.forcePathStyle,
-  credentials: {
-    accessKeyId: config.storage.accessKeyId,
-    secretAccessKey: config.storage.secretAccessKey,
-  },
+  // Omitted entirely when no key is configured, rather than passed as
+  // undefined: that is what lets the SDK's provider chain reach the App Runner
+  // instance role. Handing it a key it cannot use would turn a missing grant
+  // into an authentication error and hide the role that was meant to be used.
+  ...(config.storage.accessKeyId && config.storage.secretAccessKey
+    ? {
+        credentials: {
+          accessKeyId: config.storage.accessKeyId,
+          secretAccessKey: config.storage.secretAccessKey,
+        },
+      }
+    : {}),
 });
 
 /**
