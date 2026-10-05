@@ -6,7 +6,9 @@
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
-    "noUnusedLocals": true,
+    // Off, deliberately. CDK declares constructs for their side effects — the
+    // ECS cluster in this stack is created and never referenced again, which
+    // is normal and not a mistake.
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

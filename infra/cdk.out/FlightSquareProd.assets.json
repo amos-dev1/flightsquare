@@ -1,0 +1,36 @@
+{
+  "version": "54.0.0",
+  "files": {
+    "02b51ab524e7bcf8f477de3e71e5f9a72e448301b26ba62e9e75a14f9c55a093": {
+      "displayName": "FlightSquareProd/Custom::VpcRestrictDefaultSGCustomResourceProvider Code",
+      "source": {
+        "path": "asset.02b51ab524e7bcf8f477de3e71e5f9a72e448301b26ba62e9e75a14f9c55a093",
+        "packaging": "zip"
+      },
+      "destinations": {
+        "363434191112-us-east-1-7102a634": {
+          "bucketName": "cdk-hnb659fds-assets-363434191112-us-east-1",
+          "objectKey": "02b51ab524e7bcf8f477de3e71e5f9a72e448301b26ba62e9e75a14f9c55a093.zip",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::363434191112:role/cdk-hnb659fds-file-publishing-role-363434191112-us-east-1"
+        }
+      }
+    },
+    "8cd97c92b3c6277bd7c13968828b3f267b998e66f2ae199e57ca61191153738a": {
+      "displayName": "FlightSquareProd Template",
+      "source": {
+        "path": "FlightSquareProd.template.json",
+        "packaging": "file"
+      },
+      "destinations": {
+        "363434191112-us-east-1-fc33aacf": {
+          "bucketName": "cdk-hnb659fds-assets-363434191112-us-east-1",
+          "objectKey": "8cd97c92b3c6277bd7c13968828b3f267b998e66f2ae199e57ca61191153738a.json",
+          "region": "us-east-1",
+          "assumeRoleArn": "arn:${AWS::Partition}:iam::363434191112:role/cdk-hnb659fds-file-publishing-role-363434191112-us-east-1"
+        }
+      }
+    }
+  },
+  "dockerImages": {}
+}

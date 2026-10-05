@@ -7,7 +7,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "synth": "cdk synth",
+    "_synth": "cdk synth with no stack and no profile cannot work: the app builds both stacks, and synthesising prod needs credentials for its own account to look up availability zones. One script per environment, matching diff and deploy.",
+    "synth:dev": "cdk synth FlightSquareDev --profile flightsquare-dev",
+    "synth:prod": "cdk synth FlightSquareProd --profile flightsquare-prod",
     "diff:dev": "cdk diff FlightSquareDev --profile flightsquare-dev",
     "deploy:dev": "cdk deploy FlightSquareDev --profile flightsquare-dev",
     "diff:prod": "cdk diff FlightSquareProd --profile flightsquare-prod",

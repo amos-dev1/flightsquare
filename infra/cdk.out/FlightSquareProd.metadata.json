@@ -1,0 +1,927 @@
+{
+  "/FlightSquareProd": [
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node, ts-node..."
+      ]
+    },
+    {
+      "type": "aws:cdk:acknowledged-rules",
+      "data": {
+        "CloudFormation-Validate::W3010": "Literal AZs in template are the result of accessing stack.availabilityZones, this is expected and safe"
+      },
+      "trace": [
+        "    ...new Vpc2 in aws-cdk-lib...",
+        "    at new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "    at <anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "    ...node internals, ts-node..."
+      ]
+    },
+    {
+      "type": "aws:cdk:error",
+      "data": "Could not assume role in target account using current credentials (which are for account 102378189980) User: arn:aws:sts::102378189980:assumed-role/AWSReservedSSO_AdministratorAccess_475c44ba94699736/emtuzas is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::363434191112:role/cdk-hnb659fds-lookup-role-363434191112-us-east-1 . Please make sure that this role exists in the account. If it doesn't exist, (re)-bootstrap the environment with the right '--trust', using the latest version of the CDK CLI.",
+      "trace": [
+        "Annotations.addMessage (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/annotations.js:1:3506)",
+        "Annotations.addError (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/annotations.js:1:2738)",
+        "Annotations._addTrackableError (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/annotations.js:1:2837)",
+        "ContextProvider.getValue (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/context-provider.js:2:1906)",
+        "FlightSquareStack.get availabilityZones [as availabilityZones] (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/stack.js:1:16125)",
+        "new Vpc2 (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:19524)",
+        "new Vpc2 (/Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/core/lib/prop-injectable.js:1:861)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "Object.<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "Module._compile (node:internal/modules/cjs/loader:1956:14)",
+        "Module.m._compile (/Users/eimissavickas/Projects/flightsquare/node_modules/ts-node/src/index.ts:1618:23)",
+        "node:internal/modules/cjs/loader:2096:10",
+        "Object.require.extensions.<computed> [as .ts] (/Users/eimissavickas/Projects/flightsquare/node_modules/ts-node/src/index.ts:1621:12)",
+        "Module.load (node:internal/modules/cjs/loader:1678:32)",
+        "Module._load (node:internal/modules/cjs/loader:1470:12)",
+        "wrapModuleLoad (node:internal/modules/cjs/loader:261:19)",
+        "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+        "phase4 (/Users/eimissavickas/Projects/flightsquare/node_modules/ts-node/src/bin.ts:649:14)",
+        "bootstrap (/Users/eimissavickas/Projects/flightsquare/node_modules/ts-node/src/bin.ts:95:10)",
+        "main (/Users/eimissavickas/Projects/flightsquare/node_modules/ts-node/src/bin.ts:55:10)",
+        "Object.<anonymous> (/Users/eimissavickas/Projects/flightsquare/node_modules/ts-node/src/bin.ts:800:3)",
+        "Module._compile (node:internal/modules/cjs/loader:1956:14)",
+        "Object.<anonymous> (node:internal/modules/cjs/loader:2096:10)",
+        "Module.load (node:internal/modules/cjs/loader:1678:32)",
+        "Module._load (node:internal/modules/cjs/loader:1470:12)",
+        "wrapModuleLoad (node:internal/modules/cjs/loader:261:19)",
+        "Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)",
+        "node:internal/main/run_main_module:33:47"
+      ]
+    },
+    {
+      "type": "aws:cdk:error-code",
+      "data": "ContextProviderError"
+    },
+    {
+      "type": "aws:cdk:stack-tags",
+      "data": [
+        {
+          "key": "Environment",
+          "value": "prod"
+        },
+        {
+          "key": "ManagedBy",
+          "value": "cdk"
+        },
+        {
+          "key": "Project",
+          "value": "FlightSquare"
+        }
+      ]
+    }
+  ],
+  "/FlightSquareProd/Custom::VpcRestrictDefaultSGCustomResourceProvider": [
+    {
+      "type": "aws:cdk:is-custom-resource-handler-customResourceProvider",
+      "data": true
+    }
+  ],
+  "/FlightSquareProd/ApiUrl": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiUrl"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:270:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/EcrRepoUri": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "EcrRepoUri"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:274:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/DbEndpoint": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DbEndpoint"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:275:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/OwnerSecretArn": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "OwnerSecretArn"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:276:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/AttachmentsBucket": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "AttachmentsBucket"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:277:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateTaskArn": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateTaskArn"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:278:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateSubnets": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateSubnets"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:279:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateSecurityGroup": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateSecurityGroup"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:282:5)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/BootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "BootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/CheckBootstrapVersion": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CheckBootstrapVersion"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "Vpc8378EB38"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/IGW": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcIGWD7BA715C"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/VPCGW": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcVPCGWBF912B6E"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Custom::VpcRestrictDefaultSGCustomResourceProvider/Role": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CustomVpcRestrictDefaultSGCustomResourceProviderRole26592FE0"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Custom::VpcRestrictDefaultSGCustomResourceProvider/Handler": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CustomVpcRestrictDefaultSGCustomResourceProviderHandlerDC833E5E"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/app_roleSecret/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "approleSecretA5A51F31"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Secret2 in aws-cdk-lib...",
+        "mkRoleSecret (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:74:7)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:85:27)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/admin_roleSecret/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "adminroleSecretEEB2CFFE"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Secret2 in aws-cdk-lib...",
+        "mkRoleSecret (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:74:7)",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:86:29)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/DbSg/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DbSg495F8305"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new SecurityGroup2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:91:29)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/DbSg/from FlightSquareProdMigrateSg1919E202:5432": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DbSgfromFlightSquareProdMigrateSg1919E2025432F650795F"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...PropertyInjectable.<anonymous> in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:201:21)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/DbSg/from FlightSquareProdApiSg9F1BD0DD:5432": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DbSgfromFlightSquareProdApiSg9F1BD0DD543261C3C387"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...PropertyInjectable.<anonymous> in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:213:21)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Database/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DatabaseB269D8BB"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new DatabaseInstance2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Attachments/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "Attachments87B238D3"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Bucket2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:128:25)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/ApiRepo/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiRepoEFA7BA97"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Repository2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:152:24)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Cluster/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ClusterEB0386A7"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Cluster2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:166:21)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateTask/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateTaskFA2E2E9A"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new FargateTaskDefinition2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:171:25)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateSg/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateSg367846A6"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new SecurityGroup2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:197:23)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/ApiSg/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiSg8419ACD7"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new SecurityGroup2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:209:19)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/VpcConnector/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcConnectorE3A78531"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new VpcConnector in @aws-cdk/aws-apprunner-alpha...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:215:26)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/ApiInstanceRole/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiInstanceRole50CD0057"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Role2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:221:26)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Api/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiF70053CD"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Service in @aws-cdk/aws-apprunner-alpha...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:232:21)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/CDKMetadata/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "CDKMetadata"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...App.synth in aws-cdk-lib...",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:43:5)",
+        "...node internals..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet1/Subnet": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet1Subnet2BB74ED7"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:287 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet1/RouteTable": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet1RouteTable15C15F8E"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:287 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet1/RouteTableAssociation": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet1RouteTableAssociation4E83B6E4"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:287 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet1/DefaultRoute": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet1DefaultRouteB88F9E93"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:225 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet2/Subnet": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet2SubnetE34B022A"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:287 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet2/RouteTable": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet2RouteTableC5A6DF77"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:287 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet2/RouteTableAssociation": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet2RouteTableAssociationCCE257FF"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:287 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/publicSubnet2/DefaultRoute": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcpublicSubnet2DefaultRoute732F0BEB"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:225 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/isolatedSubnet1/Subnet": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcisolatedSubnet1SubnetE62B1B9B"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:291 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/isolatedSubnet1/RouteTable": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcisolatedSubnet1RouteTableE442650B"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:291 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/isolatedSubnet1/RouteTableAssociation": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcisolatedSubnet1RouteTableAssociationD259E31A"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:291 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/isolatedSubnet2/Subnet": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcisolatedSubnet2Subnet39217055"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:291 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/isolatedSubnet2/RouteTable": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcisolatedSubnet2RouteTable334F9764"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:291 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/isolatedSubnet2/RouteTableAssociation": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcisolatedSubnet2RouteTableAssociation25A4716F"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        ".../Users/eimissavickas/Projects/flightsquare/node_modules/aws-cdk-lib/aws-ec2/lib/vpc.js:1:291 in aws-cdk-lib...",
+        "Array.forEach (:)",
+        "...aws-cdk-lib..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/RestrictDefaultSecurityGroupCustomResource/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcRestrictDefaultSecurityGroupCustomResourceC73DA2BE"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Vpc2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:49:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Vpc/S3Endpoint/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "VpcS3Endpoint4A3DE4B5"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...PropertyInjectable.addGatewayEndpoint in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:60:9)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Database/SubnetGroup/Default": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DatabaseSubnetGroup7D60F180"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new DatabaseInstance2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Database/Secret/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "FlightSquareProdDatabaseSecretE215A0B53fdaad7efa858a3daf9490cf0a702aeb"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new DatabaseInstance2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/Attachments/Policy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "AttachmentsPolicy9F270D62"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new Bucket2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:128:25)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateTask/TaskRole/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateTaskTaskRoleFFF8B11D"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new FargateTaskDefinition2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:171:25)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateTask/ExecutionRole/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateTaskExecutionRole4FA39211"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/ApiInstanceRole/DefaultPolicy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiInstanceRoleDefaultPolicy86525EF9"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...PropertyInjectable.grantRead in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:229:19)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/Api/AccessRole/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiAccessRole8EDA70A9"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib, new Service in @aws-cdk/aws-apprunner-alpha...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:232:21)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/Database/Secret/Attachment/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "DatabaseSecretAttachmentE5D1B020"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...new DatabaseInstance2 in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:97:22)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals, ts-node..."
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateTask/migrate/LogGroup/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateTaskmigrateLogGroup78DFA5BB"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...PropertyInjectable.<anonymous> in aws-cdk-lib...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:177:17)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/MigrateTask/ExecutionRole/DefaultPolicy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "MigrateTaskExecutionRoleDefaultPolicyE7F2A2A1"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib...",
+        "(no user code in 10 frames, use --stack-trace-limit to capture more)"
+      ]
+    }
+  ],
+  "/FlightSquareProd/Api/AccessRole/DefaultPolicy/Resource": [
+    {
+      "type": "aws:cdk:logicalId",
+      "data": "ApiAccessRoleDefaultPolicyB76FBCFF"
+    },
+    {
+      "type": "aws:cdk:creationStack",
+      "data": [
+        "...aws-cdk-lib, new Service in @aws-cdk/aws-apprunner-alpha...",
+        "new FlightSquareStack (/Users/eimissavickas/Projects/flightsquare/infra/lib/flightsquare-stack.ts:232:21)",
+        "<anonymous> (/Users/eimissavickas/Projects/flightsquare/infra/bin/infra.ts:31:1)",
+        "...node internals..."
+      ]
+    }
+  ]
+}
