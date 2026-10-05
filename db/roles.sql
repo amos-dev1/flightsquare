@@ -12,6 +12,43 @@
 -- not hand setup scripts an exception for building SQL by interpolation.
 
 -- ---------------------------------------------------------------------------
+-- The three attributes only a superuser may set
+--
+-- `NOSUPERUSER`, `NOBYPASSRLS` and `NOREPLICATION` cannot be changed by a role
+-- that is not a superuser — even to the value they already hold. A managed
+-- database has no superuser to offer: RDS gives you a master with CREATEROLE
+-- and nothing more, so the unguarded `ALTER ROLE … NOSUPERUSER` that worked
+-- against the local container stopped the first deploy dead with "Only roles
+-- with the SUPERUSER attribute may change the SUPERUSER attribute".
+--
+-- **The property is not lost by skipping them.** All three are the defaults for
+-- `CREATE ROLE`, and every role here is created by this file, so a role that
+-- has never been altered by a superuser already has them. `db/tests/030`
+-- asserts the one that matters — no role holds BYPASSRLS or superuser — and
+-- passes either way, which is the difference between a guarantee and a
+-- statement.
+--
+-- Dynamic SQL for the role name only, never the password: §6 forbids building
+-- SQL by interpolation, and `%I` over a literal in this file is the sanctioned
+-- exception rather than a hole. The passwords stay in psql's `:'…'` quoting,
+-- above, where the client does the escaping.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION pg_temp.lock_down(p_role text)
+RETURNS void
+LANGUAGE plpgsql
+AS $lock_down$
+BEGIN
+  IF current_setting('is_superuser') = 'on' THEN
+    EXECUTE format('ALTER ROLE %I NOSUPERUSER NOBYPASSRLS NOREPLICATION', p_role);
+  ELSE
+    RAISE NOTICE
+      '%: leaving NOSUPERUSER/NOBYPASSRLS/NOREPLICATION at their CREATE ROLE defaults (no superuser here)',
+      p_role;
+  END IF;
+END
+$lock_down$;
+
+-- ---------------------------------------------------------------------------
 -- flightsquare_owner — DDL / migration role.
 --
 -- Owns the schema and every object in it. Migrations connect as this role.
@@ -29,7 +66,8 @@ $role$;
 
 ALTER ROLE flightsquare_owner
   LOGIN PASSWORD :'owner_password'
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
+  NOCREATEDB NOCREATEROLE NOINHERIT;
+SELECT pg_temp.lock_down('flightsquare_owner');
 
 -- ---------------------------------------------------------------------------
 -- app_role — the application.
@@ -48,7 +86,8 @@ $role$;
 
 ALTER ROLE app_role
   LOGIN PASSWORD :'app_password'
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
+  NOCREATEDB NOCREATEROLE NOINHERIT;
+SELECT pg_temp.lock_down('app_role');
 
 -- ---------------------------------------------------------------------------
 -- admin_role — control plane (§7).
@@ -68,7 +107,8 @@ $role$;
 
 ALTER ROLE admin_role
   LOGIN PASSWORD :'admin_password'
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
+  NOCREATEDB NOCREATEROLE NOINHERIT;
+SELECT pg_temp.lock_down('admin_role');
 
 -- ---------------------------------------------------------------------------
 -- mail_role — the sender, and nothing else.
@@ -94,7 +134,8 @@ $role$;
 
 ALTER ROLE mail_role
   LOGIN PASSWORD :'mail_password'
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
+  NOCREATEDB NOCREATEROLE NOINHERIT;
+SELECT pg_temp.lock_down('mail_role');
 
 -- ---------------------------------------------------------------------------
 -- scheduler_role — the only role that may ask which tenants exist.
@@ -122,7 +163,8 @@ $role$;
 
 ALTER ROLE scheduler_role
   LOGIN PASSWORD :'scheduler_password'
-  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT NOREPLICATION;
+  NOCREATEDB NOCREATEROLE NOINHERIT;
+SELECT pg_temp.lock_down('scheduler_role');
 
 -- ---------------------------------------------------------------------------
 -- Database and schema ownership.
