@@ -122,10 +122,13 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'usage'
 AS $$
-DECLARE v_tenant uuid := coalesce(NEW.tenant_id, OLD.tenant_id);
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+  v_tenant uuid := coalesce(NEW.tenant_id, OLD.tenant_id);
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'usage', true);
+
   INSERT INTO public.tenant_usage AS u (tenant_id, quota_key, current_value)
   VALUES (v_tenant, 'storage.bytes',
           -- Only what has actually arrived. A row whose upload was signed and
@@ -136,6 +139,8 @@ BEGIN
               AND a.uploaded_at IS NOT NULL))
   ON CONFLICT (tenant_id, quota_key)
   DO UPDATE SET current_value = EXCLUDED.current_value, updated_at = now();
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;

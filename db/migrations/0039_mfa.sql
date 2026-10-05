@@ -205,12 +205,18 @@ RETURNS TABLE (
   status         text,
   device_trusted boolean
 )
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'on'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'on', true);
+
+  RETURN QUERY
   SELECT u.id, u.password_hash, u.mfa_enabled, u.status,
          -- A device is trusted for this user only. The join is on both, so a
          -- token lifted from one account is worth nothing against another.
@@ -225,7 +231,10 @@ AS $$
          ) AS device_trusted
     FROM public.users u
    WHERE lower(u.email) = lower(p_email)
-     AND u.deleted_at IS NULL
+     AND u.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.find_user_by_email(text, text) FROM PUBLIC;

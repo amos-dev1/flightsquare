@@ -281,10 +281,13 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'usage'
 AS $$
-DECLARE v_tenant uuid := coalesce(NEW.tenant_id, OLD.tenant_id);
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+  v_tenant uuid := coalesce(NEW.tenant_id, OLD.tenant_id);
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'usage', true);
+
   INSERT INTO public.tenant_usage AS u (tenant_id, quota_key, current_value)
   VALUES (v_tenant, 'members.active',
           (SELECT count(*) FROM public.memberships m
@@ -293,6 +296,8 @@ BEGIN
               AND m.deleted_at IS NULL))
   ON CONFLICT (tenant_id, quota_key)
   DO UPDATE SET current_value = EXCLUDED.current_value, updated_at = now();
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;
@@ -617,14 +622,16 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'provision'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_tenant_id     uuid;
   v_user_id       uuid;
   v_membership_id uuid;
   v_admin_id      uuid;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'provision', true);
+
   IF p_user_id IS NULL THEN
     IF p_email IS NULL OR p_password_hash IS NULL THEN
       RAISE EXCEPTION 'provision_tenant needs an authenticated user id, or an email and password hash'
@@ -656,5 +663,7 @@ BEGIN
   RETURNING id INTO v_membership_id;
 
   RETURN QUERY SELECT v_tenant_id, v_user_id, v_membership_id;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
 END
 $$;

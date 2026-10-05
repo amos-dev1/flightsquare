@@ -17,17 +17,32 @@
 --      the point of it).
 --   5. Lives in the auth schema and appears in the §2.1 table.
 --
--- Each also carries `SET app.auth_bootstrap = 'on'`. These functions run as
--- flightsquare_owner, which FORCE ROW LEVEL SECURITY subjects to policy like
--- anyone else; that flag is what the definer_bootstrap policies in 0001 match.
--- Postgres scopes a function SET clause to the call and restores it on exit,
--- including on error — so the opening is exactly as wide as the function body
--- and no wider.
+-- Each also raises `app.auth_bootstrap` to 'on' for the length of its body.
+-- These functions run as flightsquare_owner, which FORCE ROW LEVEL SECURITY
+-- subjects to policy like anyone else; that flag is what the
+-- definer_bootstrap policies in 0001 match.
 --
--- This requires `GRANT SET ON PARAMETER app.auth_bootstrap TO
--- flightsquare_owner` (db/roles.sql): Postgres 15+ will not let a function
--- pin a custom parameter without it. Provisioning a new environment without
--- that grant fails here, loudly, at CREATE FUNCTION.
+-- The flag is raised by `set_config(..., true)` as the first statement of the
+-- body and lowered to its previous value as the last, rather than by a
+-- function-attribute `SET` clause. The clause was the better mechanism and is
+-- not available: Postgres 15+ will not let a function pin a custom parameter
+-- without `GRANT SET ON PARAMETER`, that grant requires a true superuser, and
+-- a managed database never issues one. Probed on RDS — even the master user,
+-- a member of rds_superuser, gets `permission denied for parameter`.
+--
+-- Two consequences of doing it by hand, both load-bearing:
+--
+--   * `set_config(..., true)` is transaction-scoped, not call-scoped. Nothing
+--     restores it on return, so each function restores it itself. Forgetting
+--     leaves the flag raised for the rest of the caller's transaction, which
+--     db/tests/040 fails on.
+--   * These are plpgsql, not sql. A SQL function carrying a SET clause is
+--     never inlined; without the clause the planner may inline the body into
+--     the calling query, and an inlined body has nowhere to run set_config.
+--     The language is part of the mechanism here, not a style choice.
+--
+-- On error nothing needs unwinding: a set_config with is_local true is
+-- rolled back with the aborting (sub)transaction.
 --
 -- Adding a seventh function is an architectural decision requiring review, not
 -- routine work. The first question is always whether the caller could have set
@@ -58,16 +73,25 @@ COMMENT ON SCHEMA auth IS
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION auth.resolve_tenant_by_host(p_host text)
 RETURNS TABLE (tenant_id uuid, status text, plan_code text)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'on'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'on', true);
+
+  RETURN QUERY
   SELECT t.id, t.status, t.plan_code
     FROM public.tenants t
    WHERE t.host = p_host
-     AND t.deleted_at IS NULL
+     AND t.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.resolve_tenant_by_host(text) FROM PUBLIC;
@@ -83,16 +107,25 @@ COMMENT ON FUNCTION auth.resolve_tenant_by_host(text) IS
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION auth.resolve_tenant_by_slug(p_slug text)
 RETURNS TABLE (tenant_id uuid, status text, name text, branding jsonb)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'on'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'on', true);
+
+  RETURN QUERY
   SELECT t.id, t.status, t.name, t.branding
     FROM public.tenants t
    WHERE t.slug = p_slug
-     AND t.deleted_at IS NULL
+     AND t.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.resolve_tenant_by_slug(text) FROM PUBLIC;
@@ -107,16 +140,25 @@ COMMENT ON FUNCTION auth.resolve_tenant_by_slug(text) IS
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION auth.find_user_by_email(p_email text)
 RETURNS TABLE (user_id uuid, password_hash text, mfa_enabled boolean, status text)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'on'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'on', true);
+
+  RETURN QUERY
   SELECT u.id, u.password_hash, u.mfa_enabled, u.status
     FROM public.users u
    WHERE lower(u.email) = lower(p_email)
-     AND u.deleted_at IS NULL
+     AND u.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.find_user_by_email(text) FROM PUBLIC;
@@ -133,19 +175,28 @@ COMMENT ON FUNCTION auth.find_user_by_email(text) IS
 CREATE FUNCTION auth.list_memberships_for_user(p_user_id uuid)
 RETURNS TABLE (tenant_id uuid, tenant_name text, tenant_status text,
                membership_status text)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'on'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'on', true);
+
+  RETURN QUERY
   SELECT t.id, t.name, t.status, m.status
     FROM public.memberships m
     JOIN public.tenants t ON t.id = m.tenant_id
    WHERE m.user_id = p_user_id
      AND m.status <> 'removed'
      AND m.deleted_at IS NULL
-     AND t.deleted_at IS NULL
+     AND t.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.list_memberships_for_user(uuid) FROM PUBLIC;
@@ -161,12 +212,18 @@ COMMENT ON FUNCTION auth.list_memberships_for_user(uuid) IS
 CREATE FUNCTION auth.resolve_invite_token(p_token_hash text)
 RETURNS TABLE (invite_id uuid, tenant_id uuid, email text,
                expires_at timestamptz, tenant_name text, tenant_slug text)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'on'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'on', true);
+
+  RETURN QUERY
   SELECT i.id, i.tenant_id, i.email, i.expires_at, t.name, t.slug
     FROM public.invites i
     JOIN public.tenants t ON t.id = i.tenant_id
@@ -175,7 +232,10 @@ AS $$
      AND i.revoked_at IS NULL
      AND i.expires_at > now()
      AND i.deleted_at IS NULL
-     AND t.deleted_at IS NULL
+     AND t.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.resolve_invite_token(text) FROM PUBLIC;
@@ -192,16 +252,25 @@ COMMENT ON FUNCTION auth.resolve_invite_token(text) IS
 -- ---------------------------------------------------------------------------
 CREATE FUNCTION auth.tenant_for_billing_customer(p_billing_customer_id text)
 RETURNS TABLE (tenant_id uuid)
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'on'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'on', true);
+
+  RETURN QUERY
   SELECT t.id
     FROM public.tenants t
    WHERE t.billing_customer_id = p_billing_customer_id
-     AND t.deleted_at IS NULL
+     AND t.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.tenant_for_billing_customer(text) FROM PUBLIC;

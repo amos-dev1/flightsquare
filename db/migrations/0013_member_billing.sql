@@ -323,14 +323,16 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'ledger'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_flight   public.flights%ROWTYPE;
   v_config   public.aircraft_config%ROWTYPE;
   v_rate     record;
   v_hours    numeric(10, 1);
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'ledger', true);
+
   SELECT * INTO v_flight FROM public.flights f WHERE f.id = NEW.flight_id;
   SELECT * INTO v_config FROM public.aircraft_config c
    WHERE c.aircraft_id = v_flight.aircraft_id;
@@ -338,6 +340,8 @@ BEGIN
   -- No configuration, no billing. A solo owner who never set a rate is the
   -- ordinary case, not an error.
   IF v_config.aircraft_id IS NULL THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN NULL;
   END IF;
 
@@ -350,6 +354,8 @@ BEGIN
   -- actually read and derives nothing from the other meter, so there is
   -- nothing to bill and nothing to guess.
   IF v_hours IS NULL OR v_hours <= 0 THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN NULL;
   END IF;
 
@@ -359,6 +365,8 @@ BEGIN
   -- Never a charge of zero: that would claim somebody flew for nothing,
   -- where the truth is that nobody has priced the aeroplane.
   IF v_rate.amount_cents IS NULL THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN NULL;
   END IF;
 
@@ -372,6 +380,7 @@ BEGIN
           round(v_hours * v_rate.amount_cents)::integer,
           v_rate.currency);
 
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;
@@ -396,13 +405,17 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'ledger'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_flight public.flights%ROWTYPE;
   v_basis  text;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'ledger', true);
+
   IF NEW.fuel_added_cost_cents IS NULL OR NEW.fuel_added_cost_cents = 0 THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN NULL;
   END IF;
 
@@ -412,6 +425,8 @@ BEGIN
 
   -- Dry: the fuel is the pilot's own cost and the ledger never hears of it.
   IF v_basis IS DISTINCT FROM 'wet' THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN NULL;
   END IF;
 
@@ -420,6 +435,7 @@ BEGIN
   VALUES (NEW.tenant_id, NEW.flight_id, v_flight.flown_by,
           NEW.fuel_added_qty, NEW.fuel_added_cost_cents, NEW.currency);
 
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;

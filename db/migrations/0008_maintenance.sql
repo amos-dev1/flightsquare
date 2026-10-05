@@ -559,13 +559,15 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'meters'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_aircraft        uuid := coalesce(NEW.aircraft_id, OLD.aircraft_id);
   v_overhaul_hours  numeric(10, 1);
   v_overhaul_meter  text;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'meters', true);
+
   UPDATE public.aircraft a
      SET hobbs = (
            SELECT r.hobbs FROM public.meter_readings r
@@ -624,6 +626,7 @@ BEGIN
          END
    WHERE a.id = v_aircraft;
 
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;

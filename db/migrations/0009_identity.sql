@@ -294,10 +294,13 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'token'
 AS $$
-DECLARE v_user_id uuid;
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+  v_user_id uuid;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'token', true);
+
   SELECT u.id INTO v_user_id
     FROM public.users u
    WHERE lower(u.email) = lower(p_email)
@@ -307,6 +310,8 @@ BEGIN
   -- No such address. Nothing is written, nothing is sent, and the caller is
   -- told the same thing it would have been told otherwise.
   IF v_user_id IS NULL THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN;
   END IF;
 
@@ -315,6 +320,8 @@ BEGIN
 
   INSERT INTO public.outbox (to_email, subject, body, kind)
   VALUES (p_email, p_subject, p_body, p_kind);
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
 END
 $$;
 
@@ -334,10 +341,13 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'token'
 AS $$
-DECLARE v_user_id uuid;
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+  v_user_id uuid;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'token', true);
+
   UPDATE public.auth_tokens t
      SET used_at = now()
    WHERE t.token_hash = p_token_hash
@@ -346,6 +356,7 @@ BEGIN
      AND t.expires_at > now()
   RETURNING t.user_id INTO v_user_id;
 
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN v_user_id;
 END
 $$;

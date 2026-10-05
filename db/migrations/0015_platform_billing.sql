@@ -174,12 +174,14 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'billing'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_tenant   uuid := app.current_tenant_id();
   v_existing text;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'billing', true);
+
   -- §2.3 rule 1: no context is an exception, never a permissive default.
   IF v_tenant IS NULL THEN
     RAISE EXCEPTION 'set_billing_customer requires tenant context'
@@ -196,6 +198,8 @@ BEGIN
 
   IF v_existing IS NOT NULL THEN
     IF v_existing = p_customer_id THEN
+
+      PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
       RETURN;  -- Already ours. Idempotent, because checkout can be retried.
     END IF;
     RAISE EXCEPTION 'tenant already has a billing customer'
@@ -205,6 +209,8 @@ BEGIN
   UPDATE public.tenants
      SET billing_customer_id = p_customer_id, updated_at = now()
    WHERE id = v_tenant;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
 END
 $$;
 
@@ -258,12 +264,14 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'billing'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_tenant  uuid := app.current_tenant_id();
   v_current text;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'billing', true);
+
   IF v_tenant IS NULL THEN
     RAISE EXCEPTION 'apply_subscription requires tenant context'
       USING ERRCODE = 'insufficient_privilege';
@@ -304,6 +312,8 @@ BEGIN
                            THEN p_tenant_status ELSE v_current END,
          updated_at = now()
    WHERE id = v_tenant;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
 END
 $$;
 

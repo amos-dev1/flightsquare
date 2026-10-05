@@ -252,10 +252,13 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'usage'
 AS $$
-DECLARE v_tenant uuid := coalesce(NEW.tenant_id, OLD.tenant_id);
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+  v_tenant uuid := coalesce(NEW.tenant_id, OLD.tenant_id);
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'usage', true);
+
   INSERT INTO public.tenant_usage AS u (tenant_id, quota_key, current_value)
   VALUES (v_tenant, 'aircraft.active',
           (SELECT count(*) FROM public.aircraft a
@@ -264,6 +267,8 @@ BEGIN
               AND a.deleted_at IS NULL))
   ON CONFLICT (tenant_id, quota_key)
   DO UPDATE SET current_value = EXCLUDED.current_value, updated_at = now();
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;
@@ -288,10 +293,13 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'meters'
 AS $$
-DECLARE v_aircraft uuid := coalesce(NEW.aircraft_id, OLD.aircraft_id);
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+  v_aircraft uuid := coalesce(NEW.aircraft_id, OLD.aircraft_id);
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'meters', true);
+
   UPDATE public.aircraft a
      SET hobbs = (
            SELECT r.hobbs FROM public.meter_readings r
@@ -319,6 +327,8 @@ BEGIN
             ORDER BY r.recorded_at DESC, r.id DESC LIMIT 1),
          totals_updated_at = now()
    WHERE a.id = v_aircraft;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;

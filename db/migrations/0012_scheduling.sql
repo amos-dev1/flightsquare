@@ -347,15 +347,20 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'schedule'
 AS $$
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'schedule', true);
+
   UPDATE public.reservation_resources r
      SET during   = tstzrange(NEW.starts_at, NEW.ends_at, '[)'),
          blocking = (NEW.status = 'booked')
    WHERE r.reservation_id = NEW.id
      AND (r.during <> tstzrange(NEW.starts_at, NEW.ends_at, '[)')
           OR r.blocking <> (NEW.status = 'booked'));
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;
@@ -372,13 +377,18 @@ RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'schedule'
 AS $$
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'schedule', true);
+
   UPDATE public.reservation_resources r
      SET during = tstzrange(NEW.starts_at, NEW.ends_at, '[)')
    WHERE r.blackout_id = NEW.id
      AND r.during <> tstzrange(NEW.starts_at, NEW.ends_at, '[)');
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN NULL;
 END
 $$;

@@ -142,12 +142,14 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'notify'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_tenant uuid := app.current_tenant_id();
   v_id     uuid;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'notify', true);
+
   IF v_tenant IS NULL THEN
     RAISE EXCEPTION 'notify_member requires tenant context'
       USING ERRCODE = 'insufficient_privilege';
@@ -167,6 +169,7 @@ BEGIN
           p_subject_type, p_subject_id)
   RETURNING id INTO v_id;
 
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
   RETURN v_id;
 END
 $$;

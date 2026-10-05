@@ -204,38 +204,33 @@ GRANT USAGE ON SCHEMA public TO app_role, admin_role, mail_role, scheduler_role;
 -- ---------------------------------------------------------------------------
 -- The bootstrap flag (see 0002_auth_functions.sql).
 --
--- Each §2 function carries `SET app.auth_bootstrap = 'on'` so that its body —
--- and nothing else — matches the definer_bootstrap policies. Postgres 15+
--- requires an explicit privilege to name a custom parameter in a function's
--- SET clause, even though any role may set one for its own session, so the
--- owner needs this grant before 0002 will install.
+-- Nothing to grant here, and the absence is the interesting part.
 --
--- This grant is not what makes the flag safe. The policies keyed on it are
--- TO flightsquare_owner, and app_role is not a member of that role, so
--- app_role setting the flag by hand matches nothing (test 040 asserts it).
--- Holding an owner connection is already enough to disable RLS outright, so
--- the flag adds no capability to a role that has one.
+-- Each §2 function raises `app.auth_bootstrap` for the length of its body, so
+-- that its body — and nothing else — matches the definer_bootstrap policies.
+-- It used to do that with a function-attribute `SET` clause, which Postgres
+-- scopes to the call and restores on exit, including on error. That is the
+-- better mechanism and it needs `GRANT SET ON PARAMETER app.auth_bootstrap TO
+-- flightsquare_owner`, because Postgres 15+ will not let a function pin a
+-- custom parameter without it.
+--
+-- That grant requires a true superuser, and a managed database never issues
+-- one. Probed on RDS: the master user is a member of rds_superuser, has
+-- `is_superuser = off`, and gets `permission denied for parameter
+-- app.auth_bootstrap` on the GRANT — so there is no environment variable, no
+-- parameter-group setting and no role membership that unlocks it. The
+-- functions raise the flag with `set_config` in their bodies instead, and
+-- lower it themselves on the way out.
+--
+-- A grant was never what made the flag safe, which is why losing it costs
+-- nothing. The policies keyed on it are TO flightsquare_owner, and app_role is
+-- not a member of that role, so app_role setting the flag by hand matches
+-- nothing — test 040 asserts exactly that, at both levels. Holding an owner
+-- connection is already enough to disable RLS outright, so the flag adds no
+-- capability to a role that has one. What the flag buys is a narrow window
+-- inside an owner connection, and that window is now kept narrow by the
+-- function bodies rather than by the catalog.
 -- ---------------------------------------------------------------------------
-/*
-  Also superuser-only, and also not load-bearing.
-
-  `GRANT SET ON PARAMETER` needs a superuser, which a managed database does not
-  offer. Nothing is lost: `app.auth_bootstrap` is a placeholder custom GUC, and
-  Postgres lets any role set one of those without a grant — which is exactly
-  why `db/tests/040` goes to the trouble of proving that `app_role` setting the
-  flag by hand gains it nothing. The policies are what withhold the access, not
-  the right to set the variable.
-*/
-DO $parameter$
-BEGIN
-  IF current_setting('is_superuser') = 'on' THEN
-    GRANT SET ON PARAMETER app.auth_bootstrap TO flightsquare_owner;
-  ELSE
-    RAISE NOTICE
-      'app.auth_bootstrap: leaving SET open as Postgres does for a placeholder GUC (no superuser here)';
-  END IF;
-END
-$parameter$;
 
 -- Postgres grants EXECUTE on new functions to PUBLIC by default. Every §2
 -- function also revokes it explicitly, but the default is worth turning off

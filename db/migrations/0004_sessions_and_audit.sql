@@ -296,12 +296,18 @@ RETURNS TABLE (
   tenant_status        text,
   membership_status    text
 )
-LANGUAGE sql
+LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'session'
 AS $$
+#variable_conflict use_column
+DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
+BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'session', true);
+
+  RETURN QUERY
   SELECT s.id,
          s.user_id,
          u.status,
@@ -322,7 +328,10 @@ AS $$
      AND s.revoked_at IS NULL
      AND s.access_expires_at > now()
      AND s.expires_at > now()
-     AND u.deleted_at IS NULL
+     AND u.deleted_at IS NULL;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
+END
 $$;
 
 REVOKE ALL ON FUNCTION auth.resolve_session_token(text) FROM PUBLIC;
@@ -351,12 +360,14 @@ LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-SET app.auth_bootstrap = 'session'
 AS $$
 DECLARE
+  v_prev text := current_setting('app.auth_bootstrap', true);
   v_token   public.refresh_tokens%ROWTYPE;
   v_session public.sessions%ROWTYPE;
 BEGIN
+  PERFORM set_config('app.auth_bootstrap', 'session', true);
+
   -- FOR UPDATE, so two devices refreshing the same token at the same instant
   -- cannot both be handed a rotation. Without the lock the loser looks
   -- exactly like a theft and would revoke a legitimate session.
@@ -366,6 +377,8 @@ BEGIN
      FOR UPDATE;
 
   IF NOT FOUND THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN;  -- unknown token: zero rows, and the caller says nothing more
   END IF;
 
@@ -390,6 +403,8 @@ BEGIN
 
     RETURN QUERY SELECT v_token.session_id, v_session.user_id,
                         v_session.selected_tenant_id, true;
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN;
   END IF;
 
@@ -397,6 +412,8 @@ BEGIN
      OR v_token.expires_at <= now()
      OR v_session.revoked_at IS NOT NULL
      OR v_session.expires_at <= now() THEN
+
+    PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
     RETURN;  -- expired or revoked: indistinguishable from unknown
   END IF;
 
@@ -404,6 +421,8 @@ BEGIN
 
   RETURN QUERY SELECT v_session.id, v_session.user_id,
                       v_session.selected_tenant_id, false;
+
+  PERFORM set_config('app.auth_bootstrap', coalesce(v_prev, ''), true);
 END
 $$;
 
