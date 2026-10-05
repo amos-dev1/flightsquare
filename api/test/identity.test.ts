@@ -133,6 +133,59 @@ describe('identity', () => {
       expect(login.json().mfa_required).toBe(true);
     });
 
+    it('revokes the trusted devices too, not just the sessions', async () => {
+      /*
+        A reset is somebody regaining control, and a trusted device skips the
+        second factor — so leaving one live would mean the one machine that
+        still gets in without a code is whichever the attacker was using.
+      */
+      const remembered = await signInFully(app, club.email, 'a brand new passphrase', {
+        rememberDevice: true,
+      });
+      expect(remembered.statusCode).toBe(200);
+      const deviceToken = remembered.body.device_token!;
+
+      // It works, before the reset.
+      const before = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: {
+          email: club.email,
+          password: 'a brand new passphrase',
+          device_token: deviceToken,
+        },
+      });
+      expect(before.json().mfa_required).toBe(false);
+
+      await app.inject({
+        method: 'POST',
+        url: '/auth/password-reset/request',
+        payload: { email: club.email },
+      });
+      const message = (await readOutbox(club.email))
+        .filter((m) => m.kind === 'password_reset')
+        .at(-1)!;
+      const reset = await app.inject({
+        method: 'POST',
+        url: '/auth/password-reset',
+        payload: { token: tokenFrom(message.body), password: 'one more passphrase entirely' },
+      });
+      expect(reset.statusCode).toBe(200);
+
+      // And now it does not. The device is asked for a code like any other.
+      const after = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: {
+          email: club.email,
+          password: 'one more passphrase entirely',
+          device_token: deviceToken,
+        },
+      });
+      expect(after.statusCode).toBe(200);
+      expect(after.json().mfa_required).toBe(true);
+    });
+
     it('refuses a token issued for a different purpose', async () => {
       await app.inject({
         method: 'POST',

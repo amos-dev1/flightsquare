@@ -168,6 +168,27 @@ export async function accountRoutes(
           .where('user_id', '=', userId)
           .where('revoked_at', 'is', null)
           .execute();
+
+        /*
+          And every trusted device, for the same reason.
+
+          A reset is somebody regaining control of an account, and a trusted
+          device is a credential that skips the second factor — so leaving one
+          live would mean the one machine that still gets in without a code is
+          whichever one the attacker was already using. The risk is narrow,
+          because trusting a device needs the email as well as the password, but
+          "narrow" is the wrong standard for the path somebody takes *because*
+          they think they have been compromised.
+
+          A revocation rather than a delete (§10): "this laptop was trusted from
+          March to June" is exactly the question asked afterwards.
+        */
+        await trx
+          .updateTable('trusted_devices')
+          .set({ revoked_at: new Date() })
+          .where('user_id', '=', userId)
+          .where('revoked_at', 'is', null)
+          .execute();
       });
 
       return reply.status(200).send({ status: 'reset' });

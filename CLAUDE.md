@@ -193,7 +193,7 @@ If a task seems to need a twelfth, the first question is whether the caller coul
 1. **It takes no `tenant_id`.** It can only ever create a new tenant, never reach into an existing one. This is what keeps a write door as narrow as a read one, and it is asserted from the catalog rather than by reading the body.
 2. **It inserts, and never updates or deletes.** Nothing that already exists changes.
 3. **Any user id it is handed must equal `app.current_user_id()`.** Otherwise anyone could create a tenant and drop a stranger's account into it as Admin. Checked in the database, not promised by the API.
-4. **It is the only `VOLATILE` function in the schema.** That makes "did anything else in here learn to write?" a one-line catalog query, and a read function that quietly becomes volatile is a review failure rather than a mystery.
+4. **It writes, and the writers are enumerated.** `db/tests/030` asserts exactly which functions in `auth` are non-`STABLE` — `provision_tenant`, `request_email_token`, `consume_auth_token` and `consume_refresh_token` — so "did anything else in here learn to write?" is a one-line catalog query, and a read function that quietly becomes volatile is a review failure rather than a mystery. (This clause once said `provision_tenant` was the *only* volatile function; `0009`'s email tokens made that untrue the day they landed, and the test has been the accurate record since.)
 
 Abuse is the API's problem, not the policy's: nothing stops `app_role` calling it in a loop, so signup is rate limited at the boundary (429 — and §1.6 is explicit that 429 is not a quota).
 
@@ -787,6 +787,29 @@ Mobile dev:     npx expo start          (from mobile/)
 **Impersonation: deferred, with the seam kept open** (2026-09-20). Not built in v1 — §7.2's time-boxed, logged, tenant-consented content grant covers the actual support need. But §7.5's warning about retrofitting a second session type binds: **the sessions table carries a `session_type` discriminator and the audit log carries an acting-admin column from the migration that creates them**, even though only one value of each is ever written today.
 
 **FlightSquare produces statements; it does not move members' money** (2026-09-21). §3.7's ledger records what a pilot owes their club and what they have paid, and a treasurer settles it by cheque, transfer or cash at the hangar — a payment recorded as an adjustment. Processing pilot payments would mean platform accounts, refunds, chargebacks and tax reporting, which is a different product. The ledger is shaped so recorded payments could become real ones without restructuring. Platform billing (§8.3) is the only money the product moves, it is the tenant's subscription, and it is Stripe on the web.
+
+**Email MFA is mandatory, and no door was added for it** (2026-10-04). Every
+sign-in needs a six-digit code unless the device has passed one in the last
+thirty days. `users.mfa_enabled` defaults true with no grant that could set it
+false, so "mandatory" is the default plus the absence of a door rather than a
+constant in a route. The code reuses `auth.request_email_token` and
+`auth.consume_auth_token` — §2.1 stays a closed list of **eleven** — with the
+six digits hashed together with a 32-byte challenge id, because
+`auth_tokens.token_hash` is UNIQUE and two users drawing the same code would
+otherwise collide and be able to spend each other's.
+
+**No session row exists between the password and the code.** A `sessions` row
+flagged pending would be tidier and one forgotten guard away from a
+password-only login, since every request path would have to refuse it. Nothing
+to authenticate with is a thing no path can forget. `/auth/mfa` is rate limited
+per *challenge* rather than per IP: whoever is at that step has already passed a
+password check, so the thing worth limiting is guesses against that attempt.
+
+`trusted_devices` is what makes this usable rather than resented (§3.4): a pilot
+at a tiedown with one bar must not need an email to log the flight they just
+made. User-scoped (§3.1), hash never token, no DELETE, and neither expiry nor
+token updatable. A password reset revokes them along with the sessions, because
+that is the path somebody takes when they think they have been compromised.
 
 **A removal does not return the bytes** (2026-10-02). Records (SPEC Phase 2)
 made `storage.bytes` the only limit on attachments and aircraft documents, and
