@@ -150,11 +150,15 @@ export class FlightSquareStack extends cdk.Stack {
       /*
         Dev may cross a major version; prod may not without someone deciding to.
 
-        Not what moves this instance to 18.6 — `cdk diff` shows a replacement,
-        because the subnet group forces one. It is here for the next time: a dev
-        database that cannot follow the engine version is a dev database that
-        stops matching prod. Prod stays false, where a major upgrade should be a
-        decision with a maintenance window attached.
+        This is what moved the dev instance from 16.4 to 18.6. `cdk diff`
+        predicted a replacement — the subnet group looked like it forced one —
+        and CloudFormation did an in-place major upgrade instead: the instance
+        reported `upgrading 16.4` and came back `available 18.6`. Without this
+        flag that update would have been refused.
+
+        Left on for dev: a database that cannot follow the engine version is a
+        database that stops matching prod. Prod stays false, where a major
+        upgrade should be a decision with a maintenance window attached.
       */
       allowMajorVersionUpgrade: !isProd,
       backupRetention: cdk.Duration.days(isProd ? 14 : 1),
