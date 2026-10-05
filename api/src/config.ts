@@ -212,6 +212,16 @@ export const config = {
     login: { max: int('FS_RATE_LIMIT_LOGIN_MAX', 10), timeWindow: '5 minutes' },
     refresh: { max: int('FS_RATE_LIMIT_REFRESH_MAX', 60), timeWindow: '5 minutes' },
     /**
+     * Guesses against one MFA challenge, keyed on the challenge rather than on
+     * the caller's address.
+     *
+     * Somebody here has already passed a password check — that is what the
+     * second factor is for — so what needs limiting is attempts against *this*
+     * attempt. Five of a million, and then the challenge is spent whether or
+     * not it was ever right.
+     */
+    mfa: { max: int('FS_RATE_LIMIT_MFA_MAX', 5), timeWindow: '10 minutes' },
+    /**
      * The webhook is unauthenticated in the session sense — anyone can POST
      * at it, and the signature is what decides whether it is listened to.
      * Generous, because a real provider retries in bursts and a dropped

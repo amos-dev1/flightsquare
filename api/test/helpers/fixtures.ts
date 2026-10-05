@@ -67,6 +67,81 @@ export async function readOutbox(
 }
 
 /**
+ * Sign in all the way, which since 0039 means two steps.
+ *
+ * Every suite that used to post a password and get a token pair now gets a
+ * challenge instead, because MFA is mandatory for everybody and a test user is
+ * no exception — exempting one would be §1.3's branching on identity, wearing a
+ * lab coat.
+ *
+ * So this does what a person does: posts the password, finds the code in the
+ * outbox (as the privileged role, because `app_role` cannot read the bodies),
+ * and spends it. The six digits are pulled out of the subject line, which is
+ * where `mfaCodeEmail` puts them so a phone's notification shows the code
+ * without opening anything.
+ */
+export async function signInFully(
+  app: { inject: (opts: Record<string, unknown>) => Promise<{ statusCode: number; json: () => any }> },
+  email: string,
+  password: string,
+  options: { rememberDevice?: boolean; deviceToken?: string } = {},
+): Promise<{
+  statusCode: number;
+  body: {
+    access_token?: string;
+    refresh_token?: string;
+    device_token?: string;
+    memberships?: unknown[];
+  };
+}> {
+  const first = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: {
+      email,
+      password,
+      ...(options.deviceToken ? { device_token: options.deviceToken } : {}),
+    },
+  });
+
+  // A trusted device, or a refusal. Either way there is no code to find.
+  if (first.statusCode !== 200 || first.json().mfa_required !== true) {
+    return { statusCode: first.statusCode, body: first.json() };
+  }
+
+  const code = await latestMfaCode(email);
+  if (!code) throw new Error(`no MFA code was queued for ${email}`);
+
+  const second = await app.inject({
+    method: 'POST',
+    url: '/auth/mfa',
+    payload: {
+      challenge_id: first.json().challenge_id,
+      code,
+      ...(options.rememberDevice ? { remember_device: true } : {}),
+    },
+  });
+  return { statusCode: second.statusCode, body: second.json() };
+}
+
+/** The six digits from the newest code queued for an address. */
+export async function latestMfaCode(email: string): Promise<string | null> {
+  const pool = privilegedPool();
+  try {
+    const { rows } = await pool.query<{ subject: string }>(
+      `SELECT subject FROM outbox
+        WHERE to_email = $1 AND kind = 'mfa_code'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+      [email],
+    );
+    return rows[0]?.subject.match(/(\d{6})/)?.[1] ?? null;
+  } finally {
+    await pool.end();
+  }
+}
+
+/**
  * Read what the application is not allowed to write.
  *
  * `tenants.plan_code` and `tenants.status` carry no grant for app_role, and
@@ -347,6 +422,8 @@ export async function cleanupTestTenants(): Promise<void> {
     );
     // auth_tokens point at users; the outbox points at nothing and is keyed
     // by address, so it is cleared by the same pattern.
+    // Trusted devices point at users, like auth_tokens do (0039).
+    await adminPool.query(`DELETE FROM trusted_devices WHERE user_id IN (${users})`);
     await adminPool.query(`DELETE FROM auth_tokens WHERE user_id IN (${users})`);
     await adminPool.query(`DELETE FROM outbox WHERE to_email LIKE '%@vitest.test'`);
     await adminPool.query(`DELETE FROM users WHERE email LIKE '%@vitest.test'`);

@@ -159,13 +159,74 @@ export interface MembershipSummaryResponse {
  * and lives on the session row, so which tenant a request acts in is always
  * something the server resolved rather than something the client sent (§1.1).
  */
-export interface LoginResponse {
+export interface SessionGranted {
+  mfa_required: false;
   access_token: string;
   refresh_token: string;
   expires_at: string;
-  mfa_required: boolean;
   /** So a client can render the picker without a second round trip. */
   memberships: MembershipSummaryResponse[];
+  /**
+   * Present only when the client asked to be remembered and a code was just
+   * accepted. Store it; it is never returned again, like a refresh token.
+   */
+  device_token?: string;
+  device_token_expires_at?: string;
+}
+
+/**
+ * The password was right and that is not enough.
+ *
+ * **No tokens.** Nothing exists to authenticate with until the code is
+ * accepted, which is the fail-closed half of the design: a half-authenticated
+ * session row would mean every request path had to remember to refuse it, and
+ * one that forgot would be a password-only login (§1.1's reasoning, applied to
+ * sessions).
+ */
+export interface MfaRequired {
+  mfa_required: true;
+  /**
+   * The attempt this code belongs to. 32 random bytes, handed to this caller
+   * only, and the salt the code is stored under — so a code is worth nothing
+   * without it and two users drawing the same six digits cannot collide.
+   */
+  challenge_id: string;
+  expires_at: string;
+  /** Where the code went, obfuscated, so somebody can tell which inbox to open. */
+  sent_to: string;
+}
+
+/**
+ * A discriminated union, so the two cases cannot be confused.
+ *
+ * The old shape had `mfa_required` beside a token pair that was handed over
+ * regardless — which is how a flag sits in a codebase for thirty-nine
+ * migrations doing nothing. A caller now has to look at it to find the fields
+ * it wants.
+ */
+export type LoginResponse = SessionGranted | MfaRequired;
+
+/** Spending a code. The challenge is the attempt it belongs to. */
+export interface VerifyMfaRequest {
+  challenge_id: string;
+  code: string;
+  /**
+   * Remember this device for thirty days, so the next sign-in needs no code.
+   *
+   * Opt-in per sign-in rather than assumed: a shared club laptop is exactly
+   * where it should not happen, and the person in front of it is the only one
+   * who knows which this is.
+   */
+  remember_device?: boolean;
+}
+
+/** One device that may currently skip a code. */
+export interface TrustedDeviceResponse {
+  id: string;
+  client: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string;
 }
 
 export interface RefreshResponse {

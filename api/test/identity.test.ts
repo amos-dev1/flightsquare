@@ -11,6 +11,7 @@ import {
   readOutbox,
   setPlan,
   uniqueEmail,
+  signInFully,
 } from './helpers/fixtures.js';
 
 const SESSION_ID = '01920000-0000-7000-8000-0000000000d0';
@@ -121,12 +122,15 @@ describe('identity', () => {
       expect(second.statusCode).toBe(404);
 
       // The new password works, and that is also the proof the hash changed.
+      // Only the first step is needed to prove it: a challenge means the
+      // password was accepted, which is the whole assertion.
       const login = await app.inject({
         method: 'POST',
         url: '/auth/login',
         payload: { email: club.email, password: 'a brand new passphrase' },
       });
       expect(login.statusCode).toBe(200);
+      expect(login.json().mfa_required).toBe(true);
     });
 
     it('refuses a token issued for a different purpose', async () => {
@@ -226,14 +230,12 @@ describe('identity', () => {
       expect(accepted.statusCode).toBe(201);
       expect(accepted.json().email).toBe(invitedEmail);
 
-      // They can sign in as themselves now, with exactly one membership.
-      const login = await app.inject({
-        method: 'POST',
-        url: '/auth/login',
-        payload: { email: invitedEmail, password: 'the passphrase dave picked' },
-      });
+      // They can sign in as themselves now, with exactly one membership —
+      // through both steps, because MFA is mandatory and a new member is no
+      // exception (0039).
+      const login = await signInFully(app, invitedEmail, 'the passphrase dave picked');
       expect(login.statusCode).toBe(200);
-      expect(login.json().memberships).toHaveLength(1);
+      expect(login.body.memberships).toHaveLength(1);
 
       asAdmin();
       const members = await app.inject({ method: 'GET', url: '/members' });

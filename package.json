@@ -32,7 +32,8 @@
     "test:db": "./scripts/test.sh",
     "test:api": "vitest run --project api",
     "seed": "./scripts/seed-demo.sh",
-    "seed:club": "tsx scripts/seed-club.ts"
+    "seed:club": "tsx scripts/seed-club.ts",
+    "code": "./scripts/code.sh"
   },
   "devDependencies": {
     "vitest": "^5.0.1"

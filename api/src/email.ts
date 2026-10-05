@@ -27,7 +27,8 @@ export type OutboxKind =
   | 'booking_cancelled'
   | 'squawk_filed'
   | 'maintenance_due'
-  | 'over_quota';
+  | 'over_quota'
+  | 'mfa_code';
 
 export interface RenderedEmail {
   subject: string;
@@ -66,6 +67,34 @@ export function passwordResetEmail(token: string): RenderedEmail {
       // people over what is usually their own mistyped password, and there
       // is nothing for them to do about it either way.
       "If you didn't ask for this, nothing has changed and you can ignore it.",
+    ].join('\n'),
+  };
+}
+
+/**
+ * The login code.
+ *
+ * No link, and that is the point of it. Every other credential email here
+ * carries a URL because the URL *is* the token; this one carries six digits a
+ * person types into the app they are already standing in front of. A link would
+ * be a second way in, and a second way in is a second thing to phish.
+ *
+ * It does say what to do if it was not them — unlike the reset email, which
+ * deliberately does not. The difference is that an unexpected reset is usually
+ * your own mistyped password, while an unexpected *code* means somebody got
+ * through a password check, and there is something to do about that.
+ */
+export function mfaCodeEmail(input: { code: string; minutes: number }): RenderedEmail {
+  return {
+    subject: `Your FlightSquare sign-in code: ${input.code}`,
+    body: [
+      `Your sign-in code is ${input.code}`,
+      '',
+      `It works once, and expires in ${input.minutes} minutes.`,
+      '',
+      'If you did not just try to sign in, somebody else may know your',
+      'password. Change it and this code becomes worthless — signing in',
+      'needs both.',
     ].join('\n'),
   };
 }

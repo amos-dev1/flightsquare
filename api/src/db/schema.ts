@@ -991,6 +991,27 @@ export interface FlightFuelTable {
 }
 
 /** §3.8: a pointer into object storage. The bytes are never in the database. */
+/**
+ * A device that has passed an email code and may skip the next one (0039).
+ *
+ * Keyed to a user rather than a tenant: one human has one login and many
+ * memberships (§3.1), and the device is theirs across all of them. The hash is
+ * stored, never the token — what the device holds is a bearer credential that
+ * skips a factor.
+ */
+export interface TrustedDevicesTable {
+  id: Generated<string>;
+  user_id: string;
+  token_hash: string;
+  /** 'ios' or 'web', so a person can recognise their own device in a list. */
+  client: string | null;
+  expires_at: Timestamp;
+  /** Stopped trusting it. A status, not a delete — no DELETE grant exists. */
+  revoked_at: Timestamp | null;
+  last_used_at: Timestamp | null;
+  created_at: Generated<Timestamp>;
+}
+
 export interface AttachmentsTable {
   id: Generated<string>;
   tenant_id: string;
@@ -1090,6 +1111,7 @@ export interface Database {
   flights: FlightsTable;
   flight_meters: FlightMetersTable;
   attachments: AttachmentsTable;
+  trusted_devices: TrustedDevicesTable;
   aircraft_documents: AircraftDocumentsTable;
   flight_fuel: FlightFuelTable;
   idempotency_keys: IdempotencyKeysTable;

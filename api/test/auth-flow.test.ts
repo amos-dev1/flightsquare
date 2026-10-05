@@ -5,7 +5,13 @@ import { closeDatabase } from '../src/db/pool.js';
 import { hashPassword } from '../src/password.js';
 import { provisionTenantForNewUser } from '../src/db/auth.js';
 import { buildServer } from '../src/http/server.js';
-import { cleanupTestTenants, uniqueEmail, uniqueSlug } from './helpers/fixtures.js';
+import {
+  cleanupTestTenants,
+  latestMfaCode,
+  signInFully,
+  uniqueEmail,
+  uniqueSlug,
+} from './helpers/fixtures.js';
 
 const PASSWORD = 'correct horse battery staple';
 
@@ -40,7 +46,18 @@ describe('authentication', () => {
     tenantId = provisioned.tenant_id;
     userId = provisioned.user_id;
 
-    app = buildServer();
+    /*
+      A generous login limit for this suite, because a sign-in is two requests
+      now and these tests make a dozen of them from one address. The real limit
+      is not untested — "answers 429, in the documented shape" below builds its
+      own server with a limit of one and proves exactly that.
+    */
+    app = buildServer({
+      rateLimits: {
+        login: { max: 200, timeWindow: '5 minutes' },
+        mfa: { max: 200, timeWindow: '5 minutes' },
+      },
+    });
     await app.ready();
   });
 
@@ -48,26 +65,51 @@ describe('authentication', () => {
     await app.close();
   });
 
+  /** Both steps, because since 0039 a password is half of a sign-in. */
   async function login(): Promise<{ access: string; refresh: string }> {
-    const response = await app.inject({
-      method: 'POST',
-      url: '/auth/login',
-      payload: { email, password: PASSWORD },
-    });
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
-    return { access: body.access_token, refresh: body.refresh_token };
+    const result = await signInFully(app, email, PASSWORD);
+    expect(result.statusCode).toBe(200);
+    return { access: result.body.access_token!, refresh: result.body.refresh_token! };
   }
 
-  it('signs in and hands back the tenants to pick from', async () => {
-    const response = await app.inject({
+  it('asks for a code before it hands over anything, and then hands it over', async () => {
+    const challenged = await app.inject({
       method: 'POST',
       url: '/auth/login',
       payload: { email, password: PASSWORD },
     });
 
-    expect(response.statusCode).toBe(200);
-    const body = response.json();
+    expect(challenged.statusCode).toBe(200);
+    const pending = challenged.json();
+
+    /*
+      The password was right and that is deliberately not enough.
+
+      **No tokens in this response at all**, which is the fail-closed half of
+      the design: there is nothing to authenticate with until the code is
+      accepted, so no request path has to remember to refuse a half-made
+      session.
+    */
+    expect(pending.mfa_required).toBe(true);
+    expect(pending.challenge_id).toEqual(expect.any(String));
+    expect(pending.access_token).toBeUndefined();
+    expect(pending.refresh_token).toBeUndefined();
+    // Enough to know which inbox to open, not enough to learn the address.
+    expect(pending.sent_to).toContain('@');
+    expect(pending.sent_to).not.toBe(email);
+
+    const code = await latestMfaCode(email);
+    expect(code).toMatch(/^\d{6}$/);
+
+    const granted = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa',
+      payload: { challenge_id: pending.challenge_id, code },
+    });
+
+    expect(granted.statusCode).toBe(200);
+    const body = granted.json();
+    expect(body.mfa_required).toBe(false);
     expect(body.access_token).toEqual(expect.any(String));
     expect(body.refresh_token).toEqual(expect.any(String));
     expect(body.memberships).toHaveLength(1);
@@ -75,6 +117,88 @@ describe('authentication', () => {
 
     // The tokens themselves must never come back out of the database.
     expect(body.access_token).not.toMatch(/^sha256:/);
+
+    // And the code is spent. A second attempt with it is not a second session.
+    const replayed = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa',
+      payload: { challenge_id: pending.challenge_id, code },
+    });
+    expect(replayed.statusCode).toBe(401);
+  });
+
+  it('answers every kind of wrong code identically', async () => {
+    const challenged = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: PASSWORD },
+    });
+    const challengeId = challenged.json().challenge_id as string;
+
+    const wrongCode = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa',
+      payload: { challenge_id: challengeId, code: '000000' },
+    });
+    const unknownChallenge = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa',
+      payload: { challenge_id: 'a'.repeat(43), code: '123456' },
+    });
+
+    expect(wrongCode.statusCode).toBe(401);
+    expect(unknownChallenge.statusCode).toBe(401);
+    // Byte-equal, for the same reason login's two failures are: the difference
+    // is what somebody working through six digits wants to learn.
+    expect(wrongCode.json()).toEqual(unknownChallenge.json());
+    expect(wrongCode.json()).toEqual({ error: 'unauthorized' });
+  });
+
+  it('remembers a device, and the device skips the code next time', async () => {
+    /*
+      The thing that makes mandatory MFA usable in this product (§3.4): a pilot
+      at a tiedown must not need an email to log the flight they just made.
+    */
+    const remembered = await signInFully(app, email, PASSWORD, { rememberDevice: true });
+    expect(remembered.statusCode).toBe(200);
+    const deviceToken = remembered.body.device_token;
+    expect(deviceToken).toEqual(expect.any(String));
+
+    // Straight through, no challenge.
+    const direct = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: PASSWORD, device_token: deviceToken },
+    });
+    expect(direct.statusCode).toBe(200);
+    expect(direct.json().mfa_required).toBe(false);
+    expect(direct.json().access_token).toEqual(expect.any(String));
+
+    // And it vouches for nobody else. The token is checked against the user,
+    // so one lifted from an account is worth nothing against another.
+    const otherEmail = uniqueEmail('mfa-other');
+    await provisionTenantForNewUser({
+      slug: uniqueSlug('mfa-other'),
+      name: 'Other Air',
+      email: otherEmail,
+      passwordHash: await hashPassword(PASSWORD),
+    });
+    const borrowed = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: otherEmail, password: PASSWORD, device_token: deviceToken },
+    });
+    expect(borrowed.statusCode).toBe(200);
+    expect(borrowed.json().mfa_required).toBe(true);
+
+    // A password that is wrong is still wrong on a trusted device: the device
+    // skips the second factor, never the first.
+    const wrongPassword = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email, password: 'not the password', device_token: deviceToken },
+    });
+    expect(wrongPassword.statusCode).toBe(401);
   });
 
   it('answers a wrong password and an unknown address identically', async () => {

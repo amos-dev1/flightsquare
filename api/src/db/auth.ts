@@ -52,7 +52,19 @@ export interface Credential {
   password_hash: string | null;
   mfa_enabled: boolean;
   status: string;
+  /** Whether the device token the caller presented is live for this user. */
+  device_trusted: boolean;
 }
+
+/**
+ * The kinds of single-use token that arrive by email.
+ *
+ * `mfa_code` is the third and the odd one out: the other two carry a link,
+ * because the link is the token. A login code is six digits salted with a
+ * challenge id, so what lands in `auth_tokens.token_hash` is a hash of both and
+ * the code alone is worth nothing (0039).
+ */
+export type EmailTokenKind = 'email_verification' | 'password_reset' | 'mfa_code';
 
 /**
  * Credential check.
@@ -61,10 +73,21 @@ export interface Credential {
  * must answer the client identically either way. This function is an
  * account-existence oracle if the code above it lets it be.
  */
-export async function findUserByEmail(email: string): Promise<Credential | null> {
+export async function findUserByEmail(
+  email: string,
+  /**
+   * The hash of whatever device token the caller presented, if any.
+   *
+   * Read here rather than in a lookup of its own because there is no user
+   * context yet to read it under, and because it is one decision: this
+   * address, this hash, is a second factor needed, and has this device already
+   * given one.
+   */
+  deviceTokenHash?: string | null,
+): Promise<Credential | null> {
   const { rows } = await sql<Credential>`
-    SELECT user_id, password_hash, mfa_enabled, status
-      FROM auth.find_user_by_email(${email})
+    SELECT user_id, password_hash, mfa_enabled, status, device_trusted
+      FROM auth.find_user_by_email(${email}, ${deviceTokenHash ?? null})
   `.execute(db);
   return rows[0] ?? null;
 }
@@ -120,7 +143,7 @@ export async function resolveInviteToken(tokenHash: string): Promise<ResolvedInv
  */
 export async function requestEmailToken(input: {
   email: string;
-  kind: 'email_verification' | 'password_reset';
+  kind: EmailTokenKind;
   tokenHash: string;
   expiresAt: Date;
   subject: string;
@@ -138,7 +161,7 @@ export async function requestEmailToken(input: {
  * is unknown, already spent, expired, or of the wrong kind.
  */
 export async function consumeAuthToken(
-  kind: 'email_verification' | 'password_reset',
+  kind: EmailTokenKind,
   tokenHash: string,
 ): Promise<string | null> {
   const { rows } = await sql<{ user_id: string | null }>`

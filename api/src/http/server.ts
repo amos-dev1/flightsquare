@@ -67,7 +67,7 @@ export interface ServerOptions {
    */
   resolveSession?: RequestContextOptions['resolveSession'];
   /** Override the configured limits, so a test can provoke a 429 deliberately. */
-  rateLimits?: Partial<Record<'signup' | 'login' | 'refresh', RateLimitRule>>;
+  rateLimits?: Partial<Record<'signup' | 'login' | 'refresh' | 'mfa', RateLimitRule>>;
 }
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
