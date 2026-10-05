@@ -193,6 +193,7 @@ BEGIN
                             'tenant_entitlement_overrides.tenant_isolation',
                             'tenant_usage.tenant_isolation',
                             'tenants.tenant_isolation',
+                            'trusted_devices.user_isolation',
                             'users.tenant_visibility',
                             'users.user_self_write',
                             'work_orders.tenant_isolation']::text[] THEN
@@ -450,7 +451,10 @@ BEGIN
     END IF;
   END LOOP;
 
-  FOREACH t IN ARRAY ARRAY['invites', 'refresh_tokens', 'device_registrations'] LOOP
+  -- `trusted_devices` joins them: which laptops somebody signs in from answers
+  -- no support ticket, and it is a list of credentials that skip a factor.
+  FOREACH t IN ARRAY ARRAY['invites', 'refresh_tokens', 'device_registrations',
+                           'trusted_devices'] LOOP
     IF has_table_privilege('admin_role', 'public.' || t, 'SELECT') THEN
       RAISE EXCEPTION 'admin_role can read % — not in the §7.2 metadata tier', t;
     END IF;

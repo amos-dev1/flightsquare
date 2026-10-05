@@ -78,7 +78,7 @@ BEGIN
   -- being a role rather than a grant on one that already exists.
   FOREACH t IN ARRAY ARRAY['tenants', 'users', 'memberships', 'flights',
                            'squawks', 'flight_charges', 'auth_tokens',
-                           'sessions', 'subscriptions'] LOOP
+                           'sessions', 'subscriptions', 'trusted_devices'] LOOP
     IF has_table_privilege('mail_role', 'public.' || t, 'SELECT') THEN
       RAISE EXCEPTION 'mail_role can read % — it sends email', t;
     END IF;

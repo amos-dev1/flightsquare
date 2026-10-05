@@ -166,14 +166,22 @@ VALUES
    'charlie.flightsquare.test', 'closed', 'solo', 'free', 'cus_charlie',
    '{}'::jsonb, now());
 
-INSERT INTO public.users (id, email, password_hash, mfa_enabled, status)
+/*
+  `mfa_enabled` is left to its default, which is now true for everybody (0039).
+
+  It used to be stated per row — false, true, false — back when the column
+  defaulted to false and the mixture was the interesting thing about it. Stating
+  it now would be a fixture quietly describing a world the product no longer
+  has, and `180_mfa` asserts that nobody is without a second factor.
+*/
+INSERT INTO public.users (id, email, password_hash, status)
 VALUES
   ('01920000-0000-7000-8000-0000000000a1', 'alice@alpha.test',
-   'argon2id$fixture$alice', false, 'active'),
+   'argon2id$fixture$alice', 'active'),
   ('01920000-0000-7000-8000-0000000000b1', 'bob@bravo.test',
-   'argon2id$fixture$bob', true, 'active'),
+   'argon2id$fixture$bob', 'active'),
   ('01920000-0000-7000-8000-0000000000c1', 'carol@example.test',
-   'argon2id$fixture$carol', false, 'active');
+   'argon2id$fixture$carol', 'active');
 
 -- Role bundles, and memberships that point at them.
 --
