@@ -673,6 +673,7 @@
     "MaxAllocatedStorage": 50,
     "MultiAZ": false,
     "PubliclyAccessible": false,
+    "StorageEncrypted": true,
     "StorageType": "gp3",
     "VPCSecurityGroups": [
      {

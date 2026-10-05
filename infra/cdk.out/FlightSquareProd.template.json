@@ -674,6 +674,7 @@
     "MultiAZ": true,
     "PerformanceInsightsRetentionPeriod": 7,
     "PubliclyAccessible": false,
+    "StorageEncrypted": true,
     "StorageType": "gp3",
     "VPCSecurityGroups": [
      {

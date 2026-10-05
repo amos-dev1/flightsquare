@@ -110,6 +110,14 @@ export class FlightSquareStack extends cdk.Stack {
       allocatedStorage: 20,
       maxAllocatedStorage: isProd ? 200 : 50,
       storageType: rds.StorageType.GP3,
+      // Encrypted at rest, with the default aws/rds key.
+      //
+      // Set now because it cannot be set later: enabling encryption on an
+      // existing instance means snapshot, copy-with-encryption, restore and
+      // repoint. Free on gp3, and this database holds member personal data and
+      // the compliance records §7.2 describes as discoverable after an
+      // accident.
+      storageEncrypted: true,
       databaseName: 'flightsquare',
       // The master user IS the DDL/migration owner from CLAUDE.md §9.
       credentials: rds.Credentials.fromGeneratedSecret('fsowner', {
