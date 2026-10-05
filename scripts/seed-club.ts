@@ -177,17 +177,55 @@ async function anon<T>(method: string, path: string, body?: unknown): Promise<T>
  * memberships, and the server resolves it.
  */
 async function signIn(email: string, password: string, label: string): Promise<Session> {
-  const login = await anon<{
-    access_token: string;
-    memberships: { tenant_id: string }[];
-  }>('POST', '/auth/login', { email, password });
+  type Granted = { access_token: string; memberships: { tenant_id: string }[] };
+  type Pending = { mfa_required: true; challenge_id: string };
 
-  const tenantId = login.memberships[0]?.tenant_id;
+  let login = await anon<Granted | Pending>('POST', '/auth/login', { email, password });
+
+  /*
+    MFA is mandatory for everybody (0039), and a seeded member is no exception —
+    exempting one would be §1.3's branching on tenant identity with a different
+    hat on.
+  *
+    So this does what a person does: finds the code and spends it. It can,
+    because it already holds the owner pool for the handful of things the API
+    deliberately will not do; `app_role` cannot read the outbox at all, which is
+    the point of that table's grants.
+  */
+  if ('mfa_required' in login && login.mfa_required) {
+    const code = await latestMfaCode(email);
+    if (!code) throw new Error(`no sign-in code was queued for ${email}`);
+    login = await anon<Granted>('POST', '/auth/mfa', {
+      challenge_id: login.challenge_id,
+      code,
+    });
+  }
+
+  const granted = login as Granted;
+  const tenantId = granted.memberships[0]?.tenant_id;
   if (!tenantId) throw new Error(`${email} has no membership to select`);
 
-  const session = new Session(label, login.access_token);
+  const session = new Session(label, granted.access_token);
   await session.call('POST', '/auth/tenant', { tenant_id: tenantId });
   return session;
+}
+
+/**
+ * The six digits from the newest code queued for an address.
+ *
+ * Read out of the subject line, which is where `mfaCodeEmail` puts them so a
+ * phone's notification shows the code without opening anything — and which
+ * makes it the one field worth parsing.
+ */
+async function latestMfaCode(email: string): Promise<string | null> {
+  const { rows } = await owner.query<{ subject: string }>(
+    `SELECT subject FROM public.outbox
+      WHERE kind = 'mfa_code' AND lower(to_email) = lower($1)
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1`,
+    [email],
+  );
+  return rows[0]?.subject.match(/(\d{6})/)?.[1] ?? null;
 }
 
 /**

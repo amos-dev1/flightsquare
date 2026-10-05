@@ -48,3 +48,36 @@ export async function writeSession(session: StoredSession): Promise<void> {
 export async function clearSession(): Promise<void> {
   (await cookies()).delete(SESSION_COOKIE);
 }
+
+/**
+ * The remembered-device token, in its own cookie.
+ *
+ * Separate from the session because it outlives it: that is what a remembered
+ * device *is*, and `clearSession` deliberately leaves it alone. Signing out
+ * says "not me right now", not "this browser is no longer mine".
+ *
+ * httpOnly like the session, and for a sharper reason — it is a credential that
+ * skips a factor, so script on the page must not be able to read it.
+ */
+export const DEVICE_COOKIE = 'fs_device';
+
+export async function readDeviceToken(): Promise<string | null> {
+  return (await cookies()).get(DEVICE_COOKIE)?.value ?? null;
+}
+
+export async function writeDeviceToken(token: string): Promise<void> {
+  (await cookies()).set(DEVICE_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    // Matches the server's trust window. The row expires either way; this
+    // just stops the browser presenting one that cannot work.
+    maxAge: 30 * 24 * 60 * 60,
+  });
+}
+
+/** For "this was not me" — a different act from signing out. */
+export async function clearDeviceToken(): Promise<void> {
+  (await cookies()).delete(DEVICE_COOKIE);
+}

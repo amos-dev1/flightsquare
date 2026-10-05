@@ -4,7 +4,13 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 
 import { ApiError, apiFetch, messageFor } from '@/lib/api';
-import { clearSession, readSession, writeSession } from '@/lib/session';
+import {
+  clearSession,
+  readDeviceToken,
+  readSession,
+  writeDeviceToken,
+  writeSession,
+} from '@/lib/session';
 import { parseMoney } from '@/lib/money';
 import { zonedToInstant } from '@flightsquare/shared/time';
 import type {
@@ -61,7 +67,14 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
   try {
     result = await apiFetch<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({
+        email,
+        password,
+        // A browser that has passed a code before offers to skip the next
+        // one. Worth nothing on its own: checked against this user, and only
+        // after the password.
+        ...((await readDeviceToken()) ? { device_token: await readDeviceToken() } : {}),
+      }),
       token: '',
     });
   } catch (error) {
@@ -76,11 +89,24 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
     return { error: messageFor(error) };
   }
 
-  await writeSession({
-    accessToken: result.access_token,
-    refreshToken: result.refresh_token,
-    expiresAt: result.expires_at,
-  });
+  /*
+    The password was right and that is deliberately not enough (0039).
+
+    Nothing is written here — no session cookie, nothing to authenticate with —
+    because the server minted no session either. The challenge goes back into
+    the form's own state and the page becomes a code page.
+  */
+  if (result.mfa_required) {
+    return {
+      values: {
+        challenge_id: result.challenge_id,
+        sent_to: result.sent_to,
+        next: String(form.get('next') ?? ''),
+      },
+    };
+  }
+
+  await grantSession(result);
 
   const next = String(form.get('next') ?? '');
   const only = result.memberships.length === 1 ? result.memberships[0] : undefined;
@@ -102,6 +128,83 @@ export async function login(_state: FormState, form: FormData): Promise<FormStat
   // freshly in hand.
   const destination = /^\/[^/\\]/.test(next) ? next : '/aircraft';
   redirect(only ? destination : '/choose-tenant');
+}
+
+/**
+ * Spend the code, and only then hold a session.
+ *
+ * Reached from the same form the password was typed into: the challenge id
+ * travels in the form's state rather than in a URL, because a challenge in a
+ * query string is one in browser history, in a referrer, and in whatever
+ * copies the address bar.
+ */
+export async function verifyMfa(_state: FormState, form: FormData): Promise<FormState> {
+  const challengeId = String(form.get('challenge_id') ?? '');
+  const code = String(form.get('code') ?? '').trim();
+  const remember = form.get('remember_device') === 'on';
+  const next = String(form.get('next') ?? '');
+  // Kept so a wrong code leaves the page on the code step rather than
+  // throwing the person back to the password.
+  const values = { challenge_id: challengeId, sent_to: String(form.get('sent_to') ?? ''), next };
+
+  if (!/^\d{6}$/.test(code)) {
+    return { error: 'The code is six digits.', values };
+  }
+
+  let result: LoginResponse;
+  try {
+    result = await apiFetch<LoginResponse>('/auth/mfa', {
+      method: 'POST',
+      body: JSON.stringify({
+        challenge_id: challengeId,
+        code,
+        remember_device: remember,
+      }),
+      token: '',
+    });
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      // One sentence for wrong, spent and expired. The API makes no
+      // distinction either, because the difference is what somebody working
+      // through six digits wants to learn.
+      return { error: 'That code is not right, or it has expired.', values };
+    }
+    if (error instanceof ApiError && error.status === 429) {
+      return {
+        error: 'Too many attempts on this code. Start again to get a new one.',
+        values,
+      };
+    }
+    return { error: messageFor(error), values };
+  }
+
+  // The server only ever grants here; the guard is for the type.
+  if (result.mfa_required) return { error: 'Start again, please.', values };
+
+  await grantSession(result);
+
+  const only = result.memberships.length === 1 ? result.memberships[0] : undefined;
+  if (only) {
+    try {
+      await selectTenant(only.tenant_id);
+    } catch (error) {
+      if (error instanceof ApiError) redirect('/choose-tenant');
+      throw error;
+    }
+  }
+
+  const destination = /^\/[^/\\]/.test(next) ? next : '/aircraft';
+  redirect(only ? destination : '/choose-tenant');
+}
+
+/** Write what was granted: the session, and the device token if there is one. */
+async function grantSession(result: Extract<LoginResponse, { mfa_required: false }>): Promise<void> {
+  await writeSession({
+    accessToken: result.access_token,
+    refreshToken: result.refresh_token,
+    expiresAt: result.expires_at,
+  });
+  if (result.device_token) await writeDeviceToken(result.device_token);
 }
 
 export async function selectTenant(tenantId: string): Promise<void> {

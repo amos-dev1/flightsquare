@@ -22,6 +22,7 @@ import type {
   FlightResponse,
   FlightSummaryResponse,
   LoginResponse,
+  VerifyMfaRequest,
   CompletionResponse,
   CreateCompletionRequest,
   GroundingOverrideRequest,
@@ -128,8 +129,25 @@ export function createClient(options: ClientOptions) {
     request,
 
     // ---- pre-session ----------------------------------------------------
-    login: (email: string, password: string) =>
-      request<LoginResponse>('POST', '/auth/login', { email, password }, { anonymous: true }),
+    login: (email: string, password: string, deviceToken?: string | null) =>
+      request<LoginResponse>(
+        'POST',
+        '/auth/login',
+        // The device token, where this device has one. Worth nothing on its
+        // own: it is checked against this user and only after the password.
+        { email, password, ...(deviceToken ? { device_token: deviceToken } : {}) },
+        { anonymous: true },
+      ),
+
+    /**
+     * Spend the code and get the session.
+     *
+     * `remember_device` is asked per sign-in rather than assumed — a shared
+     * club laptop is exactly where it should not happen, and the person in
+     * front of it is the only one who knows which kind of machine this is.
+     */
+    verifyMfa: (input: VerifyMfaRequest) =>
+      request<LoginResponse>('POST', '/auth/mfa', input, { anonymous: true }),
     refresh: (refreshToken: string) =>
       request<RefreshResponse>(
         'POST',
