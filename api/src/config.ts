@@ -55,20 +55,69 @@ function parseMinimumVersions(raw: string | undefined): Record<string, string> {
   return out;
 }
 
+
+/**
+ * A role's credentials, as AWS Secrets Manager hands them over.
+ *
+ * The deployed API is given `APP_ROLE_SECRET`, whose value is the whole secret
+ * as JSON — `{"username":"app_role","password":"…"}` — because that is what
+ * App Runner's `environmentSecrets` and ECS's `secrets` both inject when no
+ * single JSON key is named. So this parses rather than assuming a connection
+ * string.
+ *
+ * Absent locally, where `docker compose` supplies the password through
+ * `FS_APP_PASSWORD` and the default below is the dev one. That is the whole
+ * reason this returns null rather than throwing: one code path, two
+ * environments, and no `NODE_ENV` branch deciding which.
+ *
+ * A malformed secret throws, and should: starting with the wrong credentials
+ * means the API either cannot connect or connects as something it should not
+ * be, and §1.2's failure mode is silent.
+ */
+function roleSecret(raw: string | undefined): { username: string; password: string } | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('APP_ROLE_SECRET is set but is not JSON');
+  }
+  const value = parsed as { username?: unknown; password?: unknown };
+  if (typeof value.username !== 'string' || typeof value.password !== 'string') {
+    throw new Error('APP_ROLE_SECRET must carry a username and a password');
+  }
+  return { username: value.username, password: value.password };
+}
+
+const appRole = roleSecret(process.env.APP_ROLE_SECRET);
+
 export const config = {
   http: {
     host: process.env.FS_API_HOST ?? '127.0.0.1',
     port: int('FS_API_PORT', 3000),
   },
   db: {
-    host: process.env.FS_DB_HOST ?? '127.0.0.1',
-    port: int('FS_DB_PORT', 5432),
-    database: process.env.FS_DB_NAME ?? 'flightsquare',
+    // `DB_HOST`/`DB_PORT`/`DB_NAME` are what the deployed stack sets; the
+    // `FS_`-prefixed ones are local. Deployed wins where both exist, because
+    // only one of them is ever set in a container.
+    host: process.env.DB_HOST ?? process.env.FS_DB_HOST ?? '127.0.0.1',
+    port: int('DB_PORT', int('FS_DB_PORT', 5432)),
+    database: process.env.DB_NAME ?? process.env.FS_DB_NAME ?? 'flightsquare',
     // §9: the application never runs migrations and never holds the owner's
-    // credentials. Startup asserts this is really what it connected as.
-    user: process.env.FS_DB_USER ?? 'app_role',
-    password: process.env.FS_APP_PASSWORD ?? 'app_dev_password',
+    // credentials. Startup asserts this is really what it connected as, which
+    // is the check that makes a copied secret loud instead of silent.
+    user: appRole?.username ?? process.env.FS_DB_USER ?? 'app_role',
+    password: appRole?.password ?? process.env.FS_APP_PASSWORD ?? 'app_dev_password',
     max: int('FS_DB_POOL_MAX', 10),
+    /**
+     * TLS to RDS, and none to a container on this machine.
+     *
+     * `PGSSLMODE=require` is what the stack sets. `rejectUnauthorized: false`
+     * is deliberate and is what `require` means in libpq: encrypt, but do not
+     * verify the chain. Verifying would need the RDS CA bundle in the image;
+     * worth doing, and a different change from making the thing deploy.
+     */
+    ssl: process.env.PGSSLMODE === 'require' ? { rejectUnauthorized: false } : undefined,
   },
   clients: {
     minimumVersions: parseMinimumVersions(process.env.FS_MIN_CLIENT_VERSIONS),

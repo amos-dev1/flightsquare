@@ -36,14 +36,69 @@ password_for() {
   esac
 }
 
+# Direct mode: a managed database reached over the network, not a container
+# on this machine.
+#
+# `DATABASE_URL` is how the deployed migration task is given the owner's
+# credentials, and Secrets Manager hands them over as the whole secret in JSON
+# — `{"username":…,"password":…,"host":…,"port":…,"dbname":…}` — not as a
+# libpq URL. The name is the stack's; the shape is AWS's.
+#
+# One login, several roles. The managed master is the only account with a
+# password here, so `psql_as <role>` connects as the master and asks the server
+# to become that role for the session. `current_user` then reports the role,
+# which is what every migration's opening guard checks, and objects are created
+# owned by it.
+fs_direct_mode() { [ -n "${DATABASE_URL:-}" ]; }
+
+fs_db_field() {
+  node -e '
+    const raw = process.env.DATABASE_URL ?? "";
+    let v;
+    try { v = JSON.parse(raw); } catch { 
+      console.error("DATABASE_URL is not JSON; expected a Secrets Manager secret");
+      process.exit(1);
+    }
+    const k = process.argv[1];
+    const out = v[k] ?? v[{dbname:"database"}[k] ?? k];
+    if (out === undefined) { console.error(`DATABASE_URL has no ${k}`); process.exit(1); }
+    process.stdout.write(String(out));
+  ' "$1"
+}
+
 # psql_as <role> [psql args...]   — SQL is fed on stdin.
 psql_as() {
   local role="$1"; shift
+
+  if fs_direct_mode; then
+    local master host port dbname
+    master="$(fs_db_field username)"
+    host="$(fs_db_field host)"
+    port="$(fs_db_field port)"
+    dbname="$(fs_db_field dbname)"
+
+    # Become the role unless it is already the login. `-c role=` is a server
+    # setting, so it survives every statement in the session without the
+    # migrations needing to know they are not connected directly.
+    local opts=""
+    [ "$role" != "$master" ] && opts="-c role=$role"
+
+    PGPASSWORD="$(fs_db_field password)" PGOPTIONS="$opts" \
+      psql -v ON_ERROR_STOP=1 -h "$host" -p "$port" -U "$master" -d "$dbname" "$@"
+    return
+  fi
+
   dc exec -T -e PGPASSWORD="$(password_for "$role")" db \
     psql -v ON_ERROR_STOP=1 -U "$role" -d "$FS_DB_NAME" "$@"
 }
 
 require_db() {
+  # Nothing to start, and no docker to ask. The connection either works or the
+  # first psql fails with a real error.
+  if fs_direct_mode; then
+    return 0
+  fi
+
   if ! dc ps --status running --services 2>/dev/null | grep -qx db; then
     echo "database is not running — start it with: docker compose up -d" >&2
     exit 1

@@ -9,6 +9,14 @@
 
 require_db
 
+# On a managed database the roles cannot be created by initdb, because there is
+# no initdb to hook. They are created here, first, by the one account that can
+# — and the step is idempotent, so a redeploy that changes nothing re-runs it
+# harmlessly.
+if fs_direct_mode; then
+  "$(dirname "$0")/roles.sh"
+fi
+
 psql_as "$OWNER_ROLE" -q <<'SQL'
 SET client_min_messages = warning;
 CREATE TABLE IF NOT EXISTS public.schema_migrations (

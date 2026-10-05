@@ -24,6 +24,7 @@ export const pool = new Pool({
   user: config.db.user,
   password: config.db.password,
   max: config.db.max,
+  ...(config.db.ssl ? { ssl: config.db.ssl } : {}),
 });
 
 export const db = new Kysely<Database>({

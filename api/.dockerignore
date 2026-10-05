@@ -1,0 +1,18 @@
+# Build context is the repo root (the workspaces need each other), so this
+# excludes from there.
+**/node_modules
+**/dist
+**/.next
+**/cdk.out
+.git
+.github
+mobile
+web
+infra
+docs
+**/*.test.ts
+**/test
+.env
+.env.*
+**/.expo
+**/.DS_Store

@@ -20,10 +20,20 @@ describe('POST /auth/signup', () => {
     await closeDatabase();
   });
 
-  it('reports healthy', async () => {
+  it('reports healthy without asking the database', async () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ok', database: 'ok' });
+    /*
+      No `database` key, and that is the assertion.
+
+      It reported one until the API had a load balancer in front of it. A health
+      check that fails when the database blips makes a database fault into a
+      dead service: the instance is replaced, the replacement fails the same
+      check, and the deployment rolls back while nothing is wrong with the
+      process. Database reachability is an alarm on RDS, not the signal that
+      decides whether to kill this container.
+    */
+    expect(response.json()).toEqual({ status: 'ok' });
   });
 
   it('creates a tenant, a user and a membership', async () => {
