@@ -405,15 +405,33 @@ export class FlightSquareStack extends cdk.Stack {
       runtimePlatform: { cpuArchitecture: ecs.CpuArchitecture.ARM64 },
     });
 
-    // Sending rights live on the task role, so no mail credential exists in
-    // the environment at all. Scoped to this identity: the role can send as
-    // flightsquareapp.com and cannot send as anything else.
+    /*
+      Sending rights live on the task role, so no mail credential exists in the
+      environment at all.
+
+      `identity/*` and not `identity/flightsquareapp.com`, which is what this
+      said first and which does not work while the account is in the SES
+      sandbox. A sandboxed account may only send to verified addresses, and the
+      authorization check covers the *recipient* identity as well as the
+      sender's — so every send was refused with
+
+        not authorized to perform 'ses:SendEmail' on resource
+        'arn:aws:ses:...:identity/emtuzas@gmail.com'
+
+      naming the destination, not the domain. Narrowing to the sending domain
+      would mean enumerating every test recipient in IAM and redeploying to add
+      one.
+
+      The wildcard is still bounded to identities in this account, so the role
+      cannot send through anybody else's, and the account holds only ours. Once
+      production access lands the recipient check disappears and prod could be
+      narrowed to the domain alone — worth doing there, where the test
+      recipients do not exist.
+    */
     mailTask.taskRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['ses:SendEmail', 'ses:SendRawEmail'],
-        resources: [
-          `arn:aws:ses:${this.region}:${this.account}:identity/flightsquareapp.com`,
-        ],
+        resources: [`arn:aws:ses:${this.region}:${this.account}:identity/*`],
       }),
     );
 
