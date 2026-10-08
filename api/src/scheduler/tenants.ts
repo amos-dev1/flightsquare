@@ -27,6 +27,10 @@ export function schedulerDatabase(): Kysely<{ tenants: { id: string } }> {
         user: config.scheduler.user,
         password: config.scheduler.password,
         max: 1,
+        // TLS to RDS, as api/src/db/pool.ts does. Same omission the mail
+        // worker had, and it would surface the same way the first time the
+        // sweep runs against a managed database.
+        ...(config.db.ssl ? { ssl: config.db.ssl } : {}),
       }),
     }),
   });

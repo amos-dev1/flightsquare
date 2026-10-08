@@ -51,6 +51,11 @@ export function mailDatabase(): Kysely<MailDatabase> {
         user: config.mail.user,
         password: config.mail.password,
         max: 2,
+        // TLS to RDS, as api/src/db/pool.ts does. Without it a managed
+        // database refuses the connection with "self-signed certificate in
+        // certificate chain", the role assertion fails, and the worker exits
+        // reporting a credential problem it does not have.
+        ...(config.db.ssl ? { ssl: config.db.ssl } : {}),
       }),
     }),
   });

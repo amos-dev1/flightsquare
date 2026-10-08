@@ -455,11 +455,34 @@ export class FlightSquareStack extends cdk.Stack {
       },
     });
 
+    /*
+      How many workers to run, and why it is a knob.
+
+      The worker asserts on startup that it really connected as `mail_role`
+      and exits if it did not — a good check, and a chicken-and-egg on a fresh
+      environment: the password is set by the migration task, whose revision
+      carrying MAIL_ROLE_SECRET only exists once this stack has been deployed.
+      Deploy with the worker running and it crash-loops, the service never
+      reaches steady state, and CloudFormation waits on it.
+
+      So a first deploy passes `-c mailDesiredCount=0`, then migrations run,
+      then a second deploy brings it up:
+
+        cdk deploy FlightSquareDev -c mailDesiredCount=0   # secret + taskdef
+        aws ecs run-task ... MigrateTask                   # sets the password
+        cdk deploy FlightSquareDev                         # worker comes up
+
+      It stays useful afterwards as the way to stop the sender without
+      destroying it — during an SES incident, or to stop a retry storm against
+      a provider having a bad hour.
+    */
+    const mailDesiredCount = Number(this.node.tryGetContext('mailDesiredCount') ?? 1);
+
     const mailService = new ecs.FargateService(this, 'MailService', {
       cluster,
       serviceName: `${prefix}-mail`,
       taskDefinition: mailTask,
-      desiredCount: 1,
+      desiredCount: mailDesiredCount,
       assignPublicIp: true,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroups: [mailSg],
@@ -467,6 +490,10 @@ export class FlightSquareStack extends cdk.Stack {
       // `drainOnce`) but there is nothing here worth paying twice for.
       minHealthyPercent: 0,
       maxHealthyPercent: 100,
+      // Fail in minutes rather than hours. Without it a task that cannot
+      // start leaves the deployment hanging for up to three, which is how a
+      // bad image turns into an afternoon.
+      circuitBreaker: { rollback: false },
     });
 
     // ---------------------------------------------------------------
