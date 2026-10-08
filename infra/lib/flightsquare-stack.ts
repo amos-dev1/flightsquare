@@ -62,6 +62,49 @@ export class FlightSquareStack extends cdk.Stack {
       service: ec2.GatewayVpcEndpointAwsService.S3,
     });
 
+    /*
+      SES, privately, instead of a NAT gateway.
+
+      The mail worker is the only thing here that talks to an AWS API over the
+      network rather than through a managed integration, and with no NAT it has
+      no route to `email.us-east-1.amazonaws.com`. An interface endpoint is
+      about $7/month per availability zone against $32/month for a NAT, and the
+      traffic never leaves AWS.
+
+      One subnet, not two, which is the whole of the price difference. The ENI
+      is reachable from the other AZ across the VPC, so this costs a fraction
+      of a cent in cross-AZ transfer and an availability zone's worth of
+      redundancy the dev environment does not need. Prod should list both.
+
+      `privateDnsEnabled` is the part that makes it invisible to the
+      application: the service registers both `email.us-east-1.api.aws` and
+      `email.us-east-1.amazonaws.com` as private DNS names, so the SDK's
+      default endpoint resolves to this ENI and `SesTransport` needs no
+      endpoint override. Without it the SDK would resolve the public address
+      and hang until it timed out.
+    */
+    const sesEndpoint = new ec2.InterfaceVpcEndpoint(this, 'SesEndpoint', {
+      vpc,
+      /*
+        `'email'`, written out, and NOT `InterfaceVpcEndpointAwsService.SES`.
+
+        That constant resolves to `email-smtp`, which is the SMTP submission
+        endpoint. `SesTransport` uses the v2 HTTPS API through
+        `@aws-sdk/client-sesv2`, whose endpoint is `com.amazonaws.<region>.email`
+        — a different service. Using the constant creates a real endpoint for
+        the wrong protocol: nothing errors, the SDK's address simply never
+        resolves privately, and with no NAT every send hangs until it times out.
+
+        `email-smtp` is also offered in us-east-1a, 1c and 1d only, while this
+        VPC is in 1a and 1b, so the constant would have failed outright in the
+        second availability zone.
+      */
+      service: new ec2.InterfaceVpcEndpointAwsService('email'),
+      subnets: { subnets: isProd ? vpc.publicSubnets : [vpc.publicSubnets[0]] },
+      privateDnsEnabled: true,
+      open: false,
+    });
+
     // ---------------------------------------------------------------
     // Database role credentials
     // ---------------------------------------------------------------
@@ -85,6 +128,10 @@ export class FlightSquareStack extends cdk.Stack {
 
     const appRoleSecret = mkRoleSecret('app_role');
     const adminRoleSecret = mkRoleSecret('admin_role');
+    // mail_role drains the outbox. Until this existed, `scripts/roles.sh` gave
+    // it `unknowable()` — a random password nobody keeps — so the role existed
+    // and nothing could log in as it.
+    const mailRoleSecret = mkRoleSecret('mail_role');
 
     // ---------------------------------------------------------------
     // Database
@@ -237,6 +284,7 @@ export class FlightSquareStack extends cdk.Stack {
         // Migrations read these to CREATE ROLE with the generated passwords.
         APP_ROLE_SECRET: ecs.Secret.fromSecretsManager(appRoleSecret),
         ADMIN_ROLE_SECRET: ecs.Secret.fromSecretsManager(adminRoleSecret),
+        MAIL_ROLE_SECRET: ecs.Secret.fromSecretsManager(mailRoleSecret),
       },
     });
 
@@ -323,6 +371,105 @@ export class FlightSquareStack extends cdk.Stack {
     });
 
     // ---------------------------------------------------------------
+    // Mail worker
+    // ---------------------------------------------------------------
+    /*
+      Its own service, because it is its own process by design.
+
+      `api/src/mail/index.ts` is explicit about why: the worker connects as
+      `mail_role` to a table `app_role` cannot read at all, and folding it into
+      the API would put those credentials in the same process as every request
+      handler — which is what the outbox split exists to avoid. So the API
+      queues, and this drains.
+
+      In a PUBLIC subnet with a public IP, matching the migration task and for
+      the same reason: a Fargate task in PRIVATE_ISOLATED cannot start without
+      interface endpoints for ECR (two), CloudWatch Logs and Secrets Manager,
+      and four more endpoints cost more than the NAT gateway this stack is
+      built to avoid. The security group opens nothing inbound, so the address
+      is an exit and not an entrance — and SES itself is still reached
+      privately, through the endpoint above.
+    */
+    const mailSg = new ec2.SecurityGroup(this, 'MailSg', {
+      vpc,
+      description: 'FlightSquare mail worker',
+    });
+    dbSecurityGroup.addIngressRule(mailSg, ec2.Port.tcp(5432), 'mail worker');
+    // The endpoint was created with `open: false`, so nothing can reach it
+    // until something is named. Only this worker is.
+    sesEndpoint.connections.allowFrom(mailSg, ec2.Port.tcp(443), 'mail worker to SES');
+
+    const mailTask = new ecs.FargateTaskDefinition(this, 'MailTask', {
+      cpu: 256,
+      memoryLimitMiB: 512,
+      runtimePlatform: { cpuArchitecture: ecs.CpuArchitecture.ARM64 },
+    });
+
+    // Sending rights live on the task role, so no mail credential exists in
+    // the environment at all. Scoped to this identity: the role can send as
+    // flightsquareapp.com and cannot send as anything else.
+    mailTask.taskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['ses:SendEmail', 'ses:SendRawEmail'],
+        resources: [
+          `arn:aws:ses:${this.region}:${this.account}:identity/flightsquareapp.com`,
+        ],
+      }),
+    );
+
+    mailTask.addContainer('mail', {
+      image: ecs.ContainerImage.fromEcrRepository(repository, props.imageTag ?? 'latest'),
+      // The compiled entry point. `npm run mail -w api` is `tsx watch`, which
+      // is a development command and is not in the runtime image.
+      command: ['node', 'api/dist/mail/index.js'],
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'mail',
+        logRetention: logs.RetentionDays.ONE_MONTH,
+      }),
+      environment: {
+        NODE_ENV: 'production',
+        PGSSLMODE: 'require',
+        DB_HOST: database.dbInstanceEndpointAddress,
+        DB_PORT: database.dbInstanceEndpointPort,
+        DB_NAME: 'flightsquare',
+        FS_MAIL_PROVIDER: 'ses',
+        FS_MAIL_REGION: this.region,
+        FS_MAIL_FROM: isProd
+          ? 'FlightSquare <no-reply@flightsquareapp.com>'
+          : 'FlightSquare <dev-noreply@flightsquareapp.com>',
+        AWS_REGION: this.region,
+        /*
+          Dev only, and the asymmetry is the point.
+
+          SES in sandbox delivers to verified addresses only, so an invited
+          member's mail goes nowhere and the CloudWatch log is the only place
+          their link exists. That makes this necessary here and indefensible in
+          prod, where it would write live password-reset URLs and sign-in codes
+          into a log with a month's retention.
+        */
+        ...(isProd ? {} : { FS_MAIL_LOG_BODIES: 'true' }),
+      },
+      secrets: {
+        // Only its own role's credentials. Not app_role's, not the owner's.
+        MAIL_ROLE_SECRET: ecs.Secret.fromSecretsManager(mailRoleSecret),
+      },
+    });
+
+    const mailService = new ecs.FargateService(this, 'MailService', {
+      cluster,
+      serviceName: `${prefix}-mail`,
+      taskDefinition: mailTask,
+      desiredCount: 1,
+      assignPublicIp: true,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      securityGroups: [mailSg],
+      // One at a time: two workers are safe (the claim is a write — see
+      // `drainOnce`) but there is nothing here worth paying twice for.
+      minHealthyPercent: 0,
+      maxHealthyPercent: 100,
+    });
+
+    // ---------------------------------------------------------------
     // Outputs
     // ---------------------------------------------------------------
     new cdk.CfnOutput(this, 'ApiUrl', {
@@ -340,5 +487,7 @@ export class FlightSquareStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'MigrateSecurityGroup', {
       value: migrateSg.securityGroupId,
     });
+    new cdk.CfnOutput(this, 'MailServiceName', { value: mailService.serviceName });
+    new cdk.CfnOutput(this, 'MailRoleSecretArn', { value: mailRoleSecret.secretArn });
   }
 }

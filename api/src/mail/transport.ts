@@ -1,3 +1,12 @@
+import {
+  SESv2Client,
+  SendEmailCommand,
+  AccountSuspendedException,
+  MailFromDomainNotVerifiedException,
+  MessageRejected,
+  SendingPausedException,
+} from '@aws-sdk/client-sesv2';
+
 import { config } from '../config.js';
 
 /**
@@ -96,20 +105,142 @@ export class ResendTransport implements MailTransport {
   }
 }
 
+/**
+ * Amazon SES, over the v2 HTTPS API.
+ *
+ * No credential of its own: the SDK signs with the task role, which is what
+ * keeps a sending key out of the environment entirely. In the deployed VPC
+ * there is no NAT and so no route to the internet — the call reaches SES
+ * through an interface endpoint, whose private DNS covers
+ * `email.<region>.amazonaws.com`, so the default endpoint resolves inside the
+ * VPC and no override is needed here.
+ */
+export class SesTransport implements MailTransport {
+  readonly name = 'ses';
+  private readonly client: SESv2Client;
+
+  constructor(
+    private readonly from: string,
+    region: string,
+  ) {
+    this.client = new SESv2Client({ region });
+  }
+
+  async send(message: OutgoingMessage): Promise<void> {
+    try {
+      await this.client.send(
+        new SendEmailCommand({
+          FromEmailAddress: this.from,
+          Destination: { ToAddresses: [message.to] },
+          Content: {
+            Simple: {
+              Subject: { Data: message.subject },
+              Body: { Text: { Data: message.body } },
+            },
+          },
+        }),
+      );
+    } catch (error) {
+      // Final, in the sense the worker means: sending this again changes
+      // nothing. A rejected message is a bad address or blocked content; an
+      // unverified MAIL FROM domain and a suspended account are
+      // configuration, and retrying either just burns the queue.
+      if (
+        error instanceof MessageRejected ||
+        error instanceof MailFromDomainNotVerifiedException ||
+        error instanceof AccountSuspendedException ||
+        error instanceof SendingPausedException
+      ) {
+        throw new UndeliverableError(`ses refused it: ${(error as Error).message}`);
+      }
+      // Everything else — throttling, a 5xx, a broken connection — is "later".
+      // Notably this includes sandbox rejections of unverified recipients,
+      // which arrive as MessageRejected and are therefore final above: that is
+      // correct, because nothing about waiting verifies an address.
+      throw error;
+    }
+  }
+}
+
+/**
+ * Wraps a transport and writes each message, body included, to stdout.
+ *
+ * This is the one thing the log transport has always refused to do, and the
+ * refusal was right: the body carries a live sign-in code or a
+ * password-reset link, and here the log is CloudWatch, which keeps it for a
+ * month. It exists only because SES in sandbox delivers to verified addresses
+ * only, so until production access lands this log is the sole inbox an
+ * invited member has.
+ *
+ * It logs before delegating, deliberately — a message that fails to send is
+ * exactly the one somebody needs to read.
+ */
+export class BodyLoggingTransport implements MailTransport {
+  constructor(private readonly inner: MailTransport) {}
+
+  get name(): string {
+    return `${this.inner.name}+bodylog`;
+  }
+
+  async send(message: OutgoingMessage): Promise<void> {
+    console.log(
+      `[mail:body] ${message.kind} → ${message.to}\n` +
+        `  subject: ${message.subject}\n` +
+        message.body
+          .split('\n')
+          .map((line) => `  | ${line}`)
+          .join('\n'),
+    );
+    await this.inner.send(message);
+  }
+}
+
 let transport: MailTransport | null = null;
 
 /**
  * The one transport this process uses, chosen once.
  *
- * A key means Resend; no key means the log. There is no third state, for the
- * reason the billing provider has none: a deployment that half-configures
- * mail finds out which half at the moment somebody needs a password reset.
+ * There are three now, so the choice is named rather than inferred:
+ * `FS_MAIL_PROVIDER` is `ses`, `resend` or `log`. The old inference — a key
+ * means Resend, no key means the log — survives only for an unset variable,
+ * which is what keeps local development free of configuration.
+ *
+ * Naming it matters for the reason the billing provider has one implementation
+ * and one stub: a deployment that half-configures mail finds out which half at
+ * the moment somebody needs a password reset. `resend` without a key now
+ * refuses to start instead of quietly logging, because a worker that logs when
+ * it was meant to send looks healthy in every way except the one that counts.
  */
 export function mailTransport(log: (message: OutgoingMessage) => void): MailTransport {
-  transport ??= config.mail.apiKey
-    ? new ResendTransport(config.mail.apiKey, config.mail.from)
-    : new LogTransport(log);
+  transport ??= wrap(choose(log));
   return transport;
+}
+
+function choose(log: (message: OutgoingMessage) => void): MailTransport {
+  switch (config.mail.provider) {
+    case 'ses':
+      return new SesTransport(config.mail.from, config.mail.region);
+    case 'resend':
+      if (!config.mail.apiKey) {
+        throw new Error('FS_MAIL_PROVIDER=resend needs FS_MAIL_API_KEY');
+      }
+      return new ResendTransport(config.mail.apiKey, config.mail.from);
+    case 'log':
+      return new LogTransport(log);
+    case '':
+      // Unset keeps the behaviour this function had before SES existed, which
+      // is what makes `docker compose up` need no environment: a key means
+      // Resend, no key means the log.
+      return config.mail.apiKey
+        ? new ResendTransport(config.mail.apiKey, config.mail.from)
+        : new LogTransport(log);
+    default:
+      throw new Error(`FS_MAIL_PROVIDER=${config.mail.provider} is not a transport`);
+  }
+}
+
+function wrap(inner: MailTransport): MailTransport {
+  return config.mail.logBodies ? new BodyLoggingTransport(inner) : inner;
 }
 
 /** Test seam. Nothing in the running worker calls this. */

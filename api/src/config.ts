@@ -74,22 +74,30 @@ function parseMinimumVersions(raw: string | undefined): Record<string, string> {
  * means the API either cannot connect or connects as something it should not
  * be, and §1.2's failure mode is silent.
  */
-function roleSecret(raw: string | undefined): { username: string; password: string } | null {
+function roleSecret(
+  raw: string | undefined,
+  name: string,
+): { username: string; password: string } | null {
   if (!raw) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new Error('APP_ROLE_SECRET is set but is not JSON');
+    throw new Error(`${name} is set but is not JSON`);
   }
   const value = parsed as { username?: unknown; password?: unknown };
   if (typeof value.username !== 'string' || typeof value.password !== 'string') {
-    throw new Error('APP_ROLE_SECRET must carry a username and a password');
+    throw new Error(`${name} must carry a username and a password`);
   }
   return { username: value.username, password: value.password };
 }
 
-const appRole = roleSecret(process.env.APP_ROLE_SECRET);
+const appRole = roleSecret(process.env.APP_ROLE_SECRET, 'APP_ROLE_SECRET');
+
+// The mail worker's own role. Its own secret too, because the worker is its
+// own process by design (api/src/mail/index.ts) and must not be reachable with
+// app_role's credentials — app_role cannot read the outbox at all.
+const mailRole = roleSecret(process.env.MAIL_ROLE_SECRET, 'MAIL_ROLE_SECRET');
 
 export const config = {
   http: {
@@ -202,10 +210,36 @@ export const config = {
    * `scripts/outbox.sh` is where a link is actually read in development.
    */
   mail: {
-    user: process.env.FS_DB_MAIL_USER ?? 'mail_role',
-    password: process.env.FS_MAIL_PASSWORD ?? 'mail_dev_password',
+    user: mailRole?.username ?? process.env.FS_DB_MAIL_USER ?? 'mail_role',
+    password: mailRole?.password ?? process.env.FS_MAIL_PASSWORD ?? 'mail_dev_password',
     apiKey: process.env.FS_MAIL_API_KEY ?? '',
     from: process.env.FS_MAIL_FROM ?? 'FlightSquare <no-reply@flightsquare.local>',
+    /**
+     * Which transport sends. Explicit rather than inferred, because the
+     * inference this replaced ("a key means Resend, no key means the log") has
+     * no room for a third answer, and silently logging instead of sending is
+     * the one failure mode that looks like success.
+     *
+     * 'ses' needs no key: it signs with the task role, which is why the
+     * deployed worker holds no mail credential at all.
+     */
+    provider: (process.env.FS_MAIL_PROVIDER ?? '') as '' | 'ses' | 'resend' | 'log',
+    region: process.env.FS_MAIL_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
+    /**
+     * Log the full body of every message, including its links and codes.
+     *
+     * Off by default and deliberately awkward to turn on. The log transport
+     * has always refused to do this — a log line holding a live
+     * password-reset URL defeats the reason `app_role` cannot read the outbox
+     * in the first place — and that reasoning does not stop being true in a
+     * deployed environment, where the log is CloudWatch and its retention
+     * outlives the token by a month.
+     *
+     * It exists because SES in sandbox can only deliver to verified
+     * addresses, so during setup the log is the only inbox an invited member
+     * has. The dev stack sets it; the prod stack must never.
+     */
+    logBodies: (process.env.FS_MAIL_LOG_BODIES ?? '') === 'true',
     /** How often to look, when the last look found nothing. */
     pollSeconds: int('FS_MAIL_POLL_SECONDS', 10),
     /** How many to take in one pass. */

@@ -1,0 +1,65 @@
+; flightsquareapp.com — Amazon SES sending records
+;
+; Import: Cloudflare dashboard -> DNS -> Records -> Import and Export ->
+;         "Select file" -> Import records.
+;
+; Every CNAME below carries `cf_tags=cf-proxied:false`. That is not decoration:
+; Cloudflare PROXIES imported records by default, and a proxied DKIM CNAME
+; resolves to Cloudflare's address instead of the SES target, so verification
+; never completes. The tag is honoured "regardless of the Proxy imported DNS
+; records option being selected", which makes the import correct whether or not
+; that checkbox is ticked. MX and TXT records cannot be proxied at all, so they
+; carry no tag.
+;
+; Importing ADDS records; it never deletes. If this zone already has a _dmarc
+; record, delete the last line below before importing — two DMARC records at
+; one name is a misconfiguration, not a merge.
+;
+; TTL 300 while the identities are being verified; raise it once SES reports
+; SUCCESS and nothing here is expected to change again.
+;
+; Generated 2026-10-07 from the live SES API, us-east-1:
+;   dev  102378189980  mail-dev.flightsquareapp.com
+;   prod 363434191112  mail.flightsquareapp.com
+
+$ORIGIN flightsquareapp.com.
+$TTL 300
+
+; ---------------------------------------------------------------------------
+; Easy DKIM — prod (363434191112). 2048-bit, tokens issued by SES.
+; ---------------------------------------------------------------------------
+htixrn3s5pmajwu2w52cyotrjgulmfmz._domainkey.flightsquareapp.com. 300 IN CNAME htixrn3s5pmajwu2w52cyotrjgulmfmz.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+fve6oj7anpnzx6zwgtyemxfgusjqxoxn._domainkey.flightsquareapp.com. 300 IN CNAME fve6oj7anpnzx6zwgtyemxfgusjqxoxn.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+dqcpyadypwfug5hotuazv6az4d7fvm46._domainkey.flightsquareapp.com. 300 IN CNAME dqcpyadypwfug5hotuazv6az4d7fvm46.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+
+; ---------------------------------------------------------------------------
+; Easy DKIM — dev (102378189980). Different tokens for the same domain, which
+; is why both accounts coexist without colliding.
+; ---------------------------------------------------------------------------
+42tm4ulzcppvdcbxhfui2lgcpzzcheq7._domainkey.flightsquareapp.com. 300 IN CNAME 42tm4ulzcppvdcbxhfui2lgcpzzcheq7.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+yzgtl7cb2yogzxqqxuauonzcum7ojbn5._domainkey.flightsquareapp.com. 300 IN CNAME yzgtl7cb2yogzxqqxuauonzcum7ojbn5.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+xuhutaepffzlnumcdtyduv3sdbf7mwrt._domainkey.flightsquareapp.com. 300 IN CNAME xuhutaepffzlnumcdtyduv3sdbf7mwrt.dkim.amazonses.com. ; cf_tags=cf-proxied:false
+
+; ---------------------------------------------------------------------------
+; Custom MAIL FROM — prod. Exactly one MX per MAIL FROM domain: SES fails the
+; setup outright if it finds more than one.
+; ---------------------------------------------------------------------------
+mail.flightsquareapp.com. 300 IN MX 10 feedback-smtp.us-east-1.amazonses.com.
+mail.flightsquareapp.com. 300 IN TXT "v=spf1 include:amazonses.com ~all"
+
+; ---------------------------------------------------------------------------
+; Custom MAIL FROM — dev.
+; ---------------------------------------------------------------------------
+mail-dev.flightsquareapp.com. 300 IN MX 10 feedback-smtp.us-east-1.amazonses.com.
+mail-dev.flightsquareapp.com. 300 IN TXT "v=spf1 include:amazonses.com ~all"
+
+; ---------------------------------------------------------------------------
+; DMARC. p=none observes without affecting delivery — it is how you find out
+; that sign-in codes are landing in spam before a member does. Tighten to
+; quarantine, then reject, once the reports are clean.
+;
+; No SPF record at the apex on purpose: SES needs none (DKIM already aligns
+; with the From domain), and publishing one here would silently break any other
+; mail the domain sends, such as a Workspace or Cloudflare Email Routing setup.
+; ---------------------------------------------------------------------------
+_dmarc.flightsquareapp.com. 300 IN TXT "v=DMARC1; p=none; rua=mailto:emtuzas@gmail.com"
