@@ -81,6 +81,15 @@ new FlightSquareStack(app, 'FlightSquareProd', {
 */
 new CiStack(app, 'FlightSquareCiDev', {
   repository: 'amos-dev1/flightsquare',
+  /*
+    The ids, not the names, because this repository has GitHub's immutable
+    subject claims enabled — see CiStackProps.subjectPrefix. 331334617 is the
+    owner, 1378642522 the repository; both are stable for the life of each and
+    survive a rename, which is the point of them.
+
+      gh api repos/amos-dev1/flightsquare/actions/oidc/customization/sub
+  */
+  subjectPrefix: 'repo:amos-dev1@331334617/flightsquare@1378642522',
   branch: 'main',
   qualifier: 'hnb659fds',
   env: { account: '102378189980', region: 'us-east-1' },

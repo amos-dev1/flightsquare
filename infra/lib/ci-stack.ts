@@ -3,8 +3,29 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 
 export interface CiStackProps extends cdk.StackProps {
-  /** 'owner/repo' on GitHub. */
+  /** 'owner/repo' on GitHub, for descriptions and outputs. */
   readonly repository: string;
+  /**
+   * The prefix of the OIDC `sub` claim this repository actually presents.
+   *
+   * Not `repo:owner/name`, which is what every guide shows and what this
+   * started as. GitHub has **immutable subject claims** on, so the claim
+   * carries numeric ids instead:
+   *
+   *   repo:amos-dev1@331334617/flightsquare@1378642522:ref:refs/heads/main
+   *
+   * That is strictly better — a subject pinned to ids survives a rename and
+   * cannot be claimed by somebody who deletes the repository and recreates
+   * the name — and it means a trust policy written against the names can
+   * never match. It fails as `Not authorized to perform
+   * sts:AssumeRoleWithWebIdentity`, and CloudTrail redacts the claim on a
+   * denied exchange, so the policy looks correct from every angle except the
+   * one that counts.
+   *
+   * Read it back with:
+   *   gh api repos/<owner>/<name>/actions/oidc/customization/sub
+   */
+  readonly subjectPrefix: string;
   /** Which branch may deploy. One, deliberately. */
   readonly branch: string;
   /** The CDK bootstrap qualifier, from the CDKToolkit stack. */
@@ -61,7 +82,7 @@ export class CiStack extends cdk.Stack {
         {
           StringEquals: {
             'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-            'token.actions.githubusercontent.com:sub': `repo:${props.repository}:ref:refs/heads/${props.branch}`,
+            'token.actions.githubusercontent.com:sub': `${props.subjectPrefix}:ref:refs/heads/${props.branch}`,
           },
         },
         'sts:AssumeRoleWithWebIdentity',
@@ -183,7 +204,7 @@ export class CiStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'RoleArn', { value: role.roleArn });
     new cdk.CfnOutput(this, 'TrustedSubject', {
-      value: `repo:${props.repository}:ref:refs/heads/${props.branch}`,
+      value: `${props.subjectPrefix}:ref:refs/heads/${props.branch}`,
     });
   }
 }
