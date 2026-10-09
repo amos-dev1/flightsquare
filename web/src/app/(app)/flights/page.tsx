@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Download } from 'lucide-react';
+import { Download, PlaneTakeoff } from 'lucide-react';
 
 import { apiFetch } from '@/lib/api';
 import { Card, Empty, PageTitle, Status } from '@/components/ui';
@@ -44,6 +44,9 @@ export default async function FlightsPage({
   // Everyone can log a flight (§4.4 gives both bundles `flights: write`), so
   // this is about where the button points, not whether it appears.
   const active = fleet.filter((aircraft) => aircraft.status === 'active');
+  // Bound rather than indexed inline: `active[0]` is `T | undefined` under
+  // noUncheckedIndexedAccess, and this is the narrowing the link needs.
+  const soleActive = active.length === 1 ? active[0] : undefined;
   const flagged = flights.filter((flight) => flight.needs_review).length;
 
   const href = (next: Partial<typeof filters>): string => {
@@ -71,19 +74,43 @@ export default async function FlightsPage({
           </p>
         </div>
 
-        {/*
-          §3.4: "A CSV export of a member's own flight rows is a reasonable
-          convenience so they can transcribe into their real logbook. That is
-          the extent of the pilot-logbook story." Own rows only, whatever
-          this screen is filtered to.
-        */}
-        <a
-          href="/flights-export"
-          className="inline-flex h-11 items-center gap-2 rounded-lg border border-control px-4 text-sm font-semibold hover:bg-subtle"
-        >
-          <Download aria-hidden size={16} strokeWidth={2} />
-          Download your flights
-        </a>
+        <div className="flex flex-wrap items-center gap-3">
+          {/*
+            §3.4 calls the post-flight entry "the most important screen in the
+            product" — the one filled in at a tiedown — and it was reachable
+            only by going to the fleet and picking the aeroplane first. With
+            one aeroplane this goes straight there; with several it goes to
+            the fleet to choose, because which one flew is the first thing the
+            form needs and guessing it would be worse than asking.
+
+            Hidden with nothing to log against, and hidden for a member who
+            cannot log flights — though §8.1 is clear that is cosmetics and
+            the API refuses either way.
+          */}
+          {active.length > 0 && entitlements.permissions.flights !== 'none' ? (
+            <Link
+              href={soleActive ? `/aircraft/${soleActive.id}/log-flight` : '/aircraft'}
+              className="inline-flex h-11 items-center gap-2 rounded-lg bg-navy px-4 text-sm font-semibold text-on-dark hover:bg-navy-hover"
+            >
+              <PlaneTakeoff aria-hidden size={16} strokeWidth={2} />
+              Log a flight
+            </Link>
+          ) : null}
+
+          {/*
+            §3.4: "A CSV export of a member's own flight rows is a reasonable
+            convenience so they can transcribe into their real logbook. That is
+            the extent of the pilot-logbook story." Own rows only, whatever
+            this screen is filtered to.
+          */}
+          <a
+            href="/flights-export"
+            className="inline-flex h-11 items-center gap-2 rounded-lg border border-control px-4 text-sm font-semibold hover:bg-subtle"
+          >
+            <Download aria-hidden size={16} strokeWidth={2} />
+            Download your flights
+          </a>
+        </div>
       </div>
 
       <Card className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-4 text-sm">

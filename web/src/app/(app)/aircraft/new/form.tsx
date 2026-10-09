@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useActionState, useEffect, useState } from 'react';
 
 import { createAircraft, searchAerodromes, type FormState } from '@/app/actions';
+import { Combobox } from '@/components/combobox';
 import { Alert, Button, Card, Field, Input, Select } from '@/components/ui';
 import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shared';
 
@@ -76,21 +77,17 @@ export function NewAircraftForm({ types }: { types: AircraftTypeResponse[] }) {
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Type" hint="ICAO designator. Start typing to see the list.">
-            <Input
+          <Field label="Type" hint="Search by make or model — “cessna”, “172”, “C172”.">
+            <Combobox
               name="type_code"
-              list="aircraft-types"
-              placeholder="C172"
-              className="uppercase"
+              placeholder="Cessna 172"
               defaultValue={state.values?.type_code}
+              options={types.map((type) => ({
+                value: type.code,
+                label: `${type.manufacturer} ${type.model}`,
+                hint: type.code,
+              }))}
             />
-            <datalist id="aircraft-types">
-              {types.map((type) => (
-                <option key={type.code} value={type.code}>
-                  {type.manufacturer} {type.model}
-                </option>
-              ))}
-            </datalist>
           </Field>
 
           <Field label="Home base" hint="Identifier, or the name of the field.">
