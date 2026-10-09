@@ -71,11 +71,26 @@ jobs:
           APP_ROLE_SECRET: '{"username":"app_role","password":"app_role"}'
           ADMIN_ROLE_SECRET: '{"username":"admin_role","password":"admin_role"}'
 
-      # Tests connect as app_role — the restricted role with no BYPASSRLS.
-      # Running them as the owner would make every isolation test pass
-      # for the wrong reason (CLAUDE.md §1.2, §6.1).
-      - name: Test
-        run: npm test
+      # Two suites, two connections, because they need opposite things and a
+      # single DATABASE_URL cannot be both.
+      #
+      # db/tests drives psql as flightsquare_owner, postgres and app_role in
+      # turn — it is checking that a policy denies, which means being able to
+      # ask as more than one role. In "direct" mode the login comes from
+      # DATABASE_URL, so that login has to be one that may SET ROLE. As
+      # app_role it cannot, and the suite stops on `permission denied to set
+      # role "flightsquare_owner"`.
+      - name: Database isolation tests
+        run: npm run test:db
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/flightsquare_test
+
+      # The API suite is the opposite case and deliberately so: it connects as
+      # app_role, the restricted role with no BYPASSRLS. Running these as the
+      # owner would make every isolation test pass for the wrong reason
+      # (CLAUDE.md §1.2, §6.1).
+      - name: API tests
+        run: npx vitest run
         env:
           DATABASE_URL: postgres://app_role:app_role@localhost:5432/flightsquare_test
           ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/flightsquare_test
