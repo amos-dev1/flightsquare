@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -236,7 +236,82 @@ export default function LogFlight() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /**
+   * Back to blank, except for what the next flight genuinely starts from.
+   *
+   * This screen is registered in `_layout.tsx` as a tab with `href: null`, so
+   * leaving it hides it rather than unmounting it and every `useState` above
+   * survives. Logging a second flight therefore opened the form still holding
+   * the first one's entry — which on the most important screen in the product
+   * (§3.4) is how last leg's Hobbs end gets saved as this one's start, and
+   * every number downstream follows it.
+   *
+   * What carries over is the *aeroplane's* state and never the pilot's entry:
+   * it is now wherever the last flight arrived, its meters read what that
+   * flight ended at, and its tanks hold what was left in them. Those come from
+   * the values just submitted rather than from re-reading the aircraft,
+   * because §8.2 queues the write — a refetch would answer with the
+   * pre-flight figures until it syncs, and at a rural tiedown would not
+   * answer at all.
+   */
+  const resetForm = useCallback(
+    (carry?: { location?: string; hobbs?: string; tach?: string; fuel?: string }) => {
+      setFlightDate(todayIso());
+      setPickingDate(false);
+      setMeters({
+        hobbs_start: carry?.hobbs ?? '',
+        hobbs_end: '',
+        tach_start: carry?.tach ?? '',
+        tach_end: '',
+      });
+      setDepartedFrom(carry?.location ?? '');
+      // Never carried: where it is going is not something the last flight
+      // knows, and suggesting the return leg is how a round trip gets logged
+      // twice in the same direction.
+      setArrivedAt('');
+      setFuelBefore(carry?.fuel ?? '');
+      setFuelAfter('');
+      setFuelAdded('');
+      setFuelPrice('');
+      setCategory('personal');
+      setRemarks('');
+      // §3.6 keeps each defect its own record, and one already filed is one
+      // already queued. Carrying a draft forward would file it twice.
+      setSquawks([]);
+      setError(null);
+
+      /*
+        The queued flight has moved the aeroplane, and this screen's own
+        snapshot of it is what the "does not meet the last reading" flag
+        compares a start against (§8.2 flags, never rejects). Left on the
+        pre-flight figures, the next entry would open accusing the pilot of a
+        gap against the reading they had just written down.
+
+        Mirroring it locally rather than refetching, for the same reason the
+        carried values come from the submitted ones: the write is in the queue.
+      */
+      if (carry) {
+        setAircraft((current) =>
+          current
+            ? {
+                ...current,
+                ...(carry.hobbs ? { hobbs: carry.hobbs } : {}),
+                ...(carry.tach ? { tach: carry.tach } : {}),
+                ...(carry.fuel ? { fuel_remaining: carry.fuel } : {}),
+                ...(carry.location ? { last_location: carry.location } : {}),
+              }
+            : current,
+        );
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
+    // A different aeroplane is a different form. Clearing first stops the
+    // last one's meters standing in while the prefill is in flight, and the
+    // prefill below only ever fills a field that is empty.
+    resetForm();
     // Prefill from what the aeroplane is showing. Half the numbers on this
     // form are ones the pilot should not have to read off the panel twice.
     void withAuth(() => api.getAircraft(aircraftId))
@@ -260,7 +335,7 @@ export default function LogFlight() {
         }
       })
       .catch(() => undefined);
-  }, [aircraftId]);
+  }, [aircraftId, resetForm]);
 
   const from = useAerodrome(departedFrom);
   const to = useAerodrome(arrivedAt);
@@ -363,6 +438,18 @@ export default function LogFlight() {
           });
         }
       }
+
+      /*
+        Blank for the next flight, holding only what the aeroplane now reads.
+        A local circuit usually leaves **To** empty, so where it is standing is
+        where it arrived or, failing that, where it departed.
+      */
+      resetForm({
+        location: arrivedAt.trim() || departedFrom.trim(),
+        hobbs: meters.hobbs_end,
+        tach: meters.tach_end,
+        fuel: fuelAfter.trim(),
+      });
 
       router.back();
     } catch (caught) {
