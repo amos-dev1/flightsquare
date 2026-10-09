@@ -15,8 +15,8 @@ export default function SignupPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6 py-12">
-      <div className="-ml-2 mb-2">
-        <Logo height={36} />
+      <div className="-ml-3 mb-2">
+        <Logo height={44} />
       </div>
       <p className="mb-8 text-sm text-secondary">Aircraft management, simplified.</p>
 

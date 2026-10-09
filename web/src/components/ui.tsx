@@ -256,8 +256,18 @@ export function Logo({ height = HEADER_SYMBOL_HEIGHT }: { height?: number }) {
       alt="FlightSquare"
       height={height}
       width={Math.round(height * HORIZONTAL_RATIO)}
-      // Clear space of at least a quarter of the symbol height, per §11.
-      style={{ height, width: 'auto', padding: height / 4 }}
+      /*
+        §11's clear space is **external** — "at least one-quarter of symbol
+        height" around the mark — and `box-sizing: border-box` makes padding
+        internal. Tailwind's preflight sets border-box on everything, so this
+        padding was being subtracted from the height instead of added around
+        it: `height={36}` drew the lockup at 18px, and the header's default 30
+        drew it at 15px. Half size, everywhere, for as long as this existed.
+
+        `content-box` restores the meaning the padding was written to have: the
+        artwork is `height` tall and the clear space sits outside it.
+      */
+      style={{ height, width: 'auto', padding: height / 4, boxSizing: 'content-box' }}
     />
   );
 }
@@ -270,7 +280,8 @@ export function LogoMark({ size = HEADER_SYMBOL_HEIGHT }: { size?: number }) {
       alt="FlightSquare"
       height={size}
       width={size}
-      style={{ height: size, width: size, padding: size / 4 }}
+      // Same correction as Logo: the clear space goes outside the mark.
+      style={{ height: size, width: size, padding: size / 4, boxSizing: 'content-box' }}
     />
   );
 }

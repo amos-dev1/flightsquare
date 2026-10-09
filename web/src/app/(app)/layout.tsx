@@ -138,7 +138,14 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen">
       <header className="border-b border-line bg-surface">
-        <div className="relative mx-auto flex h-16 max-w-4xl items-center gap-3 px-4 sm:px-6 md:gap-8">
+        <div /*
+            Wider than the content below it, and measured rather than chosen:
+            eight destinations at gap-6 are ~752px, and with the logo, the bell
+            and sign-out the row needs ~980. In the `max-w-4xl` (896px) the
+            content uses, it could only fit by wrapping the club name onto
+            three lines — which is what it was doing, and what §11 rules out.
+          */
+          className="relative mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 sm:px-6 lg:gap-6">
           {/* §11 keeps the logo separate from the navigation icons, and uses
               the horizontal lockup in desktop headers. */}
           {/* Measured 89x30, under §13's 44px floor. The padding makes the
@@ -156,7 +163,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             different acts done by different people.
           */}
           {/* The established row, unchanged, from `md` up. */}
-          <nav className="hidden flex-1 items-center gap-6 md:flex">
+          <nav className="hidden flex-1 items-center gap-6 lg:flex">
             {navItems.map((item) => (
               <NavLink key={item.href} href={item.href}>
                 {item.label}
@@ -165,7 +172,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </nav>
           {/* Below `md` the row is replaced, not squeezed: eight links with
               gap-6 measured 752px against a 390px viewport. */}
-          <span className="flex-1 md:hidden" />
+          <span className="flex-1 lg:hidden" />
 
           {/*
             §11 §7: an outline icon in navy, with the count as a word for a
@@ -186,14 +193,19 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             ) : null}
           </Link>
 
-          <span className="hidden text-sm text-secondary md:inline">{tenant.name}</span>
+          {/*
+            The club name is not here any more. Even in the wider row it only
+            fits by shrinking to nothing or pushing the nav off the edge, and a
+            name that renders as an ellipsis tells nobody which club they are
+            in. It is on Settings, and in the menu below `lg`.
+          */}
           {/* Above `md` it sits in the header as before. Below it, the header
               has no room for it and 54x20 was never a tap target, so it moves
               into the panel as a full-width row. */}
-          <form action={logout} className="hidden md:block">
+          <form action={logout} className="hidden lg:block">
             <button
               type="submit"
-              className="inline-flex h-11 items-center rounded-lg px-2 text-sm font-semibold hover:bg-subtle"
+              className="inline-flex h-11 items-center whitespace-nowrap rounded-lg px-2 text-sm font-semibold hover:bg-subtle"
             >
               Sign out
             </button>

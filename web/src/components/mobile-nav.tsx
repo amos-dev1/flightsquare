@@ -44,7 +44,7 @@ export function MobileNav({ items, children }: { items: NavItem[]; children?: Re
         aria-expanded={open}
         aria-controls="mobile-nav"
         aria-label={open ? 'Close menu' : 'Menu'}
-        className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-subtle md:hidden"
+        className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg hover:bg-subtle lg:hidden"
       >
         {open ? (
           <X aria-hidden size={20} strokeWidth={1.75} />
@@ -62,7 +62,7 @@ export function MobileNav({ items, children }: { items: NavItem[]; children?: Re
       <div
         id="mobile-nav"
         hidden={!open}
-        className="absolute inset-x-0 top-16 z-40 border-b border-line bg-surface shadow-sm md:hidden"
+        className="absolute inset-x-0 top-16 z-40 border-b border-line bg-surface shadow-sm lg:hidden"
       >
         <nav className="mx-auto flex max-w-4xl flex-col px-4 py-2">
           {items.map((item) => {

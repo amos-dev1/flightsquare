@@ -31,8 +31,8 @@ export default function LoginPage({
       {/* The horizontal lockup, used as supplied. §11 prefers the stacked
           variant for centred brand presentations; this sign-in is
           left-aligned, so the horizontal one is the right asset here. */}
-      <div className="-ml-2 mb-2">
-        <Logo height={36} />
+      <div className="-ml-3 mb-2">
+        <Logo height={44} />
       </div>
       {/* §11 uses the tagline sparingly — sign-in is one of the places. */}
       <p className="mb-8 text-sm text-secondary">Aircraft management, simplified.</p>
