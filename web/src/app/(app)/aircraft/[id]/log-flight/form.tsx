@@ -112,25 +112,28 @@ export function LogFlightForm({
   });
 
   /**
-   * One blank row, shown. A walk-around that found nothing leaves it alone and
-   * the action ignores it — an empty summary is not a squawk. Starting from
-   * zero rows behind an "add" button is what the old disclosure did, and the
-   * point of putting this here at all is that filing a defect should not be a
-   * second trip to a second screen.
+   * No rows until somebody asks for one.
+   *
+   * The one disclosure left on this form, and it earns its place where the
+   * fuel and route ones did not: those were fields every flight has an answer
+   * for, and most flights have no defect to report. Three open boxes under
+   * "anything wrong with it?" read as a question being put to the pilot on
+   * every single entry, which is how the answer stops being read.
+   *
+   * What matters is that filing one is *here* rather than on a second screen
+   * after the fact — a button is still here.
    *
    * Read from `state.values` for the case where the form is remounted rather
-   * than re-rendered — without JavaScript the action is a real POST and the
+   * than re-rendered: without JavaScript the action is a real POST and the
    * rows come back from the server's copy.
    */
-  const [squawks, setSquawks] = useState<SquawkDraft[]>(() => {
-    const count = Number(state.values?.squawk_count ?? 0);
-    if (!count) return [blankSquawk()];
-    return Array.from({ length: count }, (_, i) => ({
+  const [squawks, setSquawks] = useState<SquawkDraft[]>(() =>
+    Array.from({ length: Number(state.values?.squawk_count ?? 0) }, (_, i) => ({
       summary: state.values?.[`squawk_summary_${i}`] ?? '',
       severity: state.values?.[`squawk_severity_${i}`] ?? 'minor',
       details: state.values?.[`squawk_details_${i}`] ?? '',
-    }));
-  });
+    })),
+  );
 
   const set = (key: keyof typeof meters) => (event: { target: { value: string } }) =>
     setMeters((current) => ({ ...current, [key]: event.target.value }));
@@ -145,6 +148,9 @@ export function LogFlightForm({
 
   /** §11: the unit travels with the number, and it is per-aircraft. */
   const unit = aircraft.fuel_units === 'litres' ? 'litres' : 'gallons';
+
+  /** Where the aeroplane is standing, as far as this product's records go. */
+  const here = aircraft.last_location ?? aircraft.home_base ?? '';
 
   // §8.2: a start that does not meet the last reading is flagged, never
   // rejected — so say so here rather than letting it look like an error.
@@ -172,12 +178,22 @@ export function LogFlightForm({
           />
         </Field>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="From" hint="e.g. KPAO">
+          {/*
+            Where it last landed is where this flight starts from, because that
+            is where the aeroplane is. `last_location` is free text a pilot
+            typed and never a position — there is no telemetry in this product.
+            Falls back to the home base, and to nothing if neither is known.
+
+            **To** stays empty on purpose: where it is going is not something
+            the aeroplane knows, and filling it in would suggest the pilot is
+            coming straight back.
+          */}
+          <Field label="From" hint={here ? "Where it last landed" : "e.g. KPAO"}>
             <Input
               name="departed_from"
               className="uppercase"
               autoCapitalize="characters"
-              defaultValue={state.values?.departed_from}
+              defaultValue={state.values?.departed_from ?? here}
             />
           </Field>
           <Field label="To" hint="e.g. KTRK">
@@ -272,27 +288,49 @@ export function LogFlightForm({
         ) : null}
       </Group>
 
-      <Group icon={Fuel} title="Fuel">
-        <Field
-          label={`Remaining at shutdown (${unit})`}
-          hint="What the next pilot is walking out to. Not a running total."
-        >
-          <Input
-            name="fuel_remaining_after"
-            inputMode="decimal"
-            className="tabular"
-            defaultValue={state.values?.fuel_remaining_after}
-          />
-        </Field>
-
+      {/* The unit said once, in the heading, rather than on all four labels. */}
+      <Group icon={Fuel} title={`Fuel · ${unit}`}>
         {/*
-          §3.4: the level above is aircraft *state* and these two are a
-          *transaction* — what somebody spent, which feeds §3.7 when the
-          aeroplane is on a wet rate. Adjacent on the form, and never one
-          field.
+          §3.4: two different things, and they must not be one field.
+          **Before** and **after** are aircraft *state* — latest reading wins,
+          and the next pilot walks out to it. **Added** is a *transaction*, and
+          on a wet rate it credits the pilot back (§3.7).
         */}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Added" hint={unit.charAt(0).toUpperCase() + unit.slice(1)}>
+          {/*
+            Prefilled with what the last pilot left in the tanks, which the web
+            was not showing at all. Suggested and not asserted: where the pilot
+            corrects it, the difference is fuel somebody added without logging
+            it, which is information rather than an error (§8.2 flags, never
+            rejects).
+          */}
+          <Field
+            label="Before"
+            hint={
+              aircraft.fuel_remaining
+                ? `Last recorded ${aircraft.fuel_remaining}`
+                : 'At start-up'
+            }
+          >
+            <Input
+              name="fuel_remaining_before"
+              inputMode="decimal"
+              className="tabular"
+              defaultValue={state.values?.fuel_remaining_before ?? (aircraft.fuel_remaining ?? '')}
+            />
+          </Field>
+          <Field label="After" hint="What the next pilot walks out to">
+            <Input
+              name="fuel_remaining_after"
+              inputMode="decimal"
+              className="tabular"
+              defaultValue={state.values?.fuel_remaining_after}
+            />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Added">
             <Input
               name="fuel_added_qty"
               inputMode="decimal"
@@ -335,7 +373,11 @@ export function LogFlightForm({
         <Group
           icon={AlertTriangle}
           title="Anything wrong with it?"
-          hint="Leave blank if not. Each defect is its own record, and what you write here stays as written."
+          hint={
+            squawks.length === 0
+              ? 'Nothing to report is the usual answer. If there is something, it goes on the record from here.'
+              : 'Each defect is its own record, and what you write stays as written.'
+          }
         >
           <input type="hidden" name="squawk_count" value={squawks.length} />
 
@@ -384,16 +426,15 @@ export function LogFlightForm({
                 />
               </Field>
 
-              {squawks.length > 1 ? (
-                <Button
-                  type="button"
-                  variant="tertiary"
-                  onClick={() => setSquawks((current) => current.filter((_, i) => i !== index))}
-                >
-                  <X aria-hidden size={16} strokeWidth={2} />
-                  Remove this one
-                </Button>
-              ) : null}
+              {/* Every row goes, including the last: none of them is compulsory. */}
+              <Button
+                type="button"
+                variant="tertiary"
+                onClick={() => setSquawks((current) => current.filter((_, i) => i !== index))}
+              >
+                <X aria-hidden size={16} strokeWidth={2} />
+                Remove this one
+              </Button>
             </fieldset>
           ))}
 
@@ -403,7 +444,7 @@ export function LogFlightForm({
             onClick={() => setSquawks((current) => [...current, blankSquawk()])}
           >
             <Plus aria-hidden size={16} strokeWidth={2} />
-            Another defect
+            {squawks.length === 0 ? 'Add a squawk' : 'Add another squawk'}
           </Button>
         </Group>
       ) : null}

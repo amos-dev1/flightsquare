@@ -448,7 +448,7 @@ export async function logFlight(
   const text = (key: string) => String(form.get(key) ?? '').trim();
   const values = Object.fromEntries(
     ['flight_date', 'hobbs_start', 'hobbs_end', 'tach_start', 'tach_end',
-     'fuel_remaining_after', 'fuel_added_qty', 'fuel_added_cost',
+     'fuel_remaining_before', 'fuel_remaining_after', 'fuel_added_qty', 'fuel_added_cost',
      'departed_from', 'arrived_at', 'remarks'].map((k) => [k, text(k)]),
   );
 
@@ -490,6 +490,9 @@ export async function logFlight(
     return { error: 'Enter the Hobbs or tach reading at shutdown.', values };
   }
 
+  // §3.4: fuel is state, and before and after are two readings of it — not a
+  // level and a delta. Neither is derived from the other and nothing sums them.
+  if (values.fuel_remaining_before) body.fuel_remaining_before = values.fuel_remaining_before;
   if (values.fuel_remaining_after) body.fuel_remaining_after = values.fuel_remaining_after;
   if (values.fuel_added_qty) body.fuel_added_qty = values.fuel_added_qty;
   if (values.fuel_added_cost) {
