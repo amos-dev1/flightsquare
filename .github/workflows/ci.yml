@@ -70,6 +70,12 @@ jobs:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/flightsquare_test
           APP_ROLE_SECRET: '{"username":"app_role","password":"app_role"}'
           ADMIN_ROLE_SECRET: '{"username":"admin_role","password":"admin_role"}'
+          # mail_role and scheduler_role too, because the API suite connects as
+          # both — the outbox worker and the sweep each have their own role.
+          # Without these, direct mode gives them deliberately unknowable
+          # passwords and those tests fail on authentication.
+          MAIL_ROLE_SECRET: '{"username":"mail_role","password":"mail_role"}'
+          SCHEDULER_ROLE_SECRET: '{"username":"scheduler_role","password":"scheduler_role"}'
 
       # Two suites, two connections, because they need opposite things and a
       # single DATABASE_URL cannot be both.
@@ -85,12 +91,28 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/flightsquare_test
 
-      # The API suite is the opposite case and deliberately so: it connects as
-      # app_role, the restricted role with no BYPASSRLS. Running these as the
-      # owner would make every isolation test pass for the wrong reason
+      # `boundaries.test.ts` asserts that nothing in the built API still
+      # references @flightsquare/shared at runtime — it reads api/dist, so
+      # there has to be one. Building here also means a broken build fails
+      # before the deploy workflow spends ten minutes discovering it.
+      - name: Build the API
+        run: npm run build -w api
+
+      # The API suite is the opposite case to the one above, deliberately: it
+      # connects as app_role, the restricted role with no BYPASSRLS. Running it
+      # as the owner would make every isolation test pass for the wrong reason
       # (CLAUDE.md §1.2, §6.1).
+      #
+      # These are NOT DATABASE_URL. Nothing in api/ reads that — `config.ts`
+      # takes a host, a database and per-role credentials, and the roles are
+      # separate on purpose: the API cannot read the outbox, and the mail
+      # worker cannot read anything else. The passwords match what the Migrate
+      # step above created the roles with.
       - name: API tests
         run: npx vitest run
         env:
-          DATABASE_URL: postgres://app_role:app_role@localhost:5432/flightsquare_test
-          ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/flightsquare_test
+          FS_DB_HOST: localhost
+          FS_DB_NAME: flightsquare_test
+          FS_APP_PASSWORD: app_role
+          FS_MAIL_PASSWORD: mail_role
+          FS_SCHEDULER_PASSWORD: scheduler_role
