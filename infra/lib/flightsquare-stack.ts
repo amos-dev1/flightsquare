@@ -566,6 +566,18 @@ export class FlightSquareStack extends cdk.Stack {
           port: 3000,
           environmentVariables: {
             NODE_ENV: 'production',
+            /*
+              Which environment this is, for the banner across the top of every
+              page (web/src/components/env-banner.tsx).
+              
+              It cannot read NODE_ENV, which is 'production' here too — this is
+              a production build of Next, in dev. So the environment travels
+              separately, and `prod` is the only value that removes the banner.
+              Anything else, including the variable being absent, bands the app:
+              a missing value showing DEV on production is an embarrassment,
+              where hiding it on dev is the mistake the banner exists to stop.
+            */
+            FS_ENV: props.envName,
             // Read per request by middleware and the server components, so a
             // change here is a restart rather than a rebuild. The API's custom
             // domain rather than its awsapprunner.com address: this is the one

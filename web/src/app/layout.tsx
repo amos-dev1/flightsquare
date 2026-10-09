@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { Inter, Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
 
+import { EnvBanner } from '@/components/env-banner';
+
 import './globals.css';
 
 /*
@@ -34,7 +36,16 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${inter.variable} ${manrope.variable}`}>
-      <body className="min-h-screen font-sans antialiased">{children}</body>
+      {/*
+        The banner is first in the body, above every route — the app, sign-in,
+        sign-up, the error and not-found pages. Putting it in the root layout
+        rather than the (app) layout is deliberate: the page most likely to be
+        mistaken for production is the one you land on before signing in.
+      */}
+      <body className="min-h-screen font-sans antialiased">
+        <EnvBanner />
+        {children}
+      </body>
     </html>
   );
 }

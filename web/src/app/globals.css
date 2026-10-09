@@ -44,6 +44,30 @@
    * small supporting text on white — it is for borders and chart series.
    */
   --color-control: #718493;
+
+  /*
+   * Caution: a functional exception, not an accent (§11 §11).
+   *
+   * The first semantic colour in this file, and deliberately outside the Cool
+   * Aviation palette. §11 forbids pressing brand colours into this job — teal
+   * is interaction and "never a universal safe or airworthy signal" — and
+   * forbids large saturated teal backgrounds, which is exactly what a banner
+   * is. Amber rather than red: a non-production environment is something to
+   * notice, not a failure, and red is kept for the grounding and overdue
+   * states that mean an aircraft cannot fly.
+   *
+   * Navy on amber, never white on it, which is the same rule §11 states for
+   * bright teal — and here the numbers are stark: navy on this amber measures
+   * 6.78:1, white on it 2.15:1, which would fail AA at any size.
+   *
+   * 6.78 clears AA for normal text (4.5) with room to spare and falls short of
+   * AAA (7.0). Closing that gap means darkening the amber, and §11 asks for
+   * contrast verified in context rather than maximised: the banner's job is to
+   * be the brightest thing on a white-and-mist page, and trading that for 0.22
+   * of a ratio point it already passes would be the wrong way round.
+   */
+  --color-caution: #F59E0B;
+  --color-on-caution: #152B3C;
 }
 
 html {
