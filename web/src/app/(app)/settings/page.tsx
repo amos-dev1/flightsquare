@@ -60,7 +60,7 @@ export default async function SettingsPage() {
             </p>
             <Link
               href="/settings/subscription"
-              className="text-sm font-semibold underline decoration-1 underline-offset-4"
+              className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
             >
               Plans and invoices
             </Link>

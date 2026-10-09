@@ -164,11 +164,16 @@ function Filter({
       href={href}
       // §11: a selected state is weight and an underline as well as the teal
       // marker, never colour on its own.
-      className={
+      //
+      // `min-h-11` because these are the page's primary control and measured
+      // 20px tall — §13 asks for 44. The row is `flex-wrap` with its own gaps,
+      // so the taller target costs no horizontal space and cannot overlap the
+      // link beside it.
+      className={`inline-flex min-h-11 items-center ${
         on
           ? 'font-semibold underline decoration-teal decoration-2 underline-offset-4'
           : 'text-secondary hover:text-navy'
-      }
+      }`}
       aria-current={on ? 'true' : undefined}
     >
       {children}
@@ -198,7 +203,14 @@ function FlightRow({ flight }: { flight: FlightResponse }) {
           ) : null}
         </p>
 
-        <p className="mt-0.5 text-xs text-secondary">
+        {/*
+          `break-words`: the pilot is identified by email here, and an address
+          is one unbreakable token. `min-w-0 flex-1` on the parent lets the box
+          shrink but cannot split the word inside it, so at 390px a
+          38-character address pushed the whole page 9px wide — the last
+          horizontal scroll left in the app.
+        */}
+        <p className="mt-0.5 break-words text-xs text-secondary">
           {/* No name on this projection — the flights join carries the email
               and nothing else, which is enough to say who had the aeroplane. */}
           {flight.flown_by_email ?? 'Unknown pilot'}

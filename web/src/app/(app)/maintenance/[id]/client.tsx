@@ -47,7 +47,7 @@ export function CompletionForm({ item }: { item: MaintenanceItemResponse }) {
   return (
     <Card className="px-5 py-4">
       <details className="group" open={Boolean(state.error)}>
-        <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg px-2 text-sm font-semibold hover:bg-subtle">
+        <summary className="inline-flex h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-2 text-sm font-semibold hover:bg-subtle">
           <ClipboardCheck aria-hidden size={16} strokeWidth={2} />
           Mark complete
         </summary>

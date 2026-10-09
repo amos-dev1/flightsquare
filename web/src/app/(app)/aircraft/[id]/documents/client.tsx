@@ -51,7 +51,7 @@ export function DocumentForm({
 
   return (
     <details className="group">
-      <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-2 rounded-lg px-2 text-sm font-semibold hover:bg-subtle">
+      <summary className="inline-flex h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-2 text-sm font-semibold hover:bg-subtle">
         <Plus aria-hidden size={16} strokeWidth={2} />
         Add
       </summary>
@@ -141,7 +141,7 @@ export function RemoveDocument({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-sm font-semibold underline decoration-1 underline-offset-4"
+        className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
       >
         Remove
       </button>

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, Manrope } from 'next/font/google';
 import type { ReactNode } from 'react';
 
@@ -31,6 +31,33 @@ const manrope = Manrope({
 export const metadata: Metadata = {
   title: 'FlightSquare',
   description: 'Aircraft management, simplified.',
+  applicationName: 'FlightSquare',
+  /*
+    iOS reads the web manifest from 16.4, and `apple-mobile-web-app-capable`
+    for everything before it. Both are cheap and only one of them is new, so
+    an older phone added to the home screen still opens without Safari's
+    chrome rather than in a browser tab pretending to be an app.
+
+    `statusBarStyle: 'default'` and not 'black-translucent': translucent puts
+    the page *under* the clock and the battery, which would slide the sticky
+    environment banner beneath them — the one element that must never be
+    obscured.
+  */
+  appleWebApp: {
+    capable: true,
+    title: 'FlightSquare',
+    statusBarStyle: 'default',
+  },
+};
+
+/*
+  The colour the phone paints around the window in standalone — the status bar
+  on iOS, the task switcher and system bars on Android. §11's navy, matching
+  the manifest, so the installed app reads as one surface rather than a web
+  page in a frame someone forgot to colour.
+*/
+export const viewport: Viewport = {
+  themeColor: '#152B3C',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

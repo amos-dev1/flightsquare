@@ -96,7 +96,7 @@ export default function LoginPage({
             <p className="text-center text-sm">
               <Link
                 href="/login"
-                className="text-secondary underline decoration-1 underline-offset-2 hover:text-navy"
+                className="inline-flex min-h-11 items-center text-secondary underline decoration-1 underline-offset-2 hover:text-navy"
               >
                 Start again
               </Link>
@@ -128,7 +128,7 @@ export default function LoginPage({
             <p className="text-center text-sm">
               <Link
                 href="/forgot-password"
-                className="text-secondary underline decoration-1 underline-offset-2 hover:text-navy"
+                className="inline-flex min-h-11 items-center text-secondary underline decoration-1 underline-offset-2 hover:text-navy"
               >
                 Forgot your password?
               </Link>
@@ -139,7 +139,7 @@ export default function LoginPage({
 
       <p className="mt-6 text-center text-sm text-secondary">
         New here?{' '}
-        <Link href="/signup" className="font-semibold underline decoration-1 underline-offset-2">
+        <Link href="/signup" className="inline-flex min-h-11 items-center font-semibold underline decoration-1 underline-offset-2">
           Create an account
         </Link>
       </p>

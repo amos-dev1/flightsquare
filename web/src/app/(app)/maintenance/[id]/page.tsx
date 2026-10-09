@@ -55,7 +55,7 @@ export default async function MaintenanceItemPage({ params }: { params: Promise<
       <div>
         <Link
           href="/maintenance"
-          className="text-sm font-semibold underline decoration-1 underline-offset-4"
+          className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
         >
           Maintenance
         </Link>

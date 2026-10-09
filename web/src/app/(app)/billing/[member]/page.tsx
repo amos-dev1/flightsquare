@@ -66,7 +66,7 @@ export default async function MemberStatementPage({
           </p>
         </div>
 
-        <Link href="/billing" className="text-sm font-semibold underline decoration-1 underline-offset-4">
+        <Link href="/billing" className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4">
           Back to billing
         </Link>
       </div>

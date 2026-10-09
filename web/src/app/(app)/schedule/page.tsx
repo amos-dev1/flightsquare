@@ -324,7 +324,10 @@ function ViewLink({
     <Link
       href={href}
       aria-current={active ? 'true' : undefined}
-      className={`rounded-lg px-2 py-1 ${
+      // `min-h-11`: measured 28px, and this is the control that decides what
+      // the whole page shows (§13 asks for 44). The row wraps and has its own
+      // gaps, so a taller target changes nothing else.
+      className={`inline-flex min-h-11 items-center rounded-lg px-3 ${
         // §11: selection is weight and fill, never colour alone.
         active ? 'bg-navy font-semibold text-surface' : 'text-secondary hover:bg-subtle'
       }`}

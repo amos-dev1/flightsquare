@@ -100,7 +100,9 @@ export default async function MaintenancePage() {
                   <h2 className="text-xl font-semibold tracking-tight">
                     <Link
                       href={`/aircraft/${aircraft.aircraft_id}`}
-                      className="underline decoration-line decoration-1 underline-offset-4 hover:decoration-navy"
+                      // A section heading and the way into the aeroplane, so
+                      // it is a navigation target as much as a title.
+                      className="inline-flex min-h-11 items-center underline decoration-line decoration-1 underline-offset-4 hover:decoration-navy"
                     >
                       {aircraft.registration}
                     </Link>

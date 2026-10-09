@@ -170,7 +170,7 @@ export default async function AircraftPage({
 
           <Link
             href="/maintenance"
-            className="inline-block text-sm font-semibold underline decoration-1 underline-offset-4"
+            className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
           >
             Record compliance
           </Link>
@@ -206,7 +206,7 @@ export default async function AircraftPage({
         )}
         <Link
           href="/squawks"
-          className="inline-block text-sm font-semibold underline decoration-1 underline-offset-4"
+          className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
         >
           Report a defect
         </Link>
@@ -217,7 +217,7 @@ export default async function AircraftPage({
         */}
         <a
           href="/flights-export"
-          className="ml-4 inline-block text-sm font-semibold underline decoration-1 underline-offset-4"
+          className="ml-4 inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
         >
           Download your flights
         </a>
@@ -286,7 +286,7 @@ export default async function AircraftPage({
             </p>
             <Link
               href={`/aircraft/${aircraft.id}/documents`}
-              className="text-sm font-semibold underline decoration-1 underline-offset-4"
+              className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
             >
               See what is on file
             </Link>

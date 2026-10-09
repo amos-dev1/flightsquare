@@ -78,7 +78,7 @@ export default function SignupPage() {
 
       <p className="mt-6 text-center text-sm text-secondary">
         Already have an account?{' '}
-        <Link href="/login" className="font-semibold underline decoration-1 underline-offset-2">
+        <Link href="/login" className="inline-flex min-h-11 items-center font-semibold underline decoration-1 underline-offset-2">
           Sign in
         </Link>
       </p>
