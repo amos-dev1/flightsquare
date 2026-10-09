@@ -12,7 +12,6 @@ import type {
   SquawkResponse,
 } from '@flightsquare/shared';
 
-import { ReadingForm } from '../client';
 
 /**
  * Can I take it, what is wrong with it, and what do the meters read.
@@ -50,8 +49,6 @@ export default async function AircraftDashboard({
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
-
-  const canWrite = entitlements.permissions.aircraft === 'write';
 
   return (
     <div className="space-y-6">
@@ -171,13 +168,16 @@ export default async function AircraftDashboard({
         </section>
       )}
 
-      {canWrite ? (
-        <section className="space-y-3">
-          <SectionHeading>Record a reading</SectionHeading>
-          <ReadingForm aircraftId={aircraft.id} />
-        </section>
-      ) : null}
+      {/*
+        The log stays here and the form that writes to it does not.
 
+        §3.4's loop runs flight → meters → maintenance → charge, and a
+        "Record a reading" box beside the meters is a shortcut straight past
+        it: the meters move, the maintenance countdown ticks, and no flight row
+        exists — so nobody is billed and nothing records who had the aeroplane.
+        Reading the log is for every member who holds `aircraft: read`;
+        writing to it is an administrative act and lives in Settings.
+      */}
       <section className="space-y-3">
         <SectionHeading>Meter log</SectionHeading>
         {readings.length === 0 ? (

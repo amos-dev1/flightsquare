@@ -9,7 +9,7 @@ import type {
   MemberResponse,
 } from '@flightsquare/shared';
 
-import { ArchiveButton } from '../../client';
+import { ArchiveButton, ReadingForm } from '../../client';
 import { AircraftSettingsForm } from '../../settings-form';
 import { Authorizations } from '../../authorizations';
 
@@ -58,6 +58,31 @@ export default async function AircraftSettingsTab({
         <section className="space-y-3">
           <SectionHeading>Details</SectionHeading>
           <AircraftSettingsForm aircraft={aircraft} />
+        </section>
+      ) : null}
+
+      {canWrite ? (
+        <section className="space-y-3">
+          <SectionHeading>Record a meter reading</SectionHeading>
+          <p className="text-sm text-secondary">
+            Flights move the meters on their own — log one instead of using this. This is for
+            the opening figures when an aeroplane arrives, for a correction when somebody
+            mistyped a number, and for hours that no flight accounts for, like a maintenance
+            run or a new Hobbs.
+          </p>
+          {/*
+            Deliberately not on the dashboard. §3.4's loop runs flight → meters
+            → maintenance → charge, and a reading recorded instead of a flight
+            advances the meters while leaving no `flight_charges` row and no
+            `flown_by` — the member is not billed and nothing says who had the
+            aeroplane. Keeping it here, behind `aircraft: write`, makes it the
+            exception it is rather than a quicker-looking alternative sitting
+            beside the meters it would corrupt.
+
+            Readings are append-only (§3.4): a correction is a new row
+            superseding the old one, and the log on the dashboard keeps both.
+          */}
+          <ReadingForm aircraftId={aircraft.id} />
         </section>
       ) : null}
 
