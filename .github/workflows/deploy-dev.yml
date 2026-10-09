@@ -66,23 +66,21 @@ jobs:
       # image always changes the template and App Runner always pulls. The same
       # script runs on a laptop; it detects that there is no named AWS profile
       # here and uses the role's credentials.
-      - name: Build, push and deploy
+      #
+      # Migrations are inside this, not a step after it, because *when* they
+      # run is the point. The script deploys twice: first moving the migration
+      # task to the new image while the services stay on the one they are
+      # running, then migrating, then moving the services. Additive
+      # forward-only migrations (CLAUDE.md §6) mean old code tolerates the new
+      # schema; new code against the old schema does not.
+      #
+      # A failed migration therefore stops the run before any new code serves,
+      # and the services are left on an image whose schema is still there.
+      # `scripts/migrate-remote.sh` waits for the task and exits with the
+      # container's code, because `aws ecs run-task` returns as soon as the
+      # task is *accepted* and would report success for a migration that threw.
+      - name: Build, push, migrate and deploy
         run: scripts/deploy.sh dev
-
-      # Separate step, after the stack, because the migration task definition
-      # only points at the new image once the stack has been updated.
-      #
-      # It waits for the task to stop and exits with the container's code, so a
-      # failed migration fails the job — `aws ecs run-task` on its own returns
-      # as soon as the task is *accepted*, which would report success for a
-      # migration that then threw.
-      #
-      # Worth knowing: by this point the new API is already serving. The
-      # migrations are forward-only and additive (CLAUDE.md §6), so the window
-      # is new code against the old schema rather than the reverse, and a
-      # failure here turns the run red with the SQL error in the log.
-      - name: Run migrations
-        run: scripts/migrate-remote.sh dev
 
       - name: What is deployed
         if: always()

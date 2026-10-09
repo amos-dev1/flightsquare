@@ -30,6 +30,10 @@ const apiImage =
   app.node.tryGetContext('apiImage') ?? process.env.API_IMAGE ?? 'latest';
 const webImage =
   app.node.tryGetContext('webImage') ?? process.env.WEB_IMAGE ?? 'latest';
+// The migration task, which runs a deploy ahead of the services so the schema
+// is in place before the code that needs it. Defaults to the API's image.
+const migrateImage =
+  app.node.tryGetContext('migrateImage') ?? process.env.MIGRATE_IMAGE ?? apiImage;
 
 // Account IDs are pinned deliberately rather than resolved from the
 // ambient profile. This is a guardrail: `cdk deploy FlightSquareProd
@@ -39,6 +43,7 @@ new FlightSquareStack(app, 'FlightSquareDev', {
   envName: 'dev',
   apiImage,
   webImage,
+  migrateImage,
   env: { account: '102378189980', region: 'us-east-1' },
   description: 'FlightSquare dev environment',
   tags: {
@@ -52,6 +57,7 @@ new FlightSquareStack(app, 'FlightSquareProd', {
   envName: 'prod',
   apiImage,
   webImage,
+  migrateImage,
   env: { account: '363434191112', region: 'us-east-1' },
   description: 'FlightSquare production environment',
   tags: {

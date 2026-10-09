@@ -49,6 +49,26 @@ export interface FlightSquareStackProps extends cdk.StackProps {
   readonly apiImage?: string;
   /** Which web image to run. Same rules as {@link apiImage}. */
   readonly webImage?: string;
+  /**
+   * Which image the migration task runs — normally ahead of the services.
+   *
+   * This exists so migrations can be applied *before* the new code serves.
+   * Additive, forward-only migrations (CLAUDE.md §6) are backwards compatible:
+   * old code ignores a column it does not know about. The reverse is not —
+   * new code against the old schema fails on the first query naming something
+   * that is not there yet.
+   *
+   * So a deploy runs twice. The first passes the new image here and the
+   * currently-deployed digests for the services, which moves the task
+   * definition forward and leaves the API and the web app where they are. The
+   * migrations run against it. Only then does the second pass move the
+   * services.
+   *
+   * Defaults to {@link apiImage}, so a single deploy still behaves sensibly —
+   * they are the same image, and the migration task is the reason that image
+   * carries db/migrations at all.
+   */
+  readonly migrateImage?: string;
 }
 
 export class FlightSquareStack extends cdk.Stack {
@@ -293,7 +313,12 @@ export class FlightSquareStack extends cdk.Stack {
     });
 
     migrateTask.addContainer('migrate', {
-      image: ecs.ContainerImage.fromEcrRepository(repository, props.apiImage ?? 'latest'),
+      // `migrateImage`, not `apiImage`: this is the one thing that must be
+      // able to run ahead of the services. See the prop's comment.
+      image: ecs.ContainerImage.fromEcrRepository(
+        repository,
+        props.migrateImage ?? props.apiImage ?? 'latest',
+      ),
       command: ['npm', 'run', 'migrate'],
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'migrate',

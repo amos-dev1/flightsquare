@@ -100,42 +100,90 @@ build() {
   printf '%s' "$digest"
 }
 
-CDK_ARGS=()
+# What the stack currently runs. Used to hold the services still during the
+# first pass, and to leave an image alone when only the other is being built.
+deployed() {
+  local out
+  out="$(aws_ cloudformation describe-stacks \
+    --stack-name "$STACK" \
+    --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" \
+    --output text 2>/dev/null || true)"
+  [ "$out" = "None" ] && out=""
+  printf '%s' "$out"
+}
 
+CURRENT_API="$(deployed DeployedApiImage)"
+CURRENT_WEB="$(deployed DeployedWebImage)"
+
+API_DIGEST=""
+WEB_DIGEST=""
 if [ "$WHICH" = "api" ] || [ "$WHICH" = "both" ]; then
   API_DIGEST="$(build api api/Dockerfile)"
   echo "✓ api  $API_DIGEST"
-  CDK_ARGS+=(-c "apiImage=$API_DIGEST")
 fi
-
 if [ "$WHICH" = "web" ] || [ "$WHICH" = "both" ]; then
   WEB_DIGEST="$(build web web/Dockerfile)"
   echo "✓ web  $WEB_DIGEST"
-  CDK_ARGS+=(-c "webImage=$WEB_DIGEST")
 fi
 
-# Whichever image is not being deployed keeps the digest the stack already
-# holds, rather than falling back to `latest` and quietly rolling the other
-# service back to whatever that points at now.
-keep() {
-  local key="$1" logical="$2"
-  local current
-  current="$(aws_ cloudformation describe-stacks \
-    --stack-name "$STACK" \
-    --query "Stacks[0].Outputs[?OutputKey=='$logical'].OutputValue" \
-    --output text 2>/dev/null || true)"
-  if [ -n "$current" ] && [ "$current" != "None" ]; then
-    CDK_ARGS+=(-c "$key=$current")
-    echo "· keeping $key at $current"
-  fi
+# An image that was not rebuilt keeps the digest the stack already holds,
+# rather than falling back to `latest` and quietly rolling that service onto
+# whatever the tag points at now.
+[ -z "$API_DIGEST" ] && API_DIGEST="${CURRENT_API:-latest}"
+[ -z "$WEB_DIGEST" ] && WEB_DIGEST="${CURRENT_WEB:-latest}"
+
+cdk_deploy() {
+  ( cd infra && npx cdk deploy "$STACK" ${AWS_ARGS[@]+"${AWS_ARGS[@]}"} \
+      --require-approval never "$@" )
 }
-# `if`, not `[ … ] && keep …`: under `set -e` a false test makes the whole
-# `&&` return 1 and the script exits — which is the `both` case, every time.
-if [ "$WHICH" = "web" ]; then keep apiImage DeployedApiImage; fi
-if [ "$WHICH" = "api" ]; then keep webImage DeployedWebImage; fi
 
-echo "→ cdk deploy $STACK"
-( cd infra && npx cdk deploy "$STACK" ${AWS_ARGS[@]+"${AWS_ARGS[@]}"} --require-approval never "${CDK_ARGS[@]}" )
+###############################################################################
+# Pass 1 — move the schema, leave the code alone.
+#
+# The migration task picks up the new image; the API, the mail worker and the
+# web app stay on exactly what they are already running. That ordering is the
+# whole point: migrations are additive and forward-only (CLAUDE.md §6), so old
+# code against the new schema is fine — it ignores a column it does not know
+# about — while new code against the old schema fails on the first query
+# naming something that is not there yet.
+#
+# On a first deploy there is nothing running yet, so there is no "hold still"
+# to do and one pass is the whole deploy.
+###############################################################################
+if [ -n "$CURRENT_API" ] || [ -n "$CURRENT_WEB" ]; then
+  echo "→ pass 1: migration task to the new image, services held at the current one"
+  echo "   api held at ${CURRENT_API:-latest}"
+  echo "   web held at ${CURRENT_WEB:-latest}"
+  cdk_deploy \
+    -c "migrateImage=$API_DIGEST" \
+    -c "apiImage=${CURRENT_API:-latest}" \
+    -c "webImage=${CURRENT_WEB:-latest}"
 
-echo "✓ deployed. The services reference digests, so the deployment was the pull —"
-echo "  no start-deployment to remember."
+  echo "→ migrating, before any new code serves"
+  "$(dirname "$0")/migrate-remote.sh" "$ENV_NAME"
+else
+  echo "· first deploy: nothing is running yet, so there is nothing to hold back"
+fi
+
+###############################################################################
+# Pass 2 — now the code.
+#
+# If the migrations above failed, `set -e` stopped before this, and the
+# services are still serving the old image against a schema it understands.
+# That is the failure mode worth having.
+###############################################################################
+echo "→ pass 2: services to the new image"
+cdk_deploy \
+  -c "migrateImage=$API_DIGEST" \
+  -c "apiImage=$API_DIGEST" \
+  -c "webImage=$WEB_DIGEST"
+
+# A first deploy had nothing to hold back, so its migrations run here instead —
+# after the stack exists, which is the earliest the task definition does.
+if [ -z "$CURRENT_API" ] && [ -z "$CURRENT_WEB" ]; then
+  echo "→ migrating (first deploy)"
+  "$(dirname "$0")/migrate-remote.sh" "$ENV_NAME"
+fi
+
+echo "✓ deployed. Migrations ran before the new code served, and the services"
+echo "  reference digests, so each deployment was the pull."
