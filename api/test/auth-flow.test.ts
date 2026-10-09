@@ -180,6 +180,7 @@ describe('authentication', () => {
     await provisionTenantForNewUser({
       slug: uniqueSlug('mfa-other'),
       name: 'Other Air',
+      archetype: 'solo',
       email: otherEmail,
       passwordHash: await hashPassword(PASSWORD),
     });
