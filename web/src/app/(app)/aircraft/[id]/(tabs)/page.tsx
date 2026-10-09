@@ -2,13 +2,12 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
-import { Alert, Card, KeyMetric, Meter, SectionHeading, Status } from '@/components/ui';
+import { Alert, Card, KeyMetric, SectionHeading, Status } from '@/components/ui';
 import { AvailabilityLine } from '@/app/(app)/maintenance/shared';
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
   EntitlementsResponse,
-  MeterReadingResponse,
   SquawkResponse,
 } from '@flightsquare/shared';
 
@@ -31,14 +30,12 @@ export default async function AircraftDashboard({
   const { logged } = await searchParams;
 
   let aircraft: AircraftResponse;
-  let readings: MeterReadingResponse[];
   let availability: AircraftAvailabilityResponse;
   let entitlements: EntitlementsResponse;
   let squawks: SquawkResponse[];
   try {
-    [aircraft, readings, availability, entitlements, squawks] = await Promise.all([
+    [aircraft, availability, entitlements, squawks] = await Promise.all([
       apiFetch<AircraftResponse>(`/aircraft/${id}`),
-      apiFetch<MeterReadingResponse[]>(`/aircraft/${id}/meter-readings`),
       apiFetch<AircraftAvailabilityResponse>(`/aircraft/${id}/availability`),
       apiFetch<EntitlementsResponse>('/entitlements'),
       // V1_SCOPE M5: open squawks are visible to every member here, because
@@ -168,46 +165,6 @@ export default async function AircraftDashboard({
         </section>
       )}
 
-      {/*
-        The log stays here and the form that writes to it does not.
-
-        §3.4's loop runs flight → meters → maintenance → charge, and a
-        "Record a reading" box beside the meters is a shortcut straight past
-        it: the meters move, the maintenance countdown ticks, and no flight row
-        exists — so nobody is billed and nothing records who had the aeroplane.
-        Reading the log is for every member who holds `aircraft: read`;
-        writing to it is an administrative act and lives in Settings.
-      */}
-      <section className="space-y-3">
-        <SectionHeading>Meter log</SectionHeading>
-        {readings.length === 0 ? (
-          <p className="text-sm text-secondary">Nothing recorded yet.</p>
-        ) : (
-          <Card className="divide-y divide-line">
-            {readings.map((reading) => (
-              <div key={reading.id} className="flex items-baseline gap-4 px-4 py-3 text-sm">
-                <time className="w-40 shrink-0 text-secondary" dateTime={reading.recorded_at}>
-                  {new Date(reading.recorded_at).toLocaleString()}
-                </time>
-                <div className="flex flex-1 flex-wrap gap-x-6 gap-y-1">
-                  {reading.hobbs ? <span>Hobbs <Meter value={reading.hobbs} /></span> : null}
-                  {reading.tach ? <span>Tach <Meter value={reading.tach} /></span> : null}
-                  {reading.airframe_hours ? (
-                    <span>Airframe <Meter value={reading.airframe_hours} /></span>
-                  ) : null}
-                  {reading.note ? <span className="text-secondary">{reading.note}</span> : null}
-                </div>
-                {/*
-                  A superseded reading stays in the log and is labelled rather
-                  than hidden: the correction and what it corrected are both
-                  part of the trail the maintenance numbers rest on (§3.4).
-                */}
-                {reading.superseded ? <Status kind="neutral">Corrected</Status> : null}
-              </div>
-            ))}
-          </Card>
-        )}
-      </section>
     </div>
   );
 }

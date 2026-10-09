@@ -1,12 +1,13 @@
 import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
-import { SectionHeading } from '@/components/ui';
+import { Card, Meter, SectionHeading, Status } from '@/components/ui';
 import type {
   AircraftResponse,
   AuthorizationResponse,
   EntitlementsResponse,
   MemberResponse,
+  MeterReadingResponse,
 } from '@flightsquare/shared';
 
 import { ArchiveButton, ReadingForm } from '../../client';
@@ -35,8 +36,9 @@ export default async function AircraftSettingsTab({
   let entitlements: EntitlementsResponse;
   let authorizations: AuthorizationResponse[];
   let members: MemberResponse[];
+  let readings: MeterReadingResponse[];
   try {
-    [aircraft, entitlements, authorizations, members] = await Promise.all([
+    [aircraft, entitlements, authorizations, members, readings] = await Promise.all([
       apiFetch<AircraftResponse>(`/aircraft/${id}`),
       apiFetch<EntitlementsResponse>('/entitlements'),
       // §3.5: who may fly this one. A club question, not a pilot record.
@@ -44,6 +46,7 @@ export default async function AircraftSettingsTab({
       // Only an admin can sign somebody off, and only they can read the
       // roster — so a Pilot gets an empty list and the form stays hidden.
       apiFetch<MemberResponse[]>('/members').catch(() => [] as MemberResponse[]),
+      apiFetch<MeterReadingResponse[]>(`/aircraft/${id}/meter-readings`),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
@@ -85,6 +88,47 @@ export default async function AircraftSettingsTab({
           <ReadingForm aircraftId={aircraft.id} />
         </section>
       ) : null}
+
+      {/*
+        The history behind the form above. Every flight writes a row here too,
+        so this is the whole trail the maintenance numbers rest on rather than
+        a list of manual entries.
+
+        Readable by anyone holding `aircraft: read`, so it is not gated here —
+        but the Settings tab itself is only offered to a member who can write,
+        so in practice a Pilot will not come across it. The current figures
+        they need before a flight are on the dashboard.
+      */}
+      <section className="space-y-3">
+        <SectionHeading>Meter log</SectionHeading>
+        {readings.length === 0 ? (
+          <p className="text-sm text-secondary">Nothing recorded yet.</p>
+        ) : (
+          <Card className="divide-y divide-line">
+            {readings.map((reading) => (
+              <div key={reading.id} className="flex items-baseline gap-4 px-4 py-3 text-sm">
+                <time className="w-40 shrink-0 text-secondary" dateTime={reading.recorded_at}>
+                  {new Date(reading.recorded_at).toLocaleString()}
+                </time>
+                <div className="flex flex-1 flex-wrap gap-x-6 gap-y-1">
+                  {reading.hobbs ? <span>Hobbs <Meter value={reading.hobbs} /></span> : null}
+                  {reading.tach ? <span>Tach <Meter value={reading.tach} /></span> : null}
+                  {reading.airframe_hours ? (
+                    <span>Airframe <Meter value={reading.airframe_hours} /></span>
+                  ) : null}
+                  {reading.note ? <span className="text-secondary">{reading.note}</span> : null}
+                </div>
+                {/*
+                  A superseded reading stays in the log and is labelled rather
+                  than hidden: the correction and what it corrected are both
+                  part of the trail the maintenance numbers rest on (§3.4).
+                */}
+                {reading.superseded ? <Status kind="neutral">Corrected</Status> : null}
+              </div>
+            ))}
+          </Card>
+        )}
+      </section>
 
       <section className="space-y-3">
         <SectionHeading>Who may fly it</SectionHeading>
