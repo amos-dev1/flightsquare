@@ -7,6 +7,19 @@ const config: NextConfig = {
   reactStrictMode: true,
 
   /**
+   * A self-contained server for the container image.
+   *
+   * Without this, running the app means shipping the repository and its whole
+   * node_modules. `standalone` traces what is actually reachable and writes a
+   * server plus only those dependencies, which is what makes the runtime stage
+   * of web/Dockerfile small and free of the build toolchain.
+   *
+   * In this workspace the output keeps the monorepo's shape, so the server
+   * lands at `web/server.js` inside `.next/standalone` rather than at its root.
+   */
+  output: 'standalone',
+
+  /**
    * The dev server's origin check, and the reason every button in the app
    * was dead.
    *

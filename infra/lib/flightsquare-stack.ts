@@ -242,6 +242,14 @@ export class FlightSquareStack extends cdk.Stack {
     // ---------------------------------------------------------------
     // PREREQUISITE: api/ needs a Dockerfile, and an image must be pushed
     // to this repo before the App Runner service will come up healthy.
+    const webRepository = new ecr.Repository(this, 'WebRepo', {
+      repositoryName: `${prefix}-web`,
+      imageScanOnPush: true,
+      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: !isProd,
+      lifecycleRules: [{ maxImageCount: 20 }],
+    });
+
     const repository = new ecr.Repository(this, 'ApiRepo', {
       repositoryName: `${prefix}-api`,
       imageScanOnPush: true,
@@ -515,6 +523,76 @@ export class FlightSquareStack extends cdk.Stack {
     });
 
     // ---------------------------------------------------------------
+    // Web app
+    // ---------------------------------------------------------------
+    /*
+      A container on App Runner, not Amplify Hosting.
+
+      Amplify was the shorter road and cannot take this app: its compute SSR
+      provider supports Next.js 12 through 15 and web/ is on 16. Static
+      hosting is not a way round it either — the app has middleware, server
+      actions and server-side API calls, so it needs a Node runtime. In a
+      container the runtime is ours and the framework version stops being
+      somebody else's roadmap.
+
+      No VPC connector, unlike the API. This talks to the API over its public
+      HTTPS endpoint and to nothing else — not the database, not the bucket —
+      so giving it a route into the VPC would widen its reach for no purpose.
+      It holds no secret for the same reason: there is nothing for it to read.
+    */
+    /*
+      Whether to create the service at all, and why it is a knob.
+
+      App Runner refuses to create a service whose ECR repository holds no
+      image, and a service left in CREATE_FAILED cannot be retried — it has to
+      be deleted and recreated, which also changes its generated URL. The API
+      learned this the slow way. So a first deploy makes the repository only:
+
+        cdk deploy FlightSquareDev -c webService=false   # repo
+        docker buildx build -f web/Dockerfile ... --push .
+        cdk deploy FlightSquareDev                       # service
+
+      It is also the way to take the web app down without discarding its custom
+      domain, which an outright delete would.
+    */
+    const webEnabled = this.node.tryGetContext('webService') !== 'false';
+
+    const webService = webEnabled ? new apprunner.Service(this, 'Web', {
+      serviceName: `${prefix}-web`,
+      source: apprunner.Source.fromEcr({
+        repository: webRepository,
+        tagOrDigest: props.imageTag ?? 'latest',
+        imageConfiguration: {
+          port: 3000,
+          environmentVariables: {
+            NODE_ENV: 'production',
+            // Read per request by middleware and the server components, so a
+            // change here is a restart rather than a rebuild. The API's custom
+            // domain rather than its awsapprunner.com address: this is the one
+            // the certificate matches and the one that survives the service
+            // being recreated.
+            FS_API_URL: isProd
+              ? 'https://api.flightsquareapp.com'
+              : 'https://api-dev.flightsquareapp.com',
+          },
+        },
+      }),
+      cpu: apprunner.Cpu.QUARTER_VCPU,
+      memory: apprunner.Memory.HALF_GB,
+      autoDeploymentsEnabled: false,
+      healthCheck: apprunner.HealthCheck.http({
+        // Not `/`, which answers 307 — unauthenticated visitors are redirected
+        // to sign in, so a health check there passes or fails on auth routing
+        // rather than on whether the server is alive.
+        path: '/health',
+        interval: cdk.Duration.seconds(10),
+        timeout: cdk.Duration.seconds(5),
+        healthyThreshold: 1,
+        unhealthyThreshold: 5,
+      }),
+    }) : undefined;
+
+    // ---------------------------------------------------------------
     // Outputs
     // ---------------------------------------------------------------
     new cdk.CfnOutput(this, 'ApiUrl', {
@@ -534,5 +612,9 @@ export class FlightSquareStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'MailServiceName', { value: mailService.serviceName });
     new cdk.CfnOutput(this, 'MailRoleSecretArn', { value: mailRoleSecret.secretArn });
+    if (webService) {
+      new cdk.CfnOutput(this, 'WebUrl', { value: `https://${webService.serviceUrl}` });
+    }
+    new cdk.CfnOutput(this, 'WebEcrRepoUri', { value: webRepository.repositoryUri });
   }
 }
