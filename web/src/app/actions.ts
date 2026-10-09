@@ -19,6 +19,7 @@ import type {
   BillingRedirectResponse,
   BookingMaintenanceCheckResponse,
   CheckoutRequest,
+  FlightResponse,
   LoginResponse,
   PreviewMaintenanceResponse,
   SelectTenantResponse,
@@ -451,6 +452,30 @@ export async function logFlight(
      'departed_from', 'arrived_at', 'remarks'].map((k) => [k, text(k)]),
   );
 
+  /**
+   * Defects found on the walk-around, filed from the same form.
+   *
+   * §1.5 keeps `squawks` apart from `maintenance.items` exactly so a pilot can
+   * report one without signing off work, and §3.6 keeps each its own record —
+   * so these are separate writes to `/squawks`, not a field on the flight.
+   * A row with no summary is not a squawk: the form shows one blank row by
+   * default and a clean walk-around leaves it alone.
+   */
+  const squawkCount = Math.min(Number(text('squawk_count')) || 0, 20);
+  values.squawk_count = String(squawkCount);
+  const squawks: { summary: string; severity: string; details: string }[] = [];
+  for (let i = 0; i < squawkCount; i += 1) {
+    const draft = {
+      summary: text(`squawk_summary_${i}`),
+      severity: text(`squawk_severity_${i}`) || 'minor',
+      details: text(`squawk_details_${i}`),
+    };
+    values[`squawk_summary_${i}`] = draft.summary;
+    values[`squawk_severity_${i}`] = draft.severity;
+    values[`squawk_details_${i}`] = draft.details;
+    if (draft.summary) squawks.push(draft);
+  }
+
   const body: Record<string, unknown> = {
     aircraft_id: aircraftId,
     flight_date: text('flight_date'),
@@ -484,8 +509,9 @@ export async function logFlight(
   if (values.remarks) body.remarks = values.remarks;
 
   const key = text('idempotency_key');
+  let flight: FlightResponse;
   try {
-    await apiFetch('/flights', {
+    flight = await apiFetch<FlightResponse>('/flights', {
       method: 'POST',
       // §8.2: this write is made offline, retried, and advances the meters.
       // The same form instance reuses its key, so a retry after a dropped
@@ -497,8 +523,57 @@ export async function logFlight(
     return { error: messageFor(error), values };
   }
 
+  /*
+    Each one named against the flight it was found on, which is what the id in
+    the response is for — the web has a server in front of it and does not need
+    to mint the flight's id the way the phone does (§8.2).
+
+    Derived keys rather than one: the flight's key replays the flight, and a
+    second squawk must not be mistaken for a retry of the first. Pressing Save
+    again after a failure here therefore replays the flight (no second record,
+    no second meter advance) and retries only what did not land.
+  */
+  for (const [index, squawk] of squawks.entries()) {
+    try {
+      await apiFetch('/squawks', {
+        method: 'POST',
+        headers: { 'idempotency-key': `${key}-squawk-${index}` },
+        body: JSON.stringify({
+          aircraft_id: aircraftId,
+          summary: squawk.summary,
+          severity: squawk.severity,
+          // Severity 'grounding' is what reaches `aircraft_availability` and
+          // stops the aeroplane being booked (§3.3).
+          grounding: squawk.severity === 'grounding',
+          ...(squawk.details ? { details: squawk.details } : {}),
+          found_on_flight_id: flight.id,
+        }),
+      });
+    } catch (error) {
+      /*
+        The flight is written and its meters have moved. Saying it failed
+        would be false, and §3.6 makes the squawk log one of the records read
+        back after an accident — so this names what did not land rather than
+        swallowing it.
+      */
+      revalidatePath(`/aircraft/${aircraftId}`);
+      revalidatePath('/aircraft');
+      return {
+        error:
+          `The flight is saved and the meters have moved, but “${squawk.summary}” was not ` +
+          `filed: ${messageFor(error)} Press Save flight again to retry just the defect — ` +
+          'the flight will not be logged twice.',
+        values,
+      };
+    }
+  }
+
   revalidatePath(`/aircraft/${aircraftId}`);
   revalidatePath('/aircraft');
+  if (squawks.length > 0) {
+    revalidatePath('/squawks');
+    revalidatePath('/maintenance');
+  }
   redirect(`/aircraft/${aircraftId}?logged=1`);
 }
 

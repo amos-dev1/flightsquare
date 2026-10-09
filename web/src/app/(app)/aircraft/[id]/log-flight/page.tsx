@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { PageTitle } from '@/components/ui';
-import type { AircraftResponse } from '@flightsquare/shared';
+import type { AircraftResponse, EntitlementsResponse } from '@flightsquare/shared';
 
 import { LogFlightForm } from './form';
 
@@ -11,8 +11,12 @@ export default async function LogFlightPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
 
   let aircraft: AircraftResponse;
+  let entitlements: EntitlementsResponse;
   try {
-    aircraft = await apiFetch<AircraftResponse>(`/aircraft/${id}`);
+    [aircraft, entitlements] = await Promise.all([
+      apiFetch<AircraftResponse>(`/aircraft/${id}`),
+      apiFetch<EntitlementsResponse>('/entitlements'),
+    ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
@@ -38,7 +42,16 @@ export default async function LogFlightPage({ params }: { params: Promise<{ id: 
         minute it does not get done, and the out values are the half the
         pilot should not have to type.
       */}
-      <LogFlightForm aircraft={aircraft} />
+      {/*
+        Filing a defect from here needs `squawks: write`, which both bundles in
+        §4.4 hold — so in practice the section is always there. Asking anyway,
+        because §8.1 makes hiding cosmetics and a future read-only bundle
+        should not be shown a form the API will refuse.
+      */}
+      <LogFlightForm
+        aircraft={aircraft}
+        canSquawk={entitlements.permissions.squawks === 'write'}
+      />
     </div>
   );
 }

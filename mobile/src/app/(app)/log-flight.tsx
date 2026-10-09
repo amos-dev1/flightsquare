@@ -43,7 +43,7 @@ import { color, radius, space, type } from '@/theme';
  * What it asks for that it did not: where the flight went, what was in the
  * tanks before as well as after, what the fuel cost per gallon, whether
  * anything is wrong with the aeroplane, what the flight was for, and any
- * remarks. Fuel is no longer behind a button — an aeroplane is handed on with
+ * notes. Fuel is no longer behind a button — an aeroplane is handed on with
  * a fuel state whether or not somebody bought any, and the next pilot reads
  * that number before they read anything else here.
  *
@@ -882,14 +882,20 @@ export default function LogFlight() {
           <Body muted>What you report stays as written. Anything further is a new squawk.</Body>
         ) : null}
 
-        {/* Remarks ------------------------------------------------------ */}
+        {/* Notes --------------------------------------------------------- */}
         <Card style={styles.group}>
-          <Field label="Remarks" compact>
+          {/*
+            No placeholder. The suggestion here was a defect ("landing light
+            intermittent on taxi"), which is a squawk — its own record, with
+            its own severity and its own grounding judgement (§3.6) — and
+            putting it in the notes box is where it goes unread. An empty box
+            asks the open question it is actually for.
+          */}
+          <Field label="Notes" compact>
             <Input
               compact
               value={remarks}
               onChangeText={setRemarks}
-              placeholder="Landing light intermittent on taxi."
               multiline
               maxLength={2000}
               style={styles.details}
