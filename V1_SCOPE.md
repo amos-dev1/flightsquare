@@ -133,7 +133,8 @@ The core of the product (§3.4). Works on free tier.
 - Log a flight with no reservation — for free tenants, and for the times nobody booked.
 - **Offline capture and sync on mobile** (§8.2). Client-generated ids, idempotency keys, recorded-at separate from received-at.
 - Flight list; filter by aircraft, pilot, date.
-- Edits: a pilot may edit their own entry for 24 hours. An admin may edit any entry at any time. Edits after the window write a correction record, never an overwrite.
+- **Corrections.** Nothing is ever edited or deleted: a correction is a new flight superseding the old one, and both rows stay (§3.4). A pilot may correct their own flight while it is still the latest on that aeroplane; once somebody has flown it since, only an admin may — because a later flight's Hobbs *start* was read against this one's end, so moving it now moves a number another pilot has already built on. A flight that never happened is a correction marked **logged in error**: no hours, no charge, and the meters fall back to the reading before it.
+  - *Was a 24-hour window.* That was both looser — inside it you could still move a figure the next pilot had flown against — and tighter, since a wrong Hobbs found at the annual is the one most worth fixing. It also implied an in-place edit, and `flight_meters` has never carried an UPDATE grant.
 - Meter continuity check: a Hobbs start that doesn't match the previous flight's end raises a flag for the admin. **Never a rejection** — the gap is usually a maintenance run or an unlogged flight (§8.2).
 
 **Out:** route tracking, GPS, ForeFlight or logbook integrations, photo attachments, passenger records, per-leg entry. CSV export of a member's own rows is in, as the whole of the pilot-logbook story (§3.4).

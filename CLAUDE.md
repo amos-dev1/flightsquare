@@ -226,6 +226,7 @@ Rules, which are stricter than §2.1's in the way that matters:
 | `public.refresh_aircraft_meter_totals` | write the derived totals on `aircraft` (trigger; not callable) | the row being changed |
 | `public.set_billing_customer` | write `tenants.billing_customer_id`, once, from NULL | `app.current_tenant_id()` |
 | `public.apply_subscription` | write `tenants.plan_code` and the `subscriptions` row | `app.current_tenant_id()` |
+| `public.apply_flight_correction` | write the reversing `flight_charges` and `fuel_credits` rows a corrected flight produces (trigger; not callable) | the row being inserted |
 
 `refresh_*_usage` is a **family**, one per counted table, and a new member is an instance of a decision already taken rather than a new one: each recomputes exactly one quota key from exactly one table and is reachable only as a trigger. A helper of a genuinely new *shape* still needs review.
 

@@ -364,7 +364,13 @@ BEGIN
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.prosecdef;
 
-  IF names IS DISTINCT FROM ARRAY['apply_subscription',
+  IF names IS DISTINCT FROM ARRAY[-- 0041: writes the reversing ledger entries
+                                  -- a correction produces. Same answer to
+                                  -- §2.3's question as `charge_for_flight`
+                                  -- beside it — a role that could write its
+                                  -- own charges could write a smaller one.
+                                  'apply_flight_correction',
+                                  'apply_subscription',
                                   'assert_quota',
                                   'charge_for_flight',
                                   'credit_fuel_for_flight',
