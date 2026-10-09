@@ -28,7 +28,7 @@ import {
   Picker,
 } from '@/components/ui';
 import { api, messageFor, withAuth } from '@/lib/api';
-import { pendingCount, saveAttachment, saveFlight, saveSquawk } from '@/lib/sync';
+import { saveAttachment, saveFlight, saveSquawk } from '@/lib/sync';
 import { color, radius, space, type } from '@/theme';
 
 /**
@@ -335,6 +335,26 @@ export default function LogFlight() {
   const lastLoaded = useRef<string | null>(null);
 
   /**
+   * Never wind a meter backwards.
+   *
+   * The one hazard in reloading: a flight logged with no signal sits in
+   * SQLite (§8.2), and until it drains `/aircraft` answers with the figures
+   * from *before* it. Hobbs and tach only ever go up, so "the larger of the
+   * two" settles it with no knowledge of the queue at all — which is what
+   * this needs, because a *failed* queue entry stays there until somebody
+   * retries or discards it and would otherwise hold the prefill off for good.
+   *
+   * Fuel and the aerodrome are not monotonic and get no such rule: online the
+   * server is the record, and offline the fetch below simply fails and the
+   * carried values stand, which is the behaviour wanted in both cases.
+   */
+  const higher = (local: string | null, remote: string | null): string | null => {
+    if (local === null) return remote;
+    if (remote === null) return local;
+    return Number(remote) >= Number(local) ? remote : local;
+  };
+
+  /**
    * Prefill from what the aeroplane is showing — on **every focus**, not once.
    *
    * This screen is a tab with `href: null`, so it stays mounted and a plain
@@ -345,16 +365,10 @@ export default function LogFlight() {
    * open this screen on the phone, and it offered the fuel and the aerodrome
    * from before that flight.
    *
-   * Two rules keep a refetch from being destructive:
-   *
-   * **It never overwrites a field the pilot typed.** `touched` is the whole
-   * difference between a suggestion and an answer.
-   *
-   * **It does not believe the server while the queue has writes in it.** A
-   * flight logged at a tiedown with no signal sits in SQLite (§8.2); until it
-   * drains, `/aircraft` answers with the figures from *before* it, and taking
-   * them would wind the meters backwards over a reading that is correct and
-   * merely unsent. So an outstanding queue means the local values stand.
+   * It never overwrites a field the pilot typed — `touched` is the whole
+   * difference between a suggestion and an answer. The values carried forward
+   * after a save are deliberately not marked: they are this screen's guess at
+   * where the aeroplane now is, and the server may know better.
    */
   useFocusEffect(
     useCallback(() => {
@@ -362,50 +376,50 @@ export default function LogFlight() {
       if (lastLoaded.current !== null && lastLoaded.current !== aircraftId) resetForm();
       lastLoaded.current = aircraftId;
 
-      void (async () => {
-        // Any outstanding write, not just this aeroplane's. Coarser than it
-        // needs to be, and in the safe direction: the cost is a prefill that
-        // stays local for a few seconds longer.
-        const outstanding = await pendingCount()
-          .then(({ pending, failed }) => pending + failed > 0)
-          // Unreadable queue: assume there is something in it. Keeping a
-          // local figure is the recoverable mistake; overwriting a correct
-          // one with a stale one is not.
-          .catch(() => true);
+      void withAuth(() => api.getAircraft(aircraftId))
+        .then((found) => {
+          if (!live) return;
 
-        const found = await withAuth(() => api.getAircraft(aircraftId)).catch(() => null);
-        if (!found || !live) return;
+          // Keeping the higher meters, because this is also the figure §8.2's
+          // "does not meet the last reading" notice compares a start against:
+          // taking a stale one would put that notice up against a reading the
+          // pilot had just written down.
+          setAircraft((current) =>
+            current === null
+              ? found
+              : {
+                  ...found,
+                  hobbs: higher(current.hobbs, found.hobbs),
+                  tach: higher(current.tach, found.tach),
+                  airframe_hours: higher(current.airframe_hours, found.airframe_hours),
+                },
+          );
 
-        /*
-          The aeroplane itself carries the fuel units and the figure §8.2's
-          "does not meet the last reading" notice compares a start against —
-          so the server's copy when the queue is clean, and otherwise only to
-          fill a blank. A snapshot this screen advanced after a save is more
-          current than an answer that predates the writes still in SQLite,
-          and taking the older one would put that notice up against a reading
-          the pilot had just written down.
-        */
-        setAircraft((current) => (current === null || !outstanding ? found : current));
-        if (outstanding) return;
+          const keep = (field: string, current: string) =>
+            touched.current.has(field) ? current : null;
 
-        const keep = (field: string, current: string) =>
-          touched.current.has(field) ? current : null;
-
-        setMeters((current) => ({
-          ...current,
-          hobbs_start: keep('hobbs_start', current.hobbs_start) ?? (found.hobbs ?? ''),
-          tach_start: keep('tach_start', current.tach_start) ?? (found.tach ?? ''),
-        }));
-        // Where it last landed is where this flight starts from. Where it
-        // is going is not something the aeroplane knows, so **To** stays
-        // empty rather than suggesting the pilot is coming straight back.
-        const here = found.last_location ?? found.home_base ?? '';
-        setDepartedFrom((current) => keep('departedFrom', current) ?? here);
-        // §3.4: fuel is state, latest reading wins. Suggested, not asserted —
-        // where the pilot corrects it, the difference is fuel somebody added
-        // without logging it, which is information rather than an error.
-        setFuelBefore((current) => keep('fuelBefore', current) ?? (found.fuel_remaining ?? ''));
-      })();
+          setMeters((current) => ({
+            ...current,
+            hobbs_start:
+              keep('hobbs_start', current.hobbs_start) ??
+              (higher(current.hobbs_start || null, found.hobbs) ?? ''),
+            tach_start:
+              keep('tach_start', current.tach_start) ??
+              (higher(current.tach_start || null, found.tach) ?? ''),
+          }));
+          // Where it last landed is where this flight starts from. Where it
+          // is going is not something the aeroplane knows, so **To** stays
+          // empty rather than suggesting the pilot is coming straight back.
+          const here = found.last_location ?? found.home_base ?? '';
+          setDepartedFrom((current) => keep('departedFrom', current) ?? here);
+          // §3.4: fuel is state, latest reading wins. Suggested, not asserted —
+          // where the pilot corrects it, the difference is fuel somebody added
+          // without logging it, which is information rather than an error.
+          setFuelBefore((current) => keep('fuelBefore', current) ?? (found.fuel_remaining ?? ''));
+        })
+        // No signal: whatever is in the form already is the best answer there
+        // is, and an empty form is still fillable. That is the point of it.
+        .catch(() => undefined);
 
       return () => {
         live = false;
