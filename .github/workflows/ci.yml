@@ -91,6 +91,30 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/flightsquare_test
 
+      # Object storage, for the attachments and aircraft-documents suites.
+      #
+      # A step rather than a `services:` entry because MinIO needs a command
+      # (`server /data`) and service containers have no way to set one — they
+      # take an image, env, ports and options and nothing else. Same image
+      # digest and same credentials as docker-compose.yml, so the tests find
+      # it on the endpoint their defaults already point at and need no
+      # configuration here.
+      #
+      # The bucket is not created: the API does that on boot (`ensureBucket`).
+      - name: Object storage
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER=flightsquare \
+            -e MINIO_ROOT_PASSWORD=storage_dev_password \
+            chainguard/minio@sha256:71674988a1c7ddd5724928633199152b11e4ddefd6c6ce2d60772ff4a8f22ca9 \
+            server /data
+          for _ in $(seq 1 30); do
+            curl -sf -m 2 http://127.0.0.1:9000/minio/health/live && break
+            sleep 2
+          done
+          curl -sf -m 5 http://127.0.0.1:9000/minio/health/live \
+            || { echo "object storage did not come up"; docker logs minio; exit 1; }
+
       # `boundaries.test.ts` asserts that nothing in the built API still
       # references @flightsquare/shared at runtime — it reads api/dist, so
       # there has to be one. Building here also means a broken build fails
