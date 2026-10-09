@@ -1,9 +1,16 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  # Callable, so the deploy workflow gates on these same tests rather than
+  # repeating them or racing them.
+  #
+  # No `push: [main]` trigger any more, and not an oversight: deploy-dev.yml
+  # runs on every push to main and calls this, so main is still tested on every
+  # push — once. Keeping both would have run the suite twice and, worse, put
+  # the two runs in the same concurrency group below, where they would cancel
+  # each other and leave a deploy half-done.
+  workflow_call:
 
 # Cancel an in-flight run when you push again to the same branch.
 concurrency:
@@ -16,7 +23,12 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # 18, not 16. `db/migrations/0001_foundation.sql` opens with
+        # `RAISE EXCEPTION 'PostgreSQL 18+ required for uuidv7()'` — every
+        # primary key in the schema is `DEFAULT uuidv7()`, a PostgreSQL 18
+        # built-in — so on 16 the first migration stops dead and nothing after
+        # it can run. This matches the RDS instance and local Docker.
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -44,10 +56,20 @@ jobs:
 
       # Migrations run as the owner role, which is also what creates
       # app_role and admin_role. See CLAUDE.md §9.
+      #
+      # `DATABASE_URL` being set is what puts the scripts in "direct" mode —
+      # talking to a database over the network rather than through
+      # `docker compose exec`. That mode creates the roles too, and takes their
+      # passwords from the same secret-shaped variables the deployed task is
+      # given, so the passwords below are the ones the Test step then connects
+      # with. They are the role passwords for a throwaway service container
+      # that exists for ninety seconds and is reachable only from this job.
       - name: Migrate
         run: npm run migrate
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/flightsquare_test
+          APP_ROLE_SECRET: '{"username":"app_role","password":"app_role"}'
+          ADMIN_ROLE_SECRET: '{"username":"admin_role","password":"admin_role"}'
 
       # Tests connect as app_role — the restricted role with no BYPASSRLS.
       # Running them as the owner would make every isolation test pass

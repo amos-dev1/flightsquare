@@ -30,8 +30,25 @@ import * as apprunner from '@aws-cdk/aws-apprunner-alpha';
 export interface FlightSquareStackProps extends cdk.StackProps {
   /** 'dev' | 'prod'. Controls retention, deletion protection, sizing. */
   readonly envName: string;
-  /** Image tag in ECR to deploy. Defaults to 'latest'. */
-  readonly imageTag?: string;
+  /**
+   * Which API image to run — a digest (`sha256:…`) or a tag.
+   *
+   * Two of these, not one, because the API and the web app are separate
+   * repositories and a digest identifies exactly one image in exactly one of
+   * them. The API's digest also drives the migration task and the mail worker,
+   * which is the point: api/Dockerfile exists so "the same artifact that
+   * serves traffic carries the schema it expects". Floating all three on
+   * `latest` independently let them be three different builds.
+   *
+   * Prefer a digest. A tag is a name that can be moved, so re-pushing `latest`
+   * changes nothing in the rendered template, App Runner sees no change, and
+   * the old image keeps serving — which is a deploy that reports success and
+   * does nothing. A digest changes the template every time, so the deployment
+   * is the pull.
+   */
+  readonly apiImage?: string;
+  /** Which web image to run. Same rules as {@link apiImage}. */
+  readonly webImage?: string;
 }
 
 export class FlightSquareStack extends cdk.Stack {
@@ -276,7 +293,7 @@ export class FlightSquareStack extends cdk.Stack {
     });
 
     migrateTask.addContainer('migrate', {
-      image: ecs.ContainerImage.fromEcrRepository(repository, props.imageTag ?? 'latest'),
+      image: ecs.ContainerImage.fromEcrRepository(repository, props.apiImage ?? 'latest'),
       command: ['npm', 'run', 'migrate'],
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'migrate',
@@ -335,7 +352,7 @@ export class FlightSquareStack extends cdk.Stack {
       serviceName: `${prefix}-api`,
       source: apprunner.Source.fromEcr({
         repository,
-        tagOrDigest: props.imageTag ?? 'latest',
+        tagOrDigest: props.apiImage ?? 'latest',
         imageConfiguration: {
           port: 3000,
           environmentVariables: {
@@ -444,7 +461,7 @@ export class FlightSquareStack extends cdk.Stack {
     );
 
     mailTask.addContainer('mail', {
-      image: ecs.ContainerImage.fromEcrRepository(repository, props.imageTag ?? 'latest'),
+      image: ecs.ContainerImage.fromEcrRepository(repository, props.apiImage ?? 'latest'),
       // The compiled entry point. `npm run mail -w api` is `tsx watch`, which
       // is a development command and is not in the runtime image.
       command: ['node', 'api/dist/mail/index.js'],
@@ -561,7 +578,7 @@ export class FlightSquareStack extends cdk.Stack {
       serviceName: `${prefix}-web`,
       source: apprunner.Source.fromEcr({
         repository: webRepository,
-        tagOrDigest: props.imageTag ?? 'latest',
+        tagOrDigest: props.webImage ?? 'latest',
         imageConfiguration: {
           port: 3000,
           environmentVariables: {
@@ -624,6 +641,17 @@ export class FlightSquareStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, 'MailServiceName', { value: mailService.serviceName });
     new cdk.CfnOutput(this, 'MailRoleSecretArn', { value: mailRoleSecret.secretArn });
+    /*
+      What is actually running, so it can be read back rather than inferred.
+
+      `scripts/deploy.sh` uses these when only one of the two images is being
+      deployed: the other keeps the digest the stack already holds instead of
+      falling back to `latest`, which would quietly roll that service onto
+      whatever the tag points at now. They are also the answer to "which build
+      is in dev?", which a moving tag cannot give.
+    */
+    new cdk.CfnOutput(this, 'DeployedApiImage', { value: props.apiImage ?? 'latest' });
+    new cdk.CfnOutput(this, 'DeployedWebImage', { value: props.webImage ?? 'latest' });
     if (webService) {
       new cdk.CfnOutput(this, 'WebUrl', { value: `https://${webService.serviceUrl}` });
     }

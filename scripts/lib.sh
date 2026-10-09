@@ -84,15 +84,36 @@ fs_random_secret() {
 # owned by it.
 fs_direct_mode() { [ -n "${DATABASE_URL:-}" ]; }
 
+# Read one field of DATABASE_URL, which arrives in two shapes.
+#
+# A Secrets Manager secret is JSON — that is how the deployed tasks receive it,
+# injected whole by ECS. A laptop or a CI service container hands over the
+# ordinary libpq URI instead. Both are accepted because insisting on JSON broke
+# the one that was already in use: .github/workflows/ci.yml passes
+# `postgres://postgres:postgres@localhost:5432/...`, and parsing that as JSON
+# fails on the first character.
 fs_db_field() {
   node -e '
     const raw = process.env.DATABASE_URL ?? "";
-    let v;
-    try { v = JSON.parse(raw); } catch { 
-      console.error("DATABASE_URL is not JSON; expected a Secrets Manager secret");
-      process.exit(1);
-    }
     const k = process.argv[1];
+    let v;
+    try {
+      v = JSON.parse(raw);
+    } catch {
+      let u;
+      try { u = new URL(raw); } catch {
+        console.error("DATABASE_URL is neither JSON nor a postgres:// URL");
+        process.exit(1);
+      }
+      v = {
+        username: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+        host: u.hostname,
+        port: u.port || "5432",
+        // Leading slash off; an empty path means the default database.
+        dbname: decodeURIComponent(u.pathname.replace(/^\//, "")) || "postgres",
+      };
+    }
     const out = v[k] ?? v[{dbname:"database"}[k] ?? k];
     if (out === undefined) { console.error(`DATABASE_URL has no ${k}`); process.exit(1); }
     process.stdout.write(String(out));

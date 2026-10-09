@@ -1,0 +1,92 @@
+name: Deploy dev
+
+# Push to main, and dev is what main says. Nothing deploys production: that
+# account has no CI role at all, so this workflow could not reach it even if
+# somebody added a job by mistake.
+on:
+  push:
+    branches: [main]
+  # For re-running a deploy without an empty commit — a failed migration, say,
+  # fixed by hand.
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one in flight. `cancel-in-progress`
+# here would stop a `cdk deploy` partway through a CloudFormation update, which
+# leaves the stack mid-change and needing a person. A queued second deploy costs
+# a few minutes; an interrupted one costs an afternoon.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  # The same suite CI runs on pull requests, called rather than copied, so what
+  # gates the deploy cannot drift from what gates a PR.
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    permissions:
+      # The only reason this workflow can touch AWS. GitHub mints a short-lived
+      # OIDC token for the job, AWS exchanges it for temporary credentials, and
+      # the role's trust policy (infra/lib/ci-stack.ts) accepts it only from
+      # this repository's main branch. There is no access key in this
+      # repository, in its secrets, or on a runner — nothing to leak or rotate.
+      id-token: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The CDK CLI lives in the workspace root's node_modules; scripts/deploy.sh
+      # runs it from infra/.
+      - run: npm ci
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::102378189980:role/flightsquare-ci-deploy
+          aws-region: us-east-1
+          role-session-name: github-${{ github.run_id }}
+
+      # arm64 is emulated on an amd64 runner, so the images need QEMU. Both
+      # architectures are built because the migration and mail tasks are pinned
+      # to ARM64 while App Runner exposes no architecture setting at all.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Builds, pushes, and deploys by the digest the push returned — so a new
+      # image always changes the template and App Runner always pulls. The same
+      # script runs on a laptop; it detects that there is no named AWS profile
+      # here and uses the role's credentials.
+      - name: Build, push and deploy
+        run: scripts/deploy.sh dev
+
+      # Separate step, after the stack, because the migration task definition
+      # only points at the new image once the stack has been updated.
+      #
+      # It waits for the task to stop and exits with the container's code, so a
+      # failed migration fails the job — `aws ecs run-task` on its own returns
+      # as soon as the task is *accepted*, which would report success for a
+      # migration that then threw.
+      #
+      # Worth knowing: by this point the new API is already serving. The
+      # migrations are forward-only and additive (CLAUDE.md §6), so the window
+      # is new code against the old schema rather than the reverse, and a
+      # failure here turns the run red with the SQL error in the log.
+      - name: Run migrations
+        run: scripts/migrate-remote.sh dev
+
+      - name: What is deployed
+        if: always()
+        run: |
+          aws cloudformation describe-stacks --stack-name FlightSquareDev \
+            --query "Stacks[0].Outputs[?starts_with(OutputKey,'Deployed') || OutputKey=='ApiUrl' || OutputKey=='WebUrl'].[OutputKey,OutputValue]" \
+            --output text
