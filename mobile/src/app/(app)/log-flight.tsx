@@ -1,5 +1,5 @@
-import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
   KeyboardAvoidingView,
@@ -28,7 +28,7 @@ import {
   Picker,
 } from '@/components/ui';
 import { api, messageFor, withAuth } from '@/lib/api';
-import { saveAttachment, saveFlight, saveSquawk } from '@/lib/sync';
+import { pendingCount, saveAttachment, saveFlight, saveSquawk } from '@/lib/sync';
 import { color, radius, space, type } from '@/theme';
 
 /**
@@ -237,6 +237,22 @@ export default function LogFlight() {
   const [busy, setBusy] = useState(false);
 
   /**
+   * Which of the prefillable fields the pilot has actually typed in.
+   *
+   * The prefill reruns on every focus now, so it needs to tell a figure it
+   * put there itself from one somebody entered. A value it supplied is a
+   * stand-in and may be replaced by a better one; a value the pilot typed is
+   * the answer and is never overwritten.
+   *
+   * A ref and not state: nothing renders from it, and it must be readable by
+   * the fetch's callback without making the effect depend on it.
+   */
+  const touched = useRef(new Set<string>());
+  const touch = (field: string) => {
+    touched.current.add(field);
+  };
+
+  /**
    * Back to blank, except for what the next flight genuinely starts from.
    *
    * This screen is registered in `_layout.tsx` as a tab with `href: null`, so
@@ -279,6 +295,9 @@ export default function LogFlight() {
       // already queued. Carrying a draft forward would file it twice.
       setSquawks([]);
       setError(null);
+      // Carried values are prefills, not answers: the figures below came from
+      // the last flight and the server may know better by the next focus.
+      touched.current = new Set();
 
       /*
         The queued flight has moved the aeroplane, and this screen's own
@@ -307,35 +326,92 @@ export default function LogFlight() {
     [],
   );
 
-  useEffect(() => {
-    // A different aeroplane is a different form. Clearing first stops the
-    // last one's meters standing in while the prefill is in flight, and the
-    // prefill below only ever fills a field that is empty.
-    resetForm();
-    // Prefill from what the aeroplane is showing. Half the numbers on this
-    // form are ones the pilot should not have to read off the panel twice.
-    void withAuth(() => api.getAircraft(aircraftId))
-      .then((found) => {
-        setAircraft(found);
+  /**
+   * A different aeroplane is a different form.
+   *
+   * Clearing on the id rather than inside the focus effect, so that coming
+   * back to the *same* aeroplane keeps a half-finished entry.
+   */
+  const lastLoaded = useRef<string | null>(null);
+
+  /**
+   * Prefill from what the aeroplane is showing — on **every focus**, not once.
+   *
+   * This screen is a tab with `href: null`, so it stays mounted and a plain
+   * mount effect ran exactly once a session. Every other screen in the app
+   * reloads on focus (`index`, `aircraft-detail`, `logs`, `maintenance` and
+   * the rest); this one did not, which made it the only place that could show
+   * figures the club had already moved on from. Log a flight on the web and
+   * open this screen on the phone, and it offered the fuel and the aerodrome
+   * from before that flight.
+   *
+   * Two rules keep a refetch from being destructive:
+   *
+   * **It never overwrites a field the pilot typed.** `touched` is the whole
+   * difference between a suggestion and an answer.
+   *
+   * **It does not believe the server while the queue has writes in it.** A
+   * flight logged at a tiedown with no signal sits in SQLite (§8.2); until it
+   * drains, `/aircraft` answers with the figures from *before* it, and taking
+   * them would wind the meters backwards over a reading that is correct and
+   * merely unsent. So an outstanding queue means the local values stand.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      let live = true;
+      if (lastLoaded.current !== null && lastLoaded.current !== aircraftId) resetForm();
+      lastLoaded.current = aircraftId;
+
+      void (async () => {
+        // Any outstanding write, not just this aeroplane's. Coarser than it
+        // needs to be, and in the safe direction: the cost is a prefill that
+        // stays local for a few seconds longer.
+        const outstanding = await pendingCount()
+          .then(({ pending, failed }) => pending + failed > 0)
+          // Unreadable queue: assume there is something in it. Keeping a
+          // local figure is the recoverable mistake; overwriting a correct
+          // one with a stale one is not.
+          .catch(() => true);
+
+        const found = await withAuth(() => api.getAircraft(aircraftId)).catch(() => null);
+        if (!found || !live) return;
+
+        /*
+          The aeroplane itself carries the fuel units and the figure §8.2's
+          "does not meet the last reading" notice compares a start against —
+          so the server's copy when the queue is clean, and otherwise only to
+          fill a blank. A snapshot this screen advanced after a save is more
+          current than an answer that predates the writes still in SQLite,
+          and taking the older one would put that notice up against a reading
+          the pilot had just written down.
+        */
+        setAircraft((current) => (current === null || !outstanding ? found : current));
+        if (outstanding) return;
+
+        const keep = (field: string, current: string) =>
+          touched.current.has(field) ? current : null;
+
         setMeters((current) => ({
           ...current,
-          hobbs_start: current.hobbs_start || (found.hobbs ?? ''),
-          tach_start: current.tach_start || (found.tach ?? ''),
+          hobbs_start: keep('hobbs_start', current.hobbs_start) ?? (found.hobbs ?? ''),
+          tach_start: keep('tach_start', current.tach_start) ?? (found.tach ?? ''),
         }));
         // Where it last landed is where this flight starts from. Where it
         // is going is not something the aeroplane knows, so **To** stays
         // empty rather than suggesting the pilot is coming straight back.
-        const here = found.last_location ?? found.home_base;
-        if (here) setDepartedFrom((current) => current || here);
+        const here = found.last_location ?? found.home_base ?? '';
+        setDepartedFrom((current) => keep('departedFrom', current) ?? here);
         // §3.4: fuel is state, latest reading wins. Suggested, not asserted —
         // where the pilot corrects it, the difference is fuel somebody added
         // without logging it, which is information rather than an error.
-        if (found.fuel_remaining) {
-          setFuelBefore((current) => current || found.fuel_remaining!);
-        }
-      })
-      .catch(() => undefined);
-  }, [aircraftId, resetForm]);
+        setFuelBefore((current) => keep('fuelBefore', current) ?? (found.fuel_remaining ?? ''));
+      })();
+
+      return () => {
+        live = false;
+      };
+    }, [aircraftId, resetForm]),
+  );
 
   const from = useAerodrome(departedFrom);
   const to = useAerodrome(arrivedAt);
@@ -459,8 +535,11 @@ export default function LogFlight() {
     }
   }
 
-  const set = (key: keyof typeof meters) => (value: string) =>
+  const set = (key: keyof typeof meters) => (value: string) => {
+    // Typed, so the focus prefill leaves it alone from here on.
+    touch(key);
     setMeters((current) => ({ ...current, [key]: value }));
+  };
 
   const edit = (key: string, patch: Partial<SquawkDraft>) =>
     setSquawks((all) => all.map((one) => (one.key === key ? { ...one, ...patch } : one)));
@@ -647,7 +726,10 @@ export default function LogFlight() {
                 <Input
                   compact
                   value={departedFrom}
-                  onChangeText={(text) => setDepartedFrom(text.toUpperCase())}
+                  onChangeText={(text) => {
+                    touch('departedFrom');
+                    setDepartedFrom(text.toUpperCase());
+                  }}
                   placeholder="KPAO"
                   autoCapitalize="characters"
                   autoCorrect={false}
@@ -694,7 +776,10 @@ export default function LogFlight() {
                 <Input
                   compact
                   value={fuelBefore}
-                  onChangeText={setFuelBefore}
+                  onChangeText={(text) => {
+                    touch('fuelBefore');
+                    setFuelBefore(text);
+                  }}
                   keyboardType="decimal-pad"
                 />
               </Field>
