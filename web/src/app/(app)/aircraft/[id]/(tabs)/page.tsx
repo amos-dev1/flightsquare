@@ -124,7 +124,14 @@ export default async function AircraftDashboard({
             the same one the scheduler consults (§3.3), so the answer here
             and the answer a booking gets cannot disagree.
           */}
-          <div className="p-5">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-5">
+            {/*
+              Labelled, because under a heading that says "Maintenance due" a
+              bare "Available" chip reads as a maintenance verdict and is not
+              one. It answers a different question — can this aeroplane be
+              taken *now* — and the list below answers what it owes later.
+            */}
+            <span className="text-sm text-secondary">Can it be flown today?</span>
             <AvailabilityLine row={availability} />
           </div>
 
