@@ -826,6 +826,11 @@ function readRules(form: FormData): Record<string, unknown>[] {
 
     const anchorOn = String(form.get(`rules.${index}.anchor_on`) ?? '').trim();
     const anchorHours = String(form.get(`rules.${index}.anchor_hours`) ?? '').trim();
+    // §4.4's threshold, per rule: ten hours of warning on a 50-hour oil
+    // change is a fifth of the interval and on a 2000-hour overhaul it is
+    // nothing, so it belongs beside the interval rather than on the item.
+    // Left blank, the server's own default for the kind applies.
+    const warnAt = String(form.get(`rules.${index}.warn_at`) ?? '').trim();
 
     rules.push({
       kind,
@@ -833,6 +838,7 @@ function readRules(form: FormData): Record<string, unknown>[] {
       end_of_month: form.get(`rules.${index}.end_of_month`) === 'on',
       ...(anchorOn ? { anchor_on: anchorOn } : {}),
       ...(anchorHours ? { anchor_hours: anchorHours } : {}),
+      ...(warnAt ? { warn_at: warnAt } : {}),
     });
   }
   return rules;

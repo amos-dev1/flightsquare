@@ -56,6 +56,8 @@ interface Draft {
   fixedDate: string;
   anchorOn: string;
   anchorHours: string;
+  /** §4.4's threshold, in this rule's own unit. Blank means the default. */
+  warnAt: string;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -71,7 +73,34 @@ function blank(kind: MaintenanceRuleKind): Draft {
     fixedDate: today(),
     anchorOn: today(),
     anchorHours: '',
+    warnAt: '',
   };
+}
+
+/**
+ * What the server will use if the field is left alone, said out loud.
+ *
+ * A placeholder rather than a value, because a prefilled number is a decision
+ * the person did not make — and because the server owns the default, so
+ * putting a copy of it in the box is how the two drift apart.
+ */
+function defaultWarn(kind: MaintenanceRuleKind): string {
+  if (kind === 'cycles') return '25';
+  return kind.endsWith('_hr') ? '10.0' : '30';
+}
+
+/**
+ * The unit the warning is counted in, which is the rule's own and not the
+ * item's. An oil change due every 50 tach hours warns in tach hours; an
+ * annual due in January warns in days. §11: never a figure whose unit has to
+ * be inferred from the field next to it.
+ */
+function warnUnit(kind: MaintenanceRuleKind): string {
+  if (kind === 'cycles') return 'cycles';
+  if (kind === 'tach_hr') return 'tach hours';
+  if (kind === 'hobbs_hr') return 'Hobbs hours';
+  if (kind === 'airframe_hr') return 'airframe hours';
+  return 'days';
 }
 
 export function MaintenanceItemForm({
@@ -99,6 +128,7 @@ export function MaintenanceItemForm({
           fixedDate: rule.due_on ?? today(),
           anchorOn: item.last_complied_on ?? today(),
           anchorHours: '',
+          warnAt: rule.warn_at ?? '',
         }))
       : [blank('tach_hr')],
   );
@@ -118,6 +148,7 @@ export function MaintenanceItemForm({
         end_of_month: rule.endOfMonth,
         anchor_on: rule.anchorOn,
         ...(rule.anchorHours.trim() ? { anchor_hours: rule.anchorHours.trim() } : {}),
+        ...(rule.warnAt.trim() ? { warn_at: rule.warnAt.trim() } : {}),
       }));
 
     if (payload.length === 0) {
@@ -263,6 +294,32 @@ export function MaintenanceItemForm({
                   )}
                 </div>
               )}
+
+              {/*
+                §4.4's threshold, and the reason it sits on the rule rather
+                than the item: ten hours of warning on a 50-hour oil change is
+                a fifth of the interval, and on a 2000-hour overhaul it is
+                nothing. The unit is the rule's own — hours for a meter, days
+                for a calendar, cycles for cycles — because §11 will not have
+                a figure whose unit has to be guessed.
+
+                Left blank it is the server's default, which the placeholder
+                names rather than prefills: a number already in the box is a
+                decision nobody made.
+              */}
+              <Field
+                label={`Start warning (${warnUnit(rule.kind)} before)`}
+                hint={`How much notice you want. Blank means ${defaultWarn(rule.kind)}.`}
+              >
+                <Input
+                  name={`rules.${index}.warn_at`}
+                  inputMode="decimal"
+                  className="tabular"
+                  placeholder={defaultWarn(rule.kind)}
+                  value={rule.warnAt}
+                  onChange={(event) => update(rule.key, { warnAt: event.target.value })}
+                />
+              </Field>
 
               {rule.kind === 'cal_month' ? (
                 <label className="flex items-start gap-3 text-sm">
