@@ -72,14 +72,14 @@ export function remainingLabel(item: MaintenanceItemResponse): string {
   const parts: string[] = [];
 
   if (item.days_remaining !== null) {
-    const days = item.days_remaining;
-    parts.push(
-      days < 0
-        ? `${Math.abs(days)} days overdue`
-        : days === 0
-          ? 'due today'
-          : `${days} days left`,
-    );
+    /*
+      The same rounding `remainingIn` uses, because the dashboard and this
+      screen are reporting the same number about the same item and had been
+      disagreeing — "41 days left" there and "6 weeks left" here reads as two
+      different facts. §4.3's reasoning holds either way: nobody holds "428
+      days" in their head, and the point of the line is that somebody can.
+    */
+    parts.push(inDays(item.days_remaining));
   }
   if (item.hours_remaining !== null) {
     const hours = Number(item.hours_remaining);
@@ -206,10 +206,19 @@ export function remainingIn(kind: MaintenanceRuleKind | null, remaining: string 
     */
     const meter = kind === 'hobbs_hr' ? 'Hobbs' : kind === 'airframe_hr' ? 'airframe' : 'tach';
     return value < 0
-      ? `${Math.abs(value).toFixed(1)} ${meter} hr over`
-      : `${value.toFixed(1)} ${meter} hr left`;
+      ? `${Math.abs(value).toFixed(1)} ${meter} hrs overdue`
+      : `${value.toFixed(1)} ${meter} hrs left`;
   }
 
+  return inDays(value);
+}
+
+/**
+ * A day count as somebody would actually say it (§4.3): days under a
+ * fortnight, weeks under ten, months beyond. One implementation, because two
+ * screens rounding the same number differently read as two different facts.
+ */
+function inDays(value: number): string {
   const days = Math.round(value);
   if (days < 0) return `${Math.abs(days)} days over`;
   if (days === 0) return 'due today';
