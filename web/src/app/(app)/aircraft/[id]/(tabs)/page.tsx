@@ -3,11 +3,12 @@ import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Alert, Card, KeyMetric, SectionHeading, Status } from '@/components/ui';
-import { AvailabilityLine } from '@/app/(app)/maintenance/shared';
+import { AvailabilityLine, DueStatus, governingLabel } from '@/app/(app)/maintenance/shared';
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
   EntitlementsResponse,
+  MaintenanceSummaryResponse,
   SquawkResponse,
 } from '@flightsquare/shared';
 
@@ -46,6 +47,30 @@ export default async function AircraftDashboard({
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
+
+  /*
+    §1.5 built `maintenance.summary` for exactly this: "whether the aeroplane
+    is fit to fly and what is coming up: a pilot needs it before every
+    flight". It answers for a Pilot holding `maintenance.items: none` as well
+    as for an admin, which is why it is this endpoint and not the item list.
+
+    Null rather than a throw where the module is gated off (§1.6 answers 404),
+    and the section is simply absent.
+  */
+  const summary =
+    entitlements.permissions['maintenance.summary'] === 'none'
+      ? null
+      : await apiFetch<MaintenanceSummaryResponse>(
+          `/aircraft/${id}/maintenance/summary`,
+        ).catch((error: unknown) => {
+          if (error instanceof ApiError) return null;
+          throw error;
+        });
+
+  // §3.6: "the earliest wins", and the server has already sorted worst first.
+  // Three, because this is a glance on the way out to the aeroplane and the
+  // whole list is one tap away.
+  const upcoming = summary?.upcoming.slice(0, 3) ?? [];
 
   return (
     <div className="space-y-6">
@@ -88,15 +113,76 @@ export default async function AircraftDashboard({
         tab; this is only whether it flies today.
       */}
       <section className="space-y-3">
-        <SectionHeading>Airworthiness</SectionHeading>
-        <Card className="space-y-4 p-5">
-          <AvailabilityLine row={availability} />
-          <Link
-            href={`/aircraft/${id}/maintenance`}
-            className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
-          >
-            What is due
-          </Link>
+        <SectionHeading>Maintenance due</SectionHeading>
+        <Card className="divide-y divide-line">
+          {/*
+            Dispatch first, and it stays however the heading reads. §11:
+            never infer airworthiness from an absence of maintenance
+            warnings — so a list of what is coming up cannot be the only
+            thing here, or a short list would read as reassurance. This line
+            is a claim about this product's records and says so, and it is
+            the same one the scheduler consults (§3.3), so the answer here
+            and the answer a booking gets cannot disagree.
+          */}
+          <div className="p-5">
+            <AvailabilityLine row={availability} />
+          </div>
+
+          {upcoming.length > 0 ? (
+            upcoming.map((item) => (
+              <div
+                key={item.id}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
+              >
+                <span className="text-sm font-semibold">{item.name}</span>
+                <span className="flex items-center gap-3 text-sm text-secondary">
+                  {/* The server's number, named with its unit. §8.2 keeps the
+                      client out of a maintenance countdown — this only says
+                      which unit the figure it sent is in. */}
+                  {governingLabel(item) ? (
+                    <span className="tabular">{governingLabel(item)}</span>
+                  ) : null}
+                  {/*
+                    The item's own state, never inferred from its position in
+                    the list. The summary returns the next five worst-first,
+                    which on a well-kept aeroplane is five items that are all
+                    fine — labelling those "Due soon" would be a warning
+                    nobody asked for, and §11 keeps routine statuses
+                    restrained. The same chip the Maintenance tab uses, so the
+                    two screens cannot disagree about one item.
+                  */}
+                  <DueStatus item={item} />
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="px-5 py-4 text-sm text-secondary">
+              {/*
+                Not "nothing due". §11: never infer airworthiness from an
+                absence of maintenance warnings, and this is where that would
+                happen — a club adds an aeroplane, never sets up its
+                intervals, and a reassuring empty state tells a pilot
+                everything is in hand when nobody has told us anything.
+
+                `upcoming` is the next five *whatever their state*, including
+                the ones that are fine, so an empty list is not an aeroplane
+                with nothing coming up. It is an aeroplane tracking nothing —
+                §3.6: "A new aircraft tracks nothing until an admin says so."
+              */}
+              {summary === null
+                ? 'Nothing to show.'
+                : 'Nothing is being tracked on this aeroplane yet.'}
+            </p>
+          )}
+
+          <div className="px-5 py-3">
+            <Link
+              href={`/aircraft/${id}/maintenance`}
+              className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
+            >
+              {upcoming.length > 0 ? 'Everything that is tracked' : 'What is tracked'}
+            </Link>
+          </div>
         </Card>
       </section>
 

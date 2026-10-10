@@ -18,10 +18,26 @@ import type {
  * second when we mean the first is how a product ends up asserting something
  * about airworthiness that nobody checked.
  */
-export function DueStatus({ item }: { item: MaintenanceItemResponse }) {
+export function DueStatus({
+  item,
+}: {
+  // The two fields this needs, so the maintenance summary's lighter row can
+  // use it too. The summary and the item list disagreeing about the same
+  // item would be worse than either being wrong on its own.
+  item: { state: MaintenanceState; ever_complied: boolean };
+}) {
   if (!item.ever_complied) return <Status kind="overdue">Not recorded</Status>;
   if (item.state === 'overdue') return <Status kind="overdue" />;
   if (item.state === 'due_soon') return <Status kind="due_soon" />;
+  /*
+    SPEC §4.4's fourth state, which this helper was falling through to
+    "Current": something to plan around rather than to book a shop slot for.
+    `Status` has carried the kind for it since the web gained one, and the
+    reasoning there applies here — collapsing `upcoming` puts an annual
+    forty-one days out in the same register as an oil change two hours out,
+    and calling it "Current" says the opposite of what it is.
+  */
+  if (item.state === 'upcoming') return <Status kind="upcoming" />;
   if (item.state === 'inactive') return <Status kind="neutral">Archived</Status>;
   return <Status kind="available">Current</Status>;
 }
@@ -66,6 +82,53 @@ export function remainingLabel(item: MaintenanceItemResponse): string {
   }
 
   return parts.join(' · ') || 'No due basis set';
+}
+
+/**
+ * What the governing rule has left, in words.
+ *
+ * The summary endpoint sends `governing_remaining` as a bare number, because
+ * it is "in the rule's own units — hours for a meter rule, days for a
+ * calendar one, cycles for cycles — and never mixed". A bare number is
+ * therefore unreadable on its own: "406" beside an annual could be days,
+ * hours or cycles, and §11 asks for Hobbs, tach and units to be named
+ * wherever they could be confused.
+ *
+ * The arithmetic is still the server's. This only says which unit the number
+ * it sent is in, which the server also told us.
+ */
+export function governingLabel(item: {
+  governing_kind: MaintenanceRuleKind | null;
+  governing_remaining: string | null;
+  ever_complied: boolean;
+}): string | null {
+  // Nothing to count down from, and a due point on an item with no
+  // compliance behind it is an artifact of how it was created rather than a
+  // fact about the aeroplane.
+  if (!item.ever_complied) return null;
+  if (item.governing_remaining === null || item.governing_kind === null) return null;
+
+  const value = Number(item.governing_remaining);
+  if (!Number.isFinite(value)) return null;
+
+  const unit =
+    item.governing_kind === 'tach_hr'
+      ? 'tach hrs'
+      : item.governing_kind === 'hobbs_hr'
+        ? 'Hobbs hrs'
+        : item.governing_kind === 'airframe_hr'
+          ? 'airframe hrs'
+          : item.governing_kind === 'cycles'
+            ? 'cycles'
+            : 'days';
+
+  // Hours carry a decimal, days and cycles do not — a meter reads 14.4 and a
+  // calendar does not have four tenths of a day in it.
+  const magnitude = unit.endsWith('hrs')
+    ? Math.abs(value).toFixed(1)
+    : String(Math.round(Math.abs(value)));
+
+  return value < 0 ? `${magnitude} ${unit} overdue` : `${magnitude} ${unit} left`;
 }
 
 /** Dispatch state for one aircraft, with the reasons spelled out. */

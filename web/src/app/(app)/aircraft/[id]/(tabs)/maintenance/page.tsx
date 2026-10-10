@@ -4,7 +4,12 @@ import { Plus } from 'lucide-react';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Button, Card, Empty, SectionHeading, Status } from '@/components/ui';
-import { AvailabilityLine, DueStatus, remainingLabel } from '@/app/(app)/maintenance/shared';
+import {
+  AvailabilityLine,
+  DueStatus,
+  governingLabel,
+  remainingLabel,
+} from '@/app/(app)/maintenance/shared';
 import type {
   AircraftAvailabilityResponse,
   EntitlementsResponse,
@@ -135,8 +140,8 @@ export default async function AircraftMaintenanceTab({
                 >
                   <span className="text-sm font-semibold">{item.name}</span>
                   <span className="flex items-center gap-3 text-sm text-secondary">
-                    {item.governing_remaining ? (
-                      <span className="tabular">{item.governing_remaining}</span>
+                    {governingLabel(item) ? (
+                      <span className="tabular">{governingLabel(item)}</span>
                     ) : null}
                     <Status kind={item.state === 'overdue' ? 'overdue' : 'due_soon'} />
                   </span>
