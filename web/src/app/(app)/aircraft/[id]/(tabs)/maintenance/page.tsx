@@ -79,6 +79,33 @@ export default async function AircraftMaintenanceTab({
         rather than two, and saying it twice on one screen is how a statement
         stops being read.
       */}
+
+      {/*
+        Reporting a defect lives here, with the rest of what is wrong with
+        this aeroplane, rather than on the dashboard — that screen says what
+        the last pilot found, and this is where the next one writes.
+
+        §1.5 keeps `squawks` apart from `maintenance.items` precisely so a
+        pilot can report one without signing off work, so this button is
+        offered on `squawks: write` and never on the item permission. Both
+        bundles hold it (§4.4), which is the point: the person who finds the
+        defect is rarely the person who fixes it.
+
+        First on the tab, above the intervals, because it is the thing
+        somebody standing at the aeroplane came here to do — the intervals
+        are read far more often than they are changed.
+      */}
+      {entitlements.permissions.squawks === 'write' ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <SectionHeading>Something wrong with it?</SectionHeading>
+          <Link href={`/squawks?aircraft=${id}`}>
+            <Button variant="secondary">
+              <Plus aria-hidden size={16} strokeWidth={2} />
+              Add squawk
+            </Button>
+          </Link>
+        </div>
+      ) : null}
       {canReadItems ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">

@@ -216,22 +216,15 @@ export default async function AircraftDashboard({
             ))}
           </Card>
         )}
-        <Link
-          href="/squawks"
-          className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
-        >
-          Report a defect
-        </Link>
         {/*
-          §3.4's whole pilot-logbook story: an export, not a feature. Your own
-          rows, so you can transcribe them into the logbook you actually keep.
+          Filing one lives on the Maintenance tab, beside the rest of what is
+          wrong with this aeroplane, rather than here. This section reports
+          what the last pilot found; it is not where the next one writes.
+
+          The flights export moved off this screen for the same reason — §3.4
+          calls it the whole of the pilot-logbook story and it is a once-a-
+          month errand, not something belonging on the dispatch glance.
         */}
-        <a
-          href="/flights-export"
-          className="ml-4 inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
-        >
-          Download your flights
-        </a>
       </section>
 
       {/*

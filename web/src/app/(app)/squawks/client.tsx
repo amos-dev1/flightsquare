@@ -23,7 +23,14 @@ import { uuidv7 } from '@flightsquare/shared/uuidv7';
  * and signing off the work are different permissions held by different
  * people.
  */
-export function SquawkForm({ fleet }: { fleet: AircraftResponse[] }) {
+export function SquawkForm({
+  fleet,
+  aircraftId,
+}: {
+  fleet: AircraftResponse[];
+  /** Where the member came from, when they arrived from one aeroplane. */
+  aircraftId?: string;
+}) {
   const [state, action, pending] = useActionState<FormState, FormData>(fileSquawk, {});
 
   /**
@@ -53,7 +60,9 @@ export function SquawkForm({ fleet }: { fleet: AircraftResponse[] }) {
             <Select
               name="aircraft_id"
               required
-              defaultValue={state.values?.aircraft_id ?? fleet[0]?.id}
+              // After a validation error the member's own choice wins; then
+              // the aeroplane they came from; then the only sensible guess.
+              defaultValue={state.values?.aircraft_id ?? aircraftId ?? fleet[0]?.id}
             >
               {fleet.map((aircraft) => (
                 <option key={aircraft.id} value={aircraft.id}>
