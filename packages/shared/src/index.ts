@@ -1147,14 +1147,25 @@ export interface MaintenanceSummaryResponse {
   tach: string | null;
   hobbs: string | null;
   totals_updated_at: string | null;
-  /** The next five, worst first. Name and remaining, and nothing else. */
+  /** The next five, worst first, and when each one comes due. */
   upcoming: {
     id: string;
     name: string;
     state: MaintenanceState;
     governing_kind: MaintenanceRuleKind | null;
+    /** How far away, in the governing rule's own units. */
     governing_remaining: string | null;
     due_on: string | null;
+    /**
+     * The meter reading it comes due at, and which meter that is.
+     *
+     * The countdown says how far away; this says what to look for on the
+     * panel. §11 will not have an hour figure without its meter named —
+     * Hobbs and tach run at different rates by design, so "due at 1110.0"
+     * means nothing without saying which one.
+     */
+    due_at_hours: string | null;
+    hours_meter: MaintenanceMeter | null;
     ever_complied: boolean;
   }[];
 }

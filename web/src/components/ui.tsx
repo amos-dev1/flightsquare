@@ -218,11 +218,27 @@ const STATUS: Record<StatusKind, { icon: typeof Check; label: string; emphatic: 
 
 export function Status({ kind, children }: { kind: StatusKind; children?: ReactNode }) {
   const { icon: Icon, label, emphatic } = STATUS[kind];
+  /*
+    `available` is the one kind that carries a colour, and it carries the tick
+    and the word as well — §11: never meaning through colour alone. It earns
+    the exception because it answers "can I take it" at a glance, from a
+    header that is on every screen about the aeroplane. Everything else stays
+    restrained: §11 keeps routine statuses quiet and reserves weight for the
+    grounding and the overdue.
+
+    A custom label on `available` means something narrower than the plain
+    chip, so it does not inherit the green.
+  */
+  const ok = kind === 'available' && children === undefined;
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${
-        // Critical states get weight, a border and an icon — not a colour.
-        emphatic ? 'border border-navy bg-mist' : 'bg-mist text-secondary'
+        ok
+          ? 'bg-ok-surface text-ok'
+          : // Critical states get weight, a border and an icon — not a colour.
+            emphatic
+            ? 'border border-navy bg-mist'
+            : 'bg-mist text-secondary'
       }`}
     >
       <Icon aria-hidden size={14} strokeWidth={2} />

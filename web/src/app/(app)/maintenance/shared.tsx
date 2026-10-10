@@ -20,13 +20,27 @@ import type {
  */
 export function DueStatus({
   item,
+  compliance = true,
 }: {
   // The two fields this needs, so the maintenance summary's lighter row can
   // use it too. The summary and the item list disagreeing about the same
   // item would be worse than either being wrong on its own.
   item: { state: MaintenanceState; ever_complied: boolean };
+  /**
+   * Whether "no compliance on record" outranks the item's due state.
+   *
+   * True on the record screens, where it is the point: §3.6 keeps
+   * "we have no record" and "it is fine" apart, and an item nobody has signed
+   * off is not current however far off its due point looks.
+   *
+   * False on the dashboard glance, which answers *when* rather than how the
+   * item was set up — a pilot walking out needs the countdown, and the badge
+   * was standing in front of it. The fact is not lost; it is one tap away on
+   * the Maintenance tab, which is where the record lives (§1.5).
+   */
+  compliance?: boolean;
 }) {
-  if (!item.ever_complied) return <Status kind="overdue">Not recorded</Status>;
+  if (compliance && !item.ever_complied) return <Status kind="overdue">Not recorded</Status>;
   if (item.state === 'overdue') return <Status kind="overdue" />;
   if (item.state === 'due_soon') return <Status kind="due_soon" />;
   /*
@@ -82,53 +96,6 @@ export function remainingLabel(item: MaintenanceItemResponse): string {
   }
 
   return parts.join(' · ') || 'No due basis set';
-}
-
-/**
- * What the governing rule has left, in words.
- *
- * The summary endpoint sends `governing_remaining` as a bare number, because
- * it is "in the rule's own units — hours for a meter rule, days for a
- * calendar one, cycles for cycles — and never mixed". A bare number is
- * therefore unreadable on its own: "406" beside an annual could be days,
- * hours or cycles, and §11 asks for Hobbs, tach and units to be named
- * wherever they could be confused.
- *
- * The arithmetic is still the server's. This only says which unit the number
- * it sent is in, which the server also told us.
- */
-export function governingLabel(item: {
-  governing_kind: MaintenanceRuleKind | null;
-  governing_remaining: string | null;
-  ever_complied: boolean;
-}): string | null {
-  // Nothing to count down from, and a due point on an item with no
-  // compliance behind it is an artifact of how it was created rather than a
-  // fact about the aeroplane.
-  if (!item.ever_complied) return null;
-  if (item.governing_remaining === null || item.governing_kind === null) return null;
-
-  const value = Number(item.governing_remaining);
-  if (!Number.isFinite(value)) return null;
-
-  const unit =
-    item.governing_kind === 'tach_hr'
-      ? 'tach hrs'
-      : item.governing_kind === 'hobbs_hr'
-        ? 'Hobbs hrs'
-        : item.governing_kind === 'airframe_hr'
-          ? 'airframe hrs'
-          : item.governing_kind === 'cycles'
-            ? 'cycles'
-            : 'days';
-
-  // Hours carry a decimal, days and cycles do not — a meter reads 14.4 and a
-  // calendar does not have four tenths of a day in it.
-  const magnitude = unit.endsWith('hrs')
-    ? Math.abs(value).toFixed(1)
-    : String(Math.round(Math.abs(value)));
-
-  return value < 0 ? `${magnitude} ${unit} overdue` : `${magnitude} ${unit} left`;
 }
 
 /** Dispatch state for one aircraft, with the reasons spelled out. */
@@ -194,14 +161,28 @@ export function ruleLabel(rule: MaintenanceRuleResponse): string {
   }
 }
 
-/** Where a rule's next due point lands, named so the meter is never implied. */
-export function duePointLabel(rule: MaintenanceRuleResponse): string {
+/**
+ * Where a rule's next due point lands, named so the meter is never implied.
+ *
+ * Takes the four fields rather than a whole rule, so the maintenance summary
+ * can use it as well — its rows carry the governing rule's kind and due point
+ * and nothing else, and a second function saying the same thing is how two
+ * screens end up disagreeing about one item.
+ */
+export function duePointLabel(rule: {
+  kind: MaintenanceRuleKind | null;
+  due_at_hours: string | null;
+  due_at_cycles?: number | null;
+  due_on: string | null;
+}): string {
   if (rule.due_at_hours) {
     const meter =
       rule.kind === 'hobbs_hr' ? 'Hobbs' : rule.kind === 'airframe_hr' ? 'airframe' : 'tach';
     return `due at ${rule.due_at_hours} ${meter}`;
   }
-  if (rule.due_at_cycles !== null) return `due at ${rule.due_at_cycles} cycles`;
+  if (rule.due_at_cycles !== null && rule.due_at_cycles !== undefined) {
+    return `due at ${rule.due_at_cycles} cycles`;
+  }
   if (rule.due_on) return `due ${rule.due_on}`;
   return 'no due point yet';
 }
@@ -218,7 +199,15 @@ export function remainingIn(kind: MaintenanceRuleKind | null, remaining: string 
 
   if (kind === 'cycles') return `${value} cycles`;
   if (kind.endsWith('_hr')) {
-    return value < 0 ? `${Math.abs(value).toFixed(1)} hr over` : `${value.toFixed(1)} hr left`;
+    /*
+      The meter, always. §11: "Explicitly identify Hobbs versus tach time" —
+      they run at different rates by design, so "14.4 hr left" is a figure
+      nobody can act on without knowing which gauge to read it off.
+    */
+    const meter = kind === 'hobbs_hr' ? 'Hobbs' : kind === 'airframe_hr' ? 'airframe' : 'tach';
+    return value < 0
+      ? `${Math.abs(value).toFixed(1)} ${meter} hr over`
+      : `${value.toFixed(1)} ${meter} hr left`;
   }
 
   const days = Math.round(value);

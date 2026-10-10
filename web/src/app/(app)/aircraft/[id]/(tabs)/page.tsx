@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Alert, Card, KeyMetric, SectionHeading, Status } from '@/components/ui';
-import { AvailabilityLine, DueStatus, governingLabel } from '@/app/(app)/maintenance/shared';
+import { DueStatus, duePointLabel, remainingIn } from '@/app/(app)/maintenance/shared';
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
@@ -115,40 +115,32 @@ export default async function AircraftDashboard({
       <section className="space-y-3">
         <SectionHeading>Maintenance due</SectionHeading>
         <Card className="divide-y divide-line">
-          {/*
-            Dispatch first, and it stays however the heading reads. §11:
-            never infer airworthiness from an absence of maintenance
-            warnings — so a list of what is coming up cannot be the only
-            thing here, or a short list would read as reassurance. This line
-            is a claim about this product's records and says so, and it is
-            the same one the scheduler consults (§3.3), so the answer here
-            and the answer a booking gets cannot disagree.
-          */}
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 p-5">
-            {/*
-              Labelled, because under a heading that says "Maintenance due" a
-              bare "Available" chip reads as a maintenance verdict and is not
-              one. It answers a different question — can this aeroplane be
-              taken *now* — and the list below answers what it owes later.
-            */}
-            <span className="text-sm text-secondary">Can it be flown today?</span>
-            <AvailabilityLine row={availability} />
-          </div>
-
           {upcoming.length > 0 ? (
             upcoming.map((item) => (
               <div
                 key={item.id}
                 className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3"
               >
-                <span className="text-sm font-semibold">{item.name}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{item.name}</p>
+                  {/*
+                    When it comes due, on the basis it is due on: a reading to
+                    watch on the panel, or a date for the diary. §11 names the
+                    meter, because Hobbs and tach run at different rates and
+                    "due at 1110.0" means nothing without saying which.
+                  */}
+                  <p className="tabular mt-0.5 text-xs text-secondary">
+                    {duePointLabel({ ...item, kind: item.governing_kind })}
+                  </p>
+                </div>
                 <span className="flex items-center gap-3 text-sm text-secondary">
-                  {/* The server's number, named with its unit. §8.2 keeps the
-                      client out of a maintenance countdown — this only says
-                      which unit the figure it sent is in. */}
-                  {governingLabel(item) ? (
-                    <span className="tabular">{governingLabel(item)}</span>
-                  ) : null}
+                  {/* How far away, in the governing rule's own units and
+                      rounded the way §4.3 asks. The arithmetic is the
+                      server's (§8.2); this only says which unit the figure it
+                      sent is in. */}
+                  <span className="tabular">
+                    {remainingIn(item.governing_kind, item.governing_remaining)}
+                  </span>
                   {/*
                     The item's own state, never inferred from its position in
                     the list. The summary returns the next five worst-first,
@@ -157,8 +149,14 @@ export default async function AircraftDashboard({
                     nobody asked for, and §11 keeps routine statuses
                     restrained. The same chip the Maintenance tab uses, so the
                     two screens cannot disagree about one item.
+
+                    `compliance={false}` drops the "Not recorded" badge, which
+                    belongs on the record screen rather than here: this is the
+                    glance on the way out to the aeroplane, and what it has to
+                    answer is *when*, not how the item was set up. The
+                    Maintenance tab still says it.
                   */}
-                  <DueStatus item={item} />
+                  <DueStatus item={item} compliance={false} />
                 </span>
               </div>
             ))

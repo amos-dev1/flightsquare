@@ -5,7 +5,13 @@ import type { ReactNode } from 'react';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Button, PageTitle, Status } from '@/components/ui';
-import type { AircraftResponse, EntitlementsResponse } from '@flightsquare/shared';
+import type {
+  AircraftAvailabilityResponse,
+  AircraftResponse,
+  EntitlementsResponse,
+} from '@flightsquare/shared';
+
+import { AvailabilityLine } from '@/app/(app)/maintenance/shared';
 
 import { AircraftTabs } from './tabs';
 
@@ -34,10 +40,12 @@ export default async function AircraftTabsLayout({
 
   let aircraft: AircraftResponse;
   let entitlements: EntitlementsResponse;
+  let availability: AircraftAvailabilityResponse;
   try {
-    [aircraft, entitlements] = await Promise.all([
+    [aircraft, entitlements, availability] = await Promise.all([
       apiFetch<AircraftResponse>(`/aircraft/${id}`),
       apiFetch<EntitlementsResponse>('/entitlements'),
+      apiFetch<AircraftAvailabilityResponse>(`/aircraft/${id}/availability`),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
@@ -64,12 +72,27 @@ export default async function AircraftTabsLayout({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Registrations stay uppercase: §11 reserves it for exactly this. */}
             <PageTitle>{aircraft.registration}</PageTitle>
             {aircraft.status !== 'active' ? (
               <Status kind="neutral">{aircraft.status}</Status>
             ) : null}
+            {/*
+              Can it be taken, beside the tail number and on every tab.
+
+              It used to sit inside the maintenance card, where it read as a
+              maintenance verdict and is not one — it answers a question about
+              *now*, where that list answers what the aeroplane owes later.
+              Up here it is the first thing read on any of the three tabs,
+              which is right: it is what somebody opening this screen is
+              actually asking.
+
+              §11: never "Airworthy". "Available" is a claim about this
+              product's records, and it is the same one the scheduler consults
+              (§3.3), so this and a booking cannot disagree.
+            */}
+            <AvailabilityLine row={availability} />
           </div>
           <p className="mt-1 text-sm text-secondary">
             {[aircraft.type_code, aircraft.year_manufactured, aircraft.home_base]

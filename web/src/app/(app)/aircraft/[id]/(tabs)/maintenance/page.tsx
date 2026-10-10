@@ -5,13 +5,11 @@ import { Plus } from 'lucide-react';
 import { ApiError, apiFetch } from '@/lib/api';
 import { Button, Card, Empty, SectionHeading, Status } from '@/components/ui';
 import {
-  AvailabilityLine,
   DueStatus,
-  governingLabel,
+  remainingIn,
   remainingLabel,
 } from '@/app/(app)/maintenance/shared';
 import type {
-  AircraftAvailabilityResponse,
   EntitlementsResponse,
   MaintenanceItemResponse,
   MaintenanceSummaryResponse,
@@ -37,13 +35,9 @@ export default async function AircraftMaintenanceTab({
 }) {
   const { id } = await params;
 
-  let availability: AircraftAvailabilityResponse;
   let entitlements: EntitlementsResponse;
   try {
-    [availability, entitlements] = await Promise.all([
-      apiFetch<AircraftAvailabilityResponse>(`/aircraft/${id}/availability`),
-      apiFetch<EntitlementsResponse>('/entitlements'),
-    ]);
+    [entitlements] = await Promise.all([apiFetch<EntitlementsResponse>('/entitlements')]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
@@ -78,14 +72,13 @@ export default async function AircraftMaintenanceTab({
   return (
     <div className="space-y-6">
       {/*
-        The same dispatch line as the dashboard, repeated deliberately: somebody
-        who came straight to this tab to record compliance still needs to know
-        whether the aeroplane is flying while they do it.
+        The dispatch line used to be repeated here, deliberately: somebody who
+        came straight to this tab to record compliance still needs to know
+        whether the aeroplane is flying while they do it. It still is — it
+        moved into the header this tab sits under, so it is on all three tabs
+        rather than two, and saying it twice on one screen is how a statement
+        stops being read.
       */}
-      <Card className="p-5">
-        <AvailabilityLine row={availability} />
-      </Card>
-
       {canReadItems ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -140,9 +133,9 @@ export default async function AircraftMaintenanceTab({
                 >
                   <span className="text-sm font-semibold">{item.name}</span>
                   <span className="flex items-center gap-3 text-sm text-secondary">
-                    {governingLabel(item) ? (
-                      <span className="tabular">{governingLabel(item)}</span>
-                    ) : null}
+                    <span className="tabular">
+                      {remainingIn(item.governing_kind, item.governing_remaining)}
+                    </span>
                     <Status kind={item.state === 'overdue' ? 'overdue' : 'due_soon'} />
                   </span>
                 </div>

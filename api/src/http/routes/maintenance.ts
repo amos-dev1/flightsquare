@@ -1402,6 +1402,10 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
           .select([
             'maintenance_item_id', 'name', 'state', 'governing_kind',
             'governing_remaining', 'due_on', 'ever_complied', 'restriction_label',
+            // The reading it comes due *at*, and which meter that is. A
+            // countdown says how far away; this says what to look for on the
+            // panel, and §11 will not have an hour figure without its meter.
+            'due_at_hours', 'hours_meter',
           ])
           .where('aircraft_id', '=', request.params.id)
           .where('status', '=', 'active')
@@ -1432,6 +1436,8 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
             governing_kind: item.governing_kind,
             governing_remaining: item.governing_remaining,
             due_on: item.due_on,
+            due_at_hours: item.due_at_hours,
+            hours_meter: item.hours_meter as MaintenanceSummaryResponse['upcoming'][number]['hours_meter'],
             ever_complied: item.ever_complied,
           })),
         } satisfies MaintenanceSummaryResponse;

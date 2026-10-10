@@ -68,6 +68,22 @@
    */
   --color-caution: #F59E0B;
   --color-on-caution: #152B3C;
+
+  /*
+   * The one green in the system, and it is a semantic exception rather than
+   * an accent (§11 §11): "Teal represents interaction, selection, or limited
+   * emphasis. Do not use teal as a universal 'safe' or 'airworthy' signal."
+   * So an aeroplane that can be flown today is not teal, and it is not left
+   * to colour either — the chip keeps its tick and its word, because §11 is
+   * explicit that meaning is never carried by colour alone. The green is the
+   * third signal, for the glance from across a hangar.
+   *
+   * Measured in context: #0E6B41 on #E3F2EA is 5.68:1, clearing AA for
+   * normal text. Red stays reserved for grounded and overdue, which is why
+   * the pair below is the only green.
+   */
+  --color-ok: #0E6B41;
+  --color-ok-surface: #E3F2EA;
 }
 
 html {
