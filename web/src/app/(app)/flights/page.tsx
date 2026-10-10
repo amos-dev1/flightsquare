@@ -209,8 +209,17 @@ function Filter({
 }
 
 function FlightRow({ flight }: { flight: FlightResponse }) {
+  // Superseded and in-error entries stay on the list and are labelled rather
+  // than hidden: §3.4 keeps both rows, and a trail with the wrong half taken
+  // out is not one. The figures are struck through, because they are no
+  // longer what the aeroplane is counting.
+  const replaced = flight.superseded_by !== null;
+
   return (
-    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-5 py-4">
+    <Link
+      href={`/flights/${flight.id}`}
+      className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-5 py-4 transition-colors duration-150 hover:bg-subtle"
+    >
       <time className="tabular w-24 shrink-0 text-sm text-secondary" dateTime={flight.flight_date}>
         {flight.flight_date}
       </time>
@@ -223,9 +232,19 @@ function FlightRow({ flight }: { flight: FlightResponse }) {
               {flight.departed_from ?? '—'} → {flight.arrived_at ?? '—'}
             </span>
           ) : null}
-          {flight.needs_review ? (
+          {flight.needs_review && !replaced ? (
             <span className="ml-2">
               <Status kind="due_soon">Needs review</Status>
+            </span>
+          ) : null}
+          {flight.logged_in_error ? (
+            <span className="ml-2">
+              <Status kind="neutral">Logged in error</Status>
+            </span>
+          ) : null}
+          {replaced ? (
+            <span className="ml-2">
+              <Status kind="neutral">Corrected</Status>
             </span>
           ) : null}
         </p>
@@ -244,7 +263,16 @@ function FlightRow({ flight }: { flight: FlightResponse }) {
           {flight.remarks ? ` · ${flight.remarks}` : ''}
         </p>
 
-        {flight.needs_review && flight.review_reason ? (
+        {/* Who changed it and why, on the row, so the log reads without
+            having to open anything. */}
+        {flight.supersedes_id && flight.correction_reason ? (
+          <p className="mt-0.5 break-words text-xs text-secondary">
+            {flight.logged_in_error ? 'Taken back' : 'Correction'} &middot;{' '}
+            &ldquo;{flight.correction_reason}&rdquo;
+          </p>
+        ) : null}
+
+        {flight.needs_review && flight.review_reason && !replaced ? (
           <p className="mt-1 max-w-prose text-xs">
             {/* §8.2: a gap is a flag for a person, never a rejection, and it
                 is usually a maintenance run or a flight nobody logged. */}
@@ -253,7 +281,11 @@ function FlightRow({ flight }: { flight: FlightResponse }) {
         ) : null}
       </div>
 
-      <div className="tabular shrink-0 text-right text-sm">
+      <div
+        className={`tabular shrink-0 text-right text-sm ${
+          replaced || flight.logged_in_error ? 'text-secondary line-through' : ''
+        }`}
+      >
         <p>
           {flight.hobbs_hours ? (
             <>
@@ -268,6 +300,6 @@ function FlightRow({ flight }: { flight: FlightResponse }) {
           {flight.tach_hours ? `${flight.tach_hours} tach` : 'no tach'}
         </p>
       </div>
-    </div>
+    </Link>
   );
 }

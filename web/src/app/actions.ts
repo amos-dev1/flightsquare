@@ -449,7 +449,10 @@ export async function logFlight(
   const values = Object.fromEntries(
     ['flight_date', 'hobbs_start', 'hobbs_end', 'tach_start', 'tach_end',
      'fuel_remaining_before', 'fuel_remaining_after', 'fuel_added_qty', 'fuel_added_cost',
-     'departed_from', 'arrived_at', 'remarks'].map((k) => [k, text(k)]),
+     'departed_from', 'arrived_at', 'remarks',
+     // §3.4: a correction is this flight replacing another, so it arrives on
+     // the same form and down the same path. There is no PATCH.
+     'supersedes_id', 'correction_reason'].map((k) => [k, text(k)]),
   );
 
   /**
@@ -510,6 +513,16 @@ export async function logFlight(
     if (values[key]) body[key] = values[key].toUpperCase();
   }
   if (values.remarks) body.remarks = values.remarks;
+
+  if (values.supersedes_id) {
+    // Five characters, matching the CHECK behind it. "oops" is not a record
+    // of why a meter moved, and the constraint name is not an explanation.
+    if ((values.correction_reason ?? '').length < 5) {
+      return { error: 'Say what was wrong with the entry. It stays on the record.', values };
+    }
+    body.supersedes_id = values.supersedes_id;
+    body.correction_reason = values.correction_reason;
+  }
 
   const key = text('idempotency_key');
   let flight: FlightResponse;
@@ -573,11 +586,59 @@ export async function logFlight(
 
   revalidatePath(`/aircraft/${aircraftId}`);
   revalidatePath('/aircraft');
+  revalidatePath('/flights');
   if (squawks.length > 0) {
     revalidatePath('/squawks');
     revalidatePath('/maintenance');
   }
+
+  // A correction lands on the flight it produced, where the superseded entry
+  // is visible beside it. A new flight lands on the aeroplane, where the
+  // meters it just moved are.
+  if (values.supersedes_id) {
+    revalidatePath(`/flights/${values.supersedes_id}`);
+    redirect(`/flights/${flight.id}?corrected=1`);
+  }
   redirect(`/aircraft/${aircraftId}?logged=1`);
+}
+
+/**
+ * A flight that never happened.
+ *
+ * The one thing a correction cannot say by replacing numbers, so it says so
+ * instead: no meters, no charge, and the aeroplane falls back to the reading
+ * before it. Still a correction and still append-only — the entry stays on
+ * the log, labelled, beside the row that takes it back.
+ */
+export async function markLoggedInError(
+  flight: FlightResponse,
+  reason: string,
+): Promise<ActionResult> {
+  if (reason.trim().length < 5) return { error: 'Say why this is being taken back.' };
+
+  try {
+    await apiFetch('/flights', {
+      method: 'POST',
+      headers: { 'idempotency-key': `in-error-${flight.id}` },
+      body: JSON.stringify({
+        aircraft_id: flight.aircraft_id,
+        flight_date: flight.flight_date,
+        flown_by: flight.flown_by,
+        supersedes_id: flight.id,
+        correction_reason: reason.trim(),
+        logged_in_error: true,
+      }),
+    });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+
+  revalidatePath('/flights');
+  revalidatePath(`/flights/${flight.id}`);
+  revalidatePath(`/aircraft/${flight.aircraft_id}`);
+  revalidatePath('/aircraft');
+  revalidatePath('/billing');
+  return {};
 }
 
 /**
