@@ -18,7 +18,16 @@ import { SquawkActions, SquawkForm } from './client';
  * screen — the two acts belong to different people, and a screen that mixed
  * them would quietly suggest otherwise.
  */
-export default async function SquawksPage() {
+export default async function SquawksPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ aircraft?: string }>;
+}) {
+  // Which aeroplane the person arrived talking about. The Maintenance tab
+  // sends it, so somebody who pressed Add squawk on N220SR is not asked
+  // again which aeroplane they meant.
+  const { aircraft: from } = await searchParams;
+
   const [squawks, fleet, entitlements] = await Promise.all([
     apiFetch<SquawkResponse[]>('/squawks'),
     apiFetch<AircraftResponse[]>('/aircraft'),
@@ -48,7 +57,14 @@ export default async function SquawksPage() {
       {canFile && active.length > 0 ? (
         <section className="space-y-3">
           <SectionHeading>Report a defect</SectionHeading>
-          <SquawkForm fleet={active} />
+          <SquawkForm
+            fleet={active}
+            // Only where it names an aeroplane this member can actually see:
+            // an id out of the URL is the caller's, not the server's, and a
+            // picker opening on something that is not in the list would show
+            // an empty box (§8.1 — the client is untrusted here as anywhere).
+            aircraftId={active.some((one) => one.id === from) ? from : undefined}
+          />
         </section>
       ) : null}
 
