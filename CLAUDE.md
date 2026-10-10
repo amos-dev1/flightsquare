@@ -522,7 +522,7 @@ The account creator is Admin. A tenant must always have at least one member hold
 Row scoping is a third dimension, not a bespoke rule (2026-09-21). A permission is now a triple: resource, level, and scope: own | all. Enforcement is in RLS as §10 already settled, through 
  app.owns_row(resource, member_id). Everything except a Pilot's charges is all: a club's flights, squawks and maintenance are shared by design. The resolved scope is also sent to clients, for wording and for hiding — never for enforcement.
 
-The same question applies more mildly to `flights: write`, which today means any flight, not just one's own.
+The same question applies more mildly to `flights: write`, which today means any flight, not just one's own. **Correcting** one is scoped (§10, 2026-10-10) — your own while nothing has been flown since, an administrator's after that — but logging and reading stay `all`, because a club's flights are shared by design and narrowing them would be a different product.
 
 Representation: the resolved value is a typed `Unlimited | Limit(n)`. Do not encode unlimited as `-1`, `0`, `NULL`, or `Number.MAX_SAFE_INTEGER` — every one of those eventually gets compared with `<` by accident.
 
@@ -832,6 +832,43 @@ overdue grounding items — and an expiring certificate is a notice in the feed 
 whoever can renew it, worded "this does not affect bookings". This is also the
 first time a record-keeping fact was offered a route into the booking path, and
 declining it is the precedent.
+
+**A flight is corrected, never edited or deleted** (2026-10-10). A mistyped
+Hobbs was wrong forever: `flight_meters`, `flight_fuel` and `meter_readings`
+all carry SELECT and INSERT and no UPDATE, and no flight table has ever had a
+DELETE grant. `db/tests/090_flights.sql` had already named the remedy — *"a
+correction is a new flight or a reversing entry, never an edit to what someone
+spent"* — and `0041` builds the first half: **a corrected flight is a new
+flight superseding the old one**, the shape `meter_readings` and
+`compliance_records` already use. Both rows stay.
+
+There is no delete and none is needed. A correction replaces the whole entry,
+so it covers the cases a field-edit never could — the wrong aeroplane, the
+wrong pilot, the wrong date — and the one claim it cannot make by changing
+numbers is carried by `logged_in_error`: no meters, no charge, and the
+aeroplane falls back to the reading before it. A deletion is not a thing this
+schema can express safely anyway; four `NO ACTION` foreign keys refuse one,
+and `refresh_aircraft_meter_totals` has no DELETE trigger, so a row that
+vanished would leave the totals stale while looking fine.
+
+**Who may is the first place §4.4's "any flight, not just one's own" gets an
+answer.** Your own flight while nothing has been flown on that aeroplane
+since; after that, an administrator — tested by `aircraft: write`, as
+`assert_booking_is_allowed` already tests it, and as `POST
+/aircraft/:id/meter-readings` is already gated. Not the `scope` column:
+`role_bundle_permissions` is keyed per resource rather than per level, so
+narrowing `flights` to `own` would narrow *reading* too, which §1 of `0010`
+says must not happen. This replaces V1_SCOPE's 24-hour window, which was both
+looser (inside it you could still move a figure the next pilot flew against)
+and tighter (a wrong Hobbs found at the annual is the one most worth fixing).
+
+Two consequences worth knowing. Recomputing the totals on the `flights` insert
+rather than only on the reading means §8.2's gap notice compares a correction
+against what the aeroplane read *before* the flight being corrected — without
+it every correction would be flagged against the very number it corrects. And
+on a phone a correction is the same queued write with three more fields, so
+§8.2's offline queue needed no new `kind` — which matters, because `queue.ts`
+reads a kind it does not recognise back **as a flight**.
 
 **`deleted_at` is a control-plane marker, not an application verb** (2026-09-20). §6 asks for a `deleted_at IS NULL` predicate in the RLS policy *and* for soft deletion; Postgres will not give both, because on UPDATE it re-checks the new row against the policies that apply to SELECT — so a row that sets `deleted_at` stops satisfying the policy that made it visible, and the write is refused. Resolved in favour of the invariant: `deleted_at` means account closure and purge (§7.3), written by the admin plane. **An application-facing "delete" is a status column** — a removed member is `status = 'removed'`, an archived aircraft will be an aircraft status. §5.5 requires archived records to keep their history and return on re-upgrade, so hiding them at the database level would have been wrong anyway.
 
