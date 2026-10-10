@@ -6,8 +6,10 @@ import { ApiError, apiFetch } from '@/lib/api';
 import { Button, Card, Empty, SectionHeading, Status } from '@/components/ui';
 import {
   DueStatus,
+  duePointLabel,
   remainingIn,
   remainingLabel,
+  ruleLabel,
 } from '@/app/(app)/maintenance/shared';
 import type {
   EntitlementsResponse,
@@ -109,12 +111,12 @@ export default async function AircraftMaintenanceTab({
       {canReadItems ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <SectionHeading>Tracked intervals</SectionHeading>
+            <SectionHeading>Recurring maintenance</SectionHeading>
             {canWriteItems ? (
               <Link href={`/maintenance/new?aircraft=${id}`}>
                 <Button variant="secondary">
                   <Plus aria-hidden size={16} strokeWidth={2} />
-                  Track something
+                  Create recurring maintenance
                 </Button>
               </Link>
             ) : null}
@@ -127,7 +129,7 @@ export default async function AircraftMaintenanceTab({
               saying so is the difference between an owner thinking the app is
               broken and knowing it is waiting for them.
             */
-            <Empty title="Nothing is being tracked yet">
+            <Empty title="No recurring maintenance set up yet">
               Annuals, 100-hours, oil changes and ELT batteries are added when you say they
               apply — nothing is assumed about this aeroplane.
             </Empty>
@@ -175,6 +177,15 @@ export default async function AircraftMaintenanceTab({
   );
 }
 
+/**
+ * One row per item, carrying what it is set to do as well as where it stands.
+ *
+ * The list used to be a name, a countdown and a chip, which answered "is this
+ * one a problem" and nothing else — so the schedule behind it, the thing an
+ * admin actually came here to check, was a tap away on every row. §3.6 lets
+ * an item be due on more than one basis at once and "the earliest wins", so
+ * each basis gets its own line: what it repeats on, and where that lands next.
+ */
 function ItemList({ title, items }: { title: string; items: MaintenanceItemResponse[] }) {
   return (
     <section className="space-y-3">
@@ -184,13 +195,45 @@ function ItemList({ title, items }: { title: string; items: MaintenanceItemRespo
           <Link
             key={item.id}
             href={`/maintenance/${item.id}`}
-            className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-5 py-3 transition-colors duration-150 hover:bg-subtle"
+            className="block px-5 py-4 transition-colors duration-150 hover:bg-subtle"
           >
-            <span className="text-sm font-semibold">{item.name}</span>
-            <span className="flex items-center gap-3 text-sm text-secondary">
-              <span className="tabular">{remainingLabel(item)}</span>
-              <DueStatus item={item} />
-            </span>
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold">{item.name}</span>
+                {/*
+                  §3.3: this is the one that can stop the aeroplane flying
+                  when it goes overdue, which is a different fact from how
+                  close it is — so it is said on the row rather than inferred
+                  from the colour of the chip beside it.
+                */}
+                {item.grounds_aircraft ? (
+                  <Status kind="neutral">Grounds the aircraft</Status>
+                ) : null}
+              </span>
+              <span className="flex items-center gap-3 text-sm text-secondary">
+                <span className="tabular">{remainingLabel(item)}</span>
+                <DueStatus item={item} />
+              </span>
+            </div>
+
+            {/*
+              What it repeats on, and where that lands next — one line per
+              basis, because an item due every 12 months *and* every 100 tach
+              hours is two schedules and the earliest of them wins.
+            */}
+            {item.rules.length > 0 ? (
+              <ul className="mt-1 space-y-0.5">
+                {item.rules.map((rule) => (
+                  <li key={rule.id} className="tabular text-xs text-secondary">
+                    {ruleLabel(rule)} · {duePointLabel(rule)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            {item.regulatory_reference ? (
+              <p className="mt-1 text-xs text-secondary">{item.regulatory_reference}</p>
+            ) : null}
           </Link>
         ))}
       </Card>
