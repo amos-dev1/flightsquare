@@ -435,4 +435,128 @@ describe('flight logging', () => {
     expect(response.statusCode).toBe(201);
     expect(response.json().arrived_at).toBe('PRIVATE STRIP');
   });
+
+  /**
+   * §3.4: nothing is edited, so a correction is a new flight replacing an old
+   * one. The rule about *who* may is proved in `db/tests/190`, where it
+   * lives; these are the things only the API can get wrong.
+   */
+  describe('corrections', () => {
+    it('replaces a flight, and the reads stop counting the old one', async () => {
+      const before = await app.inject({ method: 'GET', url: `/flights/summary?aircraft_id=${aircraftId}` });
+      const hoursBefore = Number(before.json().hobbs_hours);
+      const countBefore = Number(before.json().flights);
+
+      const at = Number(
+        (await app.inject({ method: 'GET', url: `/aircraft/${aircraftId}` })).json().hobbs,
+      );
+      const wrong = await logFlight({
+        hobbs_start: at.toFixed(1),
+        hobbs_end: (at + 10).toFixed(1),
+        arrived_at: 'KPWK',
+      });
+      expect(wrong.statusCode).toBe(201);
+
+      const right = await logFlight({
+        hobbs_start: at.toFixed(1),
+        hobbs_end: (at + 2).toFixed(1),
+        arrived_at: 'KUGN',
+        supersedes_id: wrong.json().id,
+        correction_reason: 'Hobbs misread on the panel',
+      });
+      expect(right.statusCode).toBe(201);
+
+      // Not flagged: the comparison runs against what the aeroplane read
+      // *before* the flight being corrected, not against the wrong figure.
+      expect(right.json().needs_review).toBe(false);
+
+      const aircraft = await app.inject({ method: 'GET', url: `/aircraft/${aircraftId}` });
+      expect(aircraft.json().hobbs).toBe((at + 2).toFixed(1));
+      // These two are live subqueries over the latest flight with no trigger
+      // behind them, so they are the ones a correction could silently miss.
+      expect(aircraft.json().last_location).toBe('KUGN');
+
+      const after = await app.inject({ method: 'GET', url: `/flights/summary?aircraft_id=${aircraftId}` });
+      expect(Number(after.json().hobbs_hours) - hoursBefore).toBe(2);
+      expect(Number(after.json().flights) - countBefore).toBe(1);
+
+      // The list keeps both and says which is which: the history is the point.
+      const list = await app.inject({ method: 'GET', url: `/flights?aircraft_id=${aircraftId}` });
+      const rows = list.json() as { id: string; superseded_by: string | null; correction_reason: string | null }[];
+      expect(rows.find((r) => r.id === wrong.json().id)?.superseded_by).toBe(right.json().id);
+      expect(rows.find((r) => r.id === right.json().id)?.correction_reason).toBe(
+        'Hobbs misread on the panel',
+      );
+
+      // §3.4's logbook export is what somebody transcribes onto paper, so the
+      // line that was wrong is not in it.
+      const exported = await app.inject({ method: 'GET', url: '/flights/export.csv' });
+      expect(exported.body).not.toContain('KPWK');
+      expect(exported.body).toContain('KUGN');
+    });
+
+    it('refuses to correct the same flight twice', async () => {
+      const flight = await logFlight({ hobbs_start: '1208.0', hobbs_end: '1209.0' });
+      const first = await logFlight({
+        hobbs_start: '1208.0',
+        hobbs_end: '1209.5',
+        supersedes_id: flight.json().id,
+        correction_reason: 'The first correction',
+      });
+      expect(first.statusCode).toBe(201);
+
+      const second = await logFlight({
+        hobbs_start: '1208.0',
+        hobbs_end: '1209.6',
+        supersedes_id: flight.json().id,
+        correction_reason: 'The second correction',
+      });
+      // Correcting twice is not twice as corrected — the next one supersedes
+      // the correction, so the history stays a chain.
+      expect(second.statusCode).toBe(409);
+      expect(second.json().reason).toMatch(/already been corrected/);
+    });
+
+    it('answers 404 for a flight it cannot see, the same as one that never existed', async () => {
+      const response = await logFlight({
+        hobbs_start: '1209.5',
+        hobbs_end: '1210.0',
+        supersedes_id: '01920000-0000-7000-8000-00000000dead',
+        correction_reason: 'Correcting nothing at all',
+      });
+      // §6: an error never leaks cross-tenant existence, so the two cases
+      // have to be indistinguishable.
+      expect(response.statusCode).toBe(404);
+    });
+
+    it('takes a flight back without claiming a reading nobody took', async () => {
+      const flight = await logFlight({ hobbs_start: '1209.5', hobbs_end: '1211.0' });
+      expect(flight.statusCode).toBe(201);
+
+      const gone = await logFlight({
+        supersedes_id: flight.json().id,
+        correction_reason: 'Entered twice from the phone',
+        logged_in_error: true,
+      });
+      // No meters at all, which is the whole content of the claim — and the
+      // only request this endpoint accepts without an ending reading.
+      expect(gone.statusCode).toBe(201);
+      expect(gone.json().hobbs_end).toBeNull();
+
+      const aircraft = await app.inject({ method: 'GET', url: `/aircraft/${aircraftId}` });
+      expect(aircraft.json().hobbs).toBe('1209.5');
+    });
+
+    it('will not take a correction without a reason', async () => {
+      const flight = await logFlight({ hobbs_start: '1209.5', hobbs_end: '1212.0' });
+      const response = await logFlight({
+        hobbs_start: '1209.5',
+        hobbs_end: '1213.0',
+        supersedes_id: flight.json().id,
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().detail).toMatch(/reason/);
+    });
+  });
+
 });

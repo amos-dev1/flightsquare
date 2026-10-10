@@ -651,6 +651,24 @@ export interface FlightResponse {
   review_reason: string | null;
   recorded_at: string;
 
+  /** The flight this one corrects, and the reason given for it. */
+  supersedes_id: string | null;
+  correction_reason: string | null;
+  /** The correction that replaced this one, if any. Null while it stands. */
+  superseded_by: string | null;
+  /** Said to have not happened at all. Its hours and charge are nothing. */
+  logged_in_error: boolean;
+  /**
+   * Whether *this* caller may correct it, resolved server-side.
+   *
+   * §8.2: the client never computes anything that matters, and the rule —
+   * your own flight, while nothing has been flown since, or an administrator
+   * — needs a membership id and a query the client has neither of. Sent so
+   * the button and the gate can never disagree (§8.1: hiding is cosmetics,
+   * and the database refuses regardless).
+   */
+  correctable: boolean;
+
   /** Recorded as read. Neither meter is derived from the other. */
   hobbs_start: string | null;
   hobbs_end: string | null;
@@ -719,6 +737,31 @@ export interface CreateFlightRequest {
   flight_date: string;
   /** A membership id. Defaults to the caller's own. */
   flown_by?: string;
+
+  /**
+   * The flight this one corrects.
+   *
+   * §3.4 makes the meters append-only, so a correction is a whole new flight
+   * replacing an old one — never an edit. Everything else on this request is
+   * the corrected version; both rows stay, and the superseded one's charge is
+   * reversed.
+   *
+   * Who may: your own flight while nothing has been flown on that aeroplane
+   * since, and an administrator any flight. Enforced in the database, so a
+   * `correctable: false` row refused here is the same answer the UI was
+   * already showing.
+   */
+  supersedes_id?: string;
+  /** Required with `supersedes_id`, and it has to say something. */
+  correction_reason?: string;
+  /**
+   * This flight did not happen — a double entry, or one logged against the
+   * wrong person. Carries no meters, so it earns no charge and the
+   * aeroplane's totals fall back to the reading before it. Only ever sent
+   * alongside `supersedes_id`: it is a statement about a flight already on
+   * the record.
+   */
+  logged_in_error?: boolean;
   departed_from?: string;
   arrived_at?: string;
   remarks?: string;

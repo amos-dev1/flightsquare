@@ -8,7 +8,7 @@ import type {
 
 import { withIdempotency } from '../../db/idempotency.js';
 import { ownMembership } from '../../db/membership.js';
-import { NotFoundError } from '../errors.js';
+import { ConflictError, foreignKeyViolation, NotFoundError, PermissionError } from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
 const decimal = { type: 'string', pattern: '^[0-9]{1,7}(\\.[0-9])?$' } as const;
@@ -48,9 +48,55 @@ const createSchema = {
       receipt_reference: { type: 'string', maxLength: 200 },
 
       recorded_at: { type: 'string', format: 'date-time' },
+
+      // §3.4: a correction is a new flight replacing an old one. The rest of
+      // this body is the corrected version; nothing is ever edited.
+      supersedes_id: { type: 'string', format: 'uuid' },
+      correction_reason: { type: 'string', minLength: 5, maxLength: 500 },
+      logged_in_error: { type: 'boolean' },
     },
   },
 } as const;
+
+/**
+ * The flight that replaced this one, and whether this caller may replace it.
+ *
+ * Both are correlated subqueries rather than joins, for the reason the fuel
+ * and location figures on `/aircraft` are: a join would multiply the row set
+ * and these are each one scalar about one flight.
+ *
+ * `correctable` is resolved here because §8.2 keeps the client out of
+ * anything that matters and the rule needs a membership id and a query over
+ * the aeroplane's other flights. The database refuses regardless (§8.1) —
+ * this exists so the button and the refusal cannot disagree.
+ */
+const supersededBy = sql<string | null>`(
+  SELECT s.id FROM flights s WHERE s.supersedes_id = flights.id
+)`;
+
+const correctable = sql<boolean>`(
+  app.permission_level('aircraft') = 'write'
+  OR (flights.flown_by = app.current_membership_id()
+      AND NOT EXISTS (
+        SELECT 1 FROM flights later
+         WHERE later.aircraft_id = flights.aircraft_id
+           AND later.id <> flights.id
+           AND later.recorded_at > flights.recorded_at
+           AND NOT later.logged_in_error
+           AND NOT EXISTS (SELECT 1 FROM flights s WHERE s.supersedes_id = later.id)))
+)`;
+
+/**
+ * True of a flight nothing newer has replaced.
+ *
+ * Every read that *adds up* has to apply this, or a correction counts twice —
+ * the wrong hours and the right ones, which is worse than either alone. Reads
+ * that *list* keep superseded rows and label them instead: the history is the
+ * point, and hiding what was corrected is how a trail stops being one.
+ */
+const stands = sql<boolean>`NOT EXISTS (
+  SELECT 1 FROM flights s WHERE s.supersedes_id = flights.id
+)`;
 
 function selectFlights(trx: Tx) {
   return trx
@@ -74,6 +120,9 @@ function selectFlights(trx: Tx) {
       'flights.needs_review',
       'flights.review_reason',
       'flights.recorded_at',
+      'flights.supersedes_id',
+      'flights.correction_reason',
+      'flights.logged_in_error',
       'flight_meters.hobbs_start',
       'flight_meters.hobbs_end',
       'flight_meters.hobbs_hours',
@@ -86,6 +135,8 @@ function selectFlights(trx: Tx) {
       'flight_fuel.fuel_added_cost_cents',
       'flight_fuel.fuel_price_cents',
       'flight_fuel.currency',
+      supersededBy.as('superseded_by'),
+      correctable.as('correctable'),
     ]);
 }
 
@@ -118,6 +169,48 @@ function fuelCostCents(body: CreateFlightRequest): number | null {
   return Math.round(body.fuel_price_cents * quantity);
 }
 
+/** The trigger's SQLSTATEs, and the constraint a second correction trips. */
+const PG_NOT_YOURS = 'FS403';
+const PG_NO_SUCH_FLIGHT = 'FS404';
+
+/**
+ * Turn the database's refusals into sentences.
+ *
+ * §1.1 puts the correction rule in a trigger rather than in this handler —
+ * "a rule that only exists in a handler is a rule the next handler will not
+ * have" — so what is left here is saying what happened. Unmapped, each of
+ * these is a 500 for a request that was answered correctly.
+ */
+async function correctionRefusals<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+
+    /*
+      Both halves of the rule arrive as 403 rather than one of them as 409.
+      The reading is the same either way — for *this* flight the caller would
+      need `aircraft: write`, which is what the body says — and the UI never
+      gets here, because `correctable` on the row already told it. A
+      `ConflictError` would carry the trigger's prettier sentence and a code
+      §1.6 reserves for a different question.
+    */
+    if (code === PG_NOT_YOURS) throw new PermissionError('aircraft', 'write');
+
+    // §6: a flight in another tenant and one that never existed get the same
+    // answer, because the difference is cross-tenant existence.
+    if (code === PG_NO_SUCH_FLIGHT) throw new NotFoundError();
+
+    if ((error as { constraint?: unknown }).constraint === 'flights_superseded_once') {
+      throw new ConflictError('that flight has already been corrected');
+    }
+    // A correction naming a flight RLS never showed the caller. Same answer.
+    if (foreignKeyViolation(error) === 'flights_supersedes_fkey') throw new NotFoundError();
+
+    throw error;
+  }
+}
+
 export async function flightRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { aircraft_id?: string; needs_review?: string; mine?: string } }>(
     '/flights',
@@ -129,7 +222,14 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           query = query.where('flights.aircraft_id', '=', request.query.aircraft_id);
         }
         if (request.query.needs_review === 'true') {
-          query = query.where('flights.needs_review', '=', true);
+          /*
+            A corrected flight leaves the queue without anything being
+            written. The flag stays true on the row — it is a true statement
+            about what was logged at the time, and being replaced says more
+            than being cleared — and this is the read that stops asking about
+            it. The dormant `UPDATE (needs_review)` grant is still unused.
+          */
+          query = query.where('flights.needs_review', '=', true).where(stands);
         }
         /**
          * `mine=true` — a filter, not a permission.
@@ -199,7 +299,14 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
             sql<string>`coalesce(sum(flight_meters.tach_hours), 0)`.as('tach_hours'),
             fn.min<string | null>('flights.flight_date').as('first_flight_date'),
             fn.max<string | null>('flights.flight_date').as('last_flight_date'),
-          ]);
+          ])
+          /*
+            The one read where supersession is not cosmetic. This sums
+            `hobbs_hours` and counts rows, so a corrected flight would add
+            the right figure on top of the wrong one and the dashboard would
+            show hours nobody flew — in the direction nobody checks.
+          */
+          .where(stands);
 
         if (request.query.aircraft_id) {
           query = query.where('flights.aircraft_id', '=', request.query.aircraft_id);
@@ -281,20 +388,41 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
 
       const body = request.body;
 
-      // A flight that advanced no meter is not a flight this product records:
-      // advancing the meters is what a flight record is *for*. The database
-      // says so too, but a CHECK violation surfacing as a 500 tells the
-      // person at the tiedown nothing about what to fix.
-      if (body.hobbs_end === undefined && body.tach_end === undefined) {
+      /*
+        A flight that advanced no meter is not a flight this product records:
+        advancing the meters is what a flight record is *for*. The database
+        says so too, but a CHECK violation surfacing as a 500 tells the person
+        at the tiedown nothing about what to fix.
+
+        The one exception is a correction saying the flight never happened.
+        That carries no meters by definition — and writing one would be the
+        app recording a reading nobody took.
+      */
+      if (!body.logged_in_error && body.hobbs_end === undefined && body.tach_end === undefined) {
         return reply.status(400).send({
           error: 'invalid_request',
           detail: 'a flight needs an ending Hobbs or tach reading',
         });
       }
 
+      // Both halves are checked in the database too (`flights_*_check`), so
+      // these only exist to answer in a sentence rather than a constraint name.
+      if (body.supersedes_id === undefined && (body.correction_reason || body.logged_in_error)) {
+        return reply.status(400).send({
+          error: 'invalid_request',
+          detail: 'say which flight is being corrected',
+        });
+      }
+      if (body.supersedes_id !== undefined && !body.correction_reason?.trim()) {
+        return reply.status(400).send({
+          error: 'invalid_request',
+          detail: 'a correction needs a reason, and it stays on the record',
+        });
+      }
+
       const ctx = { tenantId: request.ctx!.tenantId!, userId: request.ctx!.userId };
 
-      const outcome = await withIdempotency<FlightResponse>(
+      const outcome = await correctionRefusals(() => withIdempotency<FlightResponse>(
         ctx,
         key,
         'POST /flights',
@@ -323,6 +451,11 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
               // records when it heard about it. They differ, sometimes by days.
               recorded_at: body.recorded_at ? new Date(body.recorded_at) : new Date(),
               created_by: ctx.userId,
+              // §3.4: a correction is this row replacing another, and a
+              // trigger decides whether this caller may make it.
+              ...(body.supersedes_id ? { supersedes_id: body.supersedes_id } : {}),
+              ...(body.correction_reason ? { correction_reason: body.correction_reason } : {}),
+              ...(body.logged_in_error ? { logged_in_error: true } : {}),
             })
             .returning('id')
             .executeTakeFirstOrThrow();
@@ -330,20 +463,28 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           // Inserting these is what advances the meters — a trigger turns
           // them into a meter_reading, so the core loop cannot be skipped by
           // a caller that forgets.
-          await trx
-            .insertInto('flight_meters')
-            .values({
-              flight_id: flight.id,
-              tenant_id: ctx.tenantId,
-              hobbs_start: body.hobbs_start ?? null,
-              hobbs_end: body.hobbs_end ?? null,
-              tach_start: body.tach_start ?? null,
-              tach_end: body.tach_end ?? null,
-            })
-            .execute();
+          //
+          // Skipped for a flight said not to have happened: no row here means
+          // no reading, no charge and no hours, which is the whole content of
+          // the claim. The aeroplane's totals fall back on their own, because
+          // the superseded flight's reading has stopped counting.
+          if (!body.logged_in_error) {
+            await trx
+              .insertInto('flight_meters')
+              .values({
+                flight_id: flight.id,
+                tenant_id: ctx.tenantId,
+                hobbs_start: body.hobbs_start ?? null,
+                hobbs_end: body.hobbs_end ?? null,
+                tach_start: body.tach_start ?? null,
+                tach_end: body.tach_end ?? null,
+              })
+              .execute();
+          }
 
           const cost = fuelCostCents(body);
           const hasFuel =
+            !body.logged_in_error &&
             body.fuel_remaining_before !== undefined ||
             body.fuel_remaining_after !== undefined ||
             body.fuel_added_qty !== undefined ||
@@ -369,7 +510,7 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           const rows = await selectFlights(trx).where('flights.id', '=', flight.id).execute();
           return { status: 201, body: toResponse(rows[0]!) };
         },
-      );
+      ));
 
       // A replay returns 200 with the original body rather than 201: the
       // flight was created once, and saying so twice would be a lie.
@@ -392,8 +533,17 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
         // has not settled how the model expresses "own only", and this
         // endpoint does not need it to.
         const membership = await ownMembership(trx, request.ctx!.userId);
+        /*
+          Corrected and logged-in-error flights are left out. This is the
+          whole of §3.4's pilot-logbook story — rows somebody transcribes into
+          the logbook they actually keep — and a line that was wrong, or a
+          flight that never happened, is not something to copy onto paper. The
+          trail of what was corrected lives in the app, where it belongs.
+        */
         return selectFlights(trx)
           .where('flights.flown_by', '=', membership)
+          .where('flights.logged_in_error', '=', false)
+          .where(stands)
           .orderBy('flights.flight_date', 'asc')
           .execute();
       });

@@ -140,6 +140,12 @@ async function selectAircraft(trx: Tx, id?: string) {
        * it is never computed by arithmetic across flights, because pilots
        * estimate, gauges lie, and somebody always tops off without logging
        * it. So it is read back as the last one recorded, not summed.
+       *
+       * A corrected flight is skipped here and in the three subqueries below.
+       * These read the latest flight directly rather than a derived column,
+       * so unlike the meters there is no trigger standing behind them — a
+       * correction that fixed a fuel level or a destination would otherwise
+       * never reach the screen the next pilot looks at.
        */
       sql<string | null>`(
         SELECT ff.fuel_remaining_after
@@ -147,6 +153,7 @@ async function selectAircraft(trx: Tx, id?: string) {
           JOIN public.flights f ON f.id = ff.flight_id
          WHERE f.aircraft_id = aircraft.id
            AND ff.fuel_remaining_after IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM public.flights s WHERE s.supersedes_id = f.id)
          ORDER BY f.recorded_at DESC, f.id DESC
          LIMIT 1)`.as('fuel_remaining'),
       /**
@@ -166,6 +173,7 @@ async function selectAircraft(trx: Tx, id?: string) {
           JOIN public.flights f ON f.id = ff.flight_id
          WHERE f.aircraft_id = aircraft.id
            AND ff.fuel_remaining_after IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM public.flights s WHERE s.supersedes_id = f.id)
          ORDER BY f.recorded_at DESC, f.id DESC
          LIMIT 1)`.as('fuel_remaining_at'),
       /**
@@ -182,6 +190,7 @@ async function selectAircraft(trx: Tx, id?: string) {
           FROM public.flights f
          WHERE f.aircraft_id = aircraft.id
            AND f.arrived_at IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM public.flights s WHERE s.supersedes_id = f.id)
          ORDER BY f.recorded_at DESC, f.id DESC
          LIMIT 1)`.as('last_location'),
       sql<Date | null>`(
@@ -189,6 +198,7 @@ async function selectAircraft(trx: Tx, id?: string) {
           FROM public.flights f
          WHERE f.aircraft_id = aircraft.id
            AND f.arrived_at IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM public.flights s WHERE s.supersedes_id = f.id)
          ORDER BY f.recorded_at DESC, f.id DESC
          LIMIT 1)`.as('last_location_at'),
     ]);

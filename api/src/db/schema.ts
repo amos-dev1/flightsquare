@@ -957,6 +957,15 @@ export interface FlightsTable {
   created_by: string | null;
   created_at: Timestamp;
   updated_at: Timestamp;
+
+  /**
+   * `never` on the write side is not decoration: 0041 grants INSERT on these
+   * three and no UPDATE, so a query that tried would fail at the database
+   * anyway. A correction is a new flight (§3.4), never an edit to one.
+   */
+  supersedes_id: ColumnType<string | null, string | undefined, never>;
+  correction_reason: ColumnType<string | null, string | undefined, never>;
+  logged_in_error: ColumnType<boolean, boolean | undefined, never>;
 }
 
 export interface FlightMetersTable {
