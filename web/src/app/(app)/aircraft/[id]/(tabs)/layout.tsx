@@ -60,11 +60,31 @@ export default async function AircraftTabsLayout({
 
   const tabs = [
     { href: base, label: 'Dashboard' },
+    // Everybody's flights on this aeroplane, not the reader's. §4.4 gives
+    // `flights` scope `all` to both bundles because who flew what is how a
+    // club reconciles its meters and its money.
+    ...(entitlements.permissions.flights === 'none'
+      ? []
+      : [{ href: `${base}/flights`, label: 'Flights' }]),
     // A Pilot holds `maintenance.summary: read` (§4.4), which is what this tab
     // shows them; the item detail behind it is gated server-side.
     ...(entitlements.permissions['maintenance.summary'] === 'none'
       ? []
       : [{ href: `${base}/maintenance`, label: 'Maintenance' }]),
+    /*
+      Offered on `documents: read`, which both bundles hold — not on write.
+
+      Filing is the admin's and every control that writes is gated on
+      `documents: write`, which is the "admin uploads and manages" half. But
+      the reading half is a pilot's: §3.2 puts the airworthiness certificate,
+      registration, operating limitations and weight and balance here, and a
+      pilot is the person responsible for those being aboard. `0027` put
+      `documents: read` in the Pilot bundle on purpose and this is the screen
+      it was for. Hiding the tab from them would take that back.
+    */
+    ...(entitlements.permissions.documents === 'none'
+      ? []
+      : [{ href: `${base}/documents`, label: 'Documents' }]),
     ...(canWrite ? [{ href: `${base}/settings`, label: 'Settings' }] : []),
   ];
 

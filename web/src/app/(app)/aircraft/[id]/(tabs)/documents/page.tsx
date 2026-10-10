@@ -1,9 +1,8 @@
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { FileText, Image as ImageIcon } from 'lucide-react';
 
 import { ApiError, apiFetch } from '@/lib/api';
-import { Card, Empty, PageTitle, SectionHeading } from '@/components/ui';
+import { Card, Empty, SectionHeading } from '@/components/ui';
 import type {
   AircraftDocumentKind,
   AircraftDocumentResponse,
@@ -85,19 +84,15 @@ export default async function AircraftDocumentsPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href={`/aircraft/${id}`}
-          className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
-        >
-          {aircraft.registration}
-        </Link>
-        <PageTitle>Documents</PageTitle>
-        <p className="mt-1 text-sm text-secondary">
-          What should be aboard, and what the club has on file.{' '}
-          <span className="font-semibold">Nothing here affects bookings.</span>
-        </p>
-      </div>
+      {/*
+        No header of its own any more: this is a tab now, and the layout above
+        it already carries the registration and the dispatch line. Two titles
+        on one screen is how the second stops being read.
+      */}
+      <p className="text-sm text-secondary">
+        What should be aboard, and what the club has on file.{' '}
+        <span className="font-semibold">Nothing here affects bookings.</span>
+      </p>
 
       {documents.length === 0 && !canWrite ? (
         <Empty title="Nothing on file">
