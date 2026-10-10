@@ -1,20 +1,37 @@
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ApiError, type FlightResponse, type StatementResponse } from '@flightsquare/shared';
 
-import { Body, Card, Notice, SectionHeading } from '@/components/ui';
-import { api, withAuth } from '@/lib/api';
+import {
+  Body, Button, Card, CardHeading, Field, Input, Notice, SectionHeading, Status,
+} from '@/components/ui';
+import { Sheet } from '@/components/sheet';
+import { saveFlight } from '@/lib/sync';
+import { api, messageFor, withAuth } from '@/lib/api';
 import { formatMoney, routeOf } from '@/lib/format';
 import { color, space, type } from '@/theme';
 
 /**
- * One flight, read-only.
+ * One flight, and the only thing that can be done about it.
  *
- * Reached from the dashboard and the Logs list, and read-only on purpose:
- * §3.4 makes meter readings append-only, so a correction is a new row that
- * supersedes this one rather than an edit to it. There is no PATCH behind
- * this screen and there should not be one.
+ * **There is still no PATCH behind this screen, and there should not be one.**
+ * That sentence has been here since the screen was written and it is still
+ * true — what changed is that the other half of it got built. §3.4 makes the
+ * meters append-only, so a correction is a new row superseding this one
+ * rather than an edit to it, and `db/tests/090_flights.sql` names the remedy
+ * exactly: *a correction is a new flight or a reversing entry, never an edit
+ * to what someone spent.*
+ *
+ * So **Correct** reopens the post-flight form, prefilled, and what it files is
+ * a whole new flight carrying `supersedes_id`. Nothing on this row is ever
+ * rewritten; the old entry stays, labelled, beside the one that replaced it.
+ * The screen is no longer read-only, and the record still is.
+ *
+ * An unsynced flight cannot be corrected, and needs no guard for it: this
+ * screen loads from the API, so a flight still sitting in the queue is a 404
+ * here. Correcting one would have filed two flights for one real flight, with
+ * the wrong one permanent.
  *
  * Both meters in full — start, end and the hours between — because §3.4 says
  * they are recorded as read and neither is derived from the other, and §11
@@ -26,6 +43,8 @@ export default function Flight() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   const [flight, setFlight] = useState<FlightResponse | null>(null);
+  /** The sheet for the one claim a correction cannot make by changing numbers. */
+  const [takingBack, setTakingBack] = useState(false);
   const [statement, setStatement] = useState<StatementResponse | null>(null);
   const [missing, setMissing] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -94,7 +113,43 @@ export default function Flight() {
               <Text style={styles.registration}>{flight.aircraft_registration}</Text>
               {` · ${flight.flight_date}`}
             </Text>
+            {/* Labelled rather than hidden: §3.4 keeps both rows, and a trail
+                with the wrong half taken out is not one. */}
+            {flight.logged_in_error ? (
+              <View style={styles.badge}><Status label="Logged in error" /></View>
+            ) : flight.superseded_by ? (
+              <View style={styles.badge}><Status label="Corrected" /></View>
+            ) : null}
           </View>
+
+          {flight.superseded_by ? (
+            <Card>
+              <CardHeading>This entry was corrected</CardHeading>
+              <Body muted>
+                It stays on the log as written. The figures below are not what the aeroplane is
+                counting.
+              </Body>
+              <Button
+                label="See the entry that replaced it"
+                variant="secondary"
+                onPress={() => router.push({ pathname: '/flight', params: { id: flight.superseded_by! } })}
+              />
+            </Card>
+          ) : null}
+
+          {flight.supersedes_id ? (
+            <Card>
+              <CardHeading>
+                {flight.logged_in_error ? 'This flight did not happen' : 'This is a correction'}
+              </CardHeading>
+              {flight.correction_reason ? <Body>{`“${flight.correction_reason}”`}</Body> : null}
+              <Button
+                label="See the entry it replaced"
+                variant="secondary"
+                onPress={() => router.push({ pathname: '/flight', params: { id: flight.supersedes_id! } })}
+              />
+            </Card>
+          ) : null}
 
           {flight.needs_review && flight.review_reason ? (
             /*
@@ -167,13 +222,128 @@ export default function Flight() {
 
           {flight.remarks ? (
             <Card>
-              <SectionHeading>Remarks</SectionHeading>
+              <SectionHeading>Notes</SectionHeading>
               <Body>{flight.remarks}</Body>
             </Card>
           ) : null}
+
+          {/*
+            §8.1: hiding is cosmetics. `correctable` is the server's answer —
+            your own flight while nothing has been flown on that aeroplane
+            since, or an administrator — and the API refuses either way.
+          */}
+          {flight.superseded_by ? null : flight.correctable ? (
+            <Card>
+              <Button
+                label="Correct this entry"
+                variant="secondary"
+                onPress={() =>
+                  router.push({ pathname: '/log-flight', params: { correct: flight.id } })
+                }
+              />
+              <Button
+                label="It didn’t happen"
+                variant="secondary"
+                onPress={() => setTakingBack(true)}
+              />
+              <Body muted>
+                Nothing here is edited. A correction is a new entry, and both stay on the log.
+              </Body>
+            </Card>
+          ) : (
+            <Card>
+              <Body muted>
+                {`This entry can no longer be changed here. ${flight.aircraft_registration} has been flown since, or the flight is somebody else’s — an administrator can still correct it.`}
+              </Body>
+            </Card>
+          )}
         </>
       ) : null}
+
+      {flight ? (
+        <TakeBackSheet
+          flight={flight}
+          visible={takingBack}
+          onClose={() => setTakingBack(false)}
+          onDone={() => {
+            setTakingBack(false);
+            void load();
+          }}
+        />
+      ) : null}
     </ScrollView>
+  );
+}
+
+/**
+ * The one claim a correction cannot make by replacing numbers.
+ *
+ * Files a correction carrying no meters at all, which is the whole content of
+ * it: no reading, no charge, and the aeroplane falls back to the figure before
+ * this flight. Queued like any other write (§8.2), so it works at a tiedown.
+ */
+function TakeBackSheet({
+  flight,
+  visible,
+  onClose,
+  onDone,
+}: {
+  flight: FlightResponse;
+  visible: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    if (reason.trim().length < 5) {
+      setError('Say why this is being taken back. It stays on the record.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await saveFlight({
+        aircraft_id: flight.aircraft_id,
+        flight_date: flight.flight_date,
+        flown_by: flight.flown_by,
+        supersedes_id: flight.id,
+        correction_reason: reason.trim(),
+        logged_in_error: true,
+      });
+      setReason('');
+      onDone();
+    } catch (caught) {
+      setError(messageFor(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Sheet visible={visible} title="This flight did not happen" onClose={onClose}>
+      <View style={styles.sheet}>
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        <Body muted>
+          The entry stays on the log, marked, with your reason on it. The aeroplane&rsquo;s meters
+          go back to the reading before it, and any charge is reversed.
+        </Body>
+        <Field label="Why" compact required>
+          <Input
+            compact
+            value={reason}
+            onChangeText={setReason}
+            multiline
+            style={styles.multiline}
+            placeholder="Entered twice from the phone"
+          />
+        </Field>
+        <Button label="It didn’t happen" onPress={submit} busy={busy} />
+        <Button label="Keep it" variant="secondary" onPress={onClose} />
+      </View>
+    </Sheet>
   );
 }
 
@@ -274,6 +444,9 @@ const styles = StyleSheet.create({
   container: { padding: space.base, gap: space.md },
   empty: { padding: space.base, gap: space.sm },
   header: { gap: space.xs },
+  badge: { alignSelf: 'flex-start', marginTop: space.xs },
+  sheet: { gap: space.md },
+  multiline: { minHeight: 88, paddingTop: space.sm, textAlignVertical: 'top' },
   route: { ...type.pageTitle },
   subtitle: { ...type.body, color: color.secondary },
   // §11: uppercase is for registrations and aviation abbreviations.

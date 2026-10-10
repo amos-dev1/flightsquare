@@ -1,4 +1,4 @@
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Image,
@@ -14,7 +14,12 @@ import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Feather from '@expo/vector-icons/Feather';
 import { dayLabel, plainDate } from '@flightsquare/shared/time';
-import type { AerodromeResponse, AircraftResponse, FlightCategory } from '@flightsquare/shared';
+import type {
+  AerodromeResponse,
+  AircraftResponse,
+  FlightCategory,
+  FlightResponse,
+} from '@flightsquare/shared';
 
 import {
   Body,
@@ -176,7 +181,29 @@ const CATEGORIES: { value: FlightCategory; label: string }[] = [
 ];
 
 export default function LogFlight() {
-  const { aircraft: aircraftId } = useLocalSearchParams<{ aircraft: string }>();
+  /**
+   * Logging a flight, or correcting one.
+   *
+   * `correct` is a flight id, and it turns this screen into the same form
+   * filled in with that entry — because §3.4 makes a correction a *new
+   * flight* superseding the old one, so what has to be submitted is the whole
+   * thing again. One screen rather than a second one: every field, the date
+   * picker, the aerodrome lookups and the fuel block already live here, and
+   * the meters §3.4 calls the most important in the product should be typed
+   * in exactly one place.
+   */
+  const params = useLocalSearchParams<{ aircraft?: string; correct?: string }>();
+  const correctingId = params.correct;
+  const [correcting, setCorrecting] = useState<FlightResponse | null>(null);
+  const [reason, setReason] = useState('');
+  const aircraftId = correcting?.aircraft_id ?? params.aircraft ?? '';
+
+  // The tab registers one static title for both uses of this screen, so the
+  // one that is not the default says so itself.
+  const navigation = useNavigation();
+  useEffect(() => {
+    navigation.setOptions({ title: correctingId ? 'Correct flight' : 'Log flight' });
+  }, [navigation, correctingId]);
 
   const [aircraft, setAircraft] = useState<AircraftResponse | null>(null);
 
@@ -370,9 +397,56 @@ export default function LogFlight() {
    * after a save are deliberately not marked: they are this screen's guess at
    * where the aeroplane now is, and the server may know better.
    */
+  /**
+   * The entry being corrected, filled in as it stands.
+   *
+   * On mount only, and overwriting rather than filling blanks: the figures to
+   * start from are the ones that were logged, not the ones the aeroplane is
+   * showing now. The focus prefill below is skipped entirely while this is on
+   * — it exists to answer "what should this flight start from", and a
+   * correction already knows.
+   */
+  useEffect(() => {
+    if (!correctingId) return;
+    let live = true;
+    void withAuth(() => api.getFlight(correctingId))
+      .then((found) => {
+        if (!live) return;
+        setCorrecting(found);
+        setFlightDate(found.flight_date);
+        setMeters({
+          hobbs_start: found.hobbs_start ?? '',
+          hobbs_end: found.hobbs_end ?? '',
+          tach_start: found.tach_start ?? '',
+          tach_end: found.tach_end ?? '',
+        });
+        setDepartedFrom(found.departed_from ?? '');
+        setArrivedAt(found.arrived_at ?? '');
+        setFuelBefore(found.fuel_remaining_before ?? '');
+        setFuelAfter(found.fuel_remaining_after ?? '');
+        setFuelAdded(found.fuel_added_qty ?? '');
+        setFuelPrice(found.fuel_price_cents !== null ? (found.fuel_price_cents / 100).toFixed(2) : '');
+        setCategory(found.category ?? 'personal');
+        setRemarks(found.remarks ?? '');
+        // Every field is now the pilot's answer, not a suggestion, so the
+        // focus prefill must not treat any of them as replaceable.
+        touched.current = new Set([
+          'hobbs_start', 'tach_start', 'departedFrom', 'fuelBefore',
+        ]);
+        void withAuth(() => api.getAircraft(found.aircraft_id))
+          .then((plane) => live && setAircraft(plane))
+          .catch(() => undefined);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [correctingId]);
+
   useFocusEffect(
     useCallback(() => {
       let live = true;
+      if (!aircraftId || correctingId) return undefined;
       if (lastLoaded.current !== null && lastLoaded.current !== aircraftId) resetForm();
       lastLoaded.current = aircraftId;
 
@@ -424,7 +498,7 @@ export default function LogFlight() {
       return () => {
         live = false;
       };
-    }, [aircraftId, resetForm]),
+    }, [aircraftId, correctingId, resetForm]),
   );
 
   const from = useAerodrome(departedFrom);
@@ -457,6 +531,10 @@ export default function LogFlight() {
       setError('Say what is wrong, or remove the empty squawk.');
       return;
     }
+    if (correctingId && reason.trim().length < 5) {
+      setError('Say what was wrong with the entry. It stays on the record.');
+      return;
+    }
 
     setBusy(true);
     setError(null);
@@ -474,6 +552,10 @@ export default function LogFlight() {
         // with every number downstream following.
         recorded_at: recordedAtFor(flightDate),
         category,
+        // §3.4: this row replaces that one, and both stay. There is no PATCH.
+        ...(correctingId
+          ? { supersedes_id: correctingId, correction_reason: reason.trim() }
+          : {}),
         ...(meters.hobbs_start ? { hobbs_start: meters.hobbs_start } : {}),
         ...(meters.hobbs_end ? { hobbs_end: meters.hobbs_end } : {}),
         ...(meters.tach_start ? { tach_start: meters.tach_start } : {}),
@@ -658,6 +740,32 @@ export default function LogFlight() {
             }}
             onDismiss={() => setPickingDate(false)}
           />
+        ) : null}
+
+        {/*
+          Why, first, because it is the thing a correction is *for* and the
+          only field that is not already filled in. §3.6's house pattern:
+          the permanence is said before the tap, not after.
+        */}
+        {correctingId ? (
+          <Card style={styles.group}>
+            <CardHeading>Correcting this entry</CardHeading>
+            <Body muted>
+              The original stays on the log beside the correction. Both do — nothing in a flight
+              record is ever removed, and any charge is reversed and worked out again.
+            </Body>
+            <Field label="What was wrong with it" compact required>
+              <Input
+                compact
+                value={reason}
+                onChangeText={setReason}
+                multiline
+                maxLength={500}
+                style={styles.details}
+                placeholder="Hobbs was misread; the panel said 1202.5"
+              />
+            </Field>
+          </Card>
         ) : null}
 
         {/* Meters ------------------------------------------------------ */}
@@ -846,8 +954,12 @@ export default function LogFlight() {
           ) : null}
         </Card>
 
-        {/* Squawks ----------------------------------------------------- */}
-        {squawks.map((draft, index) => (
+        {/*
+          Squawks ------------------------------------------------------
+          Not offered on a correction: the defect belongs to the flight it was
+          found on, and filing the drafts again would file it twice (§3.6).
+        */}
+        {correctingId ? null : squawks.map((draft, index) => (
           <Card key={draft.key} style={styles.group}>
             <View style={styles.squawkHead}>
               <CardHeading>Squawk {squawks.length > 1 ? index + 1 : ''}</CardHeading>
@@ -960,22 +1072,24 @@ export default function LogFlight() {
           </Card>
         ))}
 
-        <Pressable
-          onPress={() =>
-            setSquawks((all) => [
-              ...all,
-              { key: `${Date.now()}-${all.length}`, summary: '', details: '', grounds: false, photos: [] },
-            ])
-          }
-          accessibilityRole="button"
-          accessibilityLabel="Add a squawk"
-          style={({ pressed }) => [styles.addSquawk, pressed && styles.pressed]}
-        >
-          <Feather name="plus" size={18} color={color.navy} />
-          <Text style={styles.addSquawkLabel}>Add squawk</Text>
-        </Pressable>
+        {correctingId ? null : (
+          <Pressable
+            onPress={() =>
+              setSquawks((all) => [
+                ...all,
+                { key: `${Date.now()}-${all.length}`, summary: '', details: '', grounds: false, photos: [] },
+              ])
+            }
+            accessibilityRole="button"
+            accessibilityLabel="Add a squawk"
+            style={({ pressed }) => [styles.addSquawk, pressed && styles.pressed]}
+          >
+            <Feather name="plus" size={18} color={color.navy} />
+            <Text style={styles.addSquawkLabel}>Add squawk</Text>
+          </Pressable>
+        )}
 
-        {squawks.length > 0 ? (
+        {!correctingId && squawks.length > 0 ? (
           // §3.6: the squawk log is read back after an accident, so it is not
           // something anyone edits later. Said before the tap, not after.
           <Body muted>What you report stays as written. Anything further is a new squawk.</Body>
@@ -1004,7 +1118,11 @@ export default function LogFlight() {
 
         {error ? <Notice tone="error">{error}</Notice> : null}
 
-        <Button label="Save flight" onPress={() => void submit()} busy={busy} />
+        <Button
+          label={correctingId ? 'Save the correction' : 'Save flight'}
+          onPress={() => void submit()}
+          busy={busy}
+        />
         {/*
           Saying so plainly matters: §8.2 makes this work with no signal, and
           a pilot who does not believe it was saved will type it again later.

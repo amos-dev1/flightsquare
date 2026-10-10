@@ -199,13 +199,28 @@ export default function Logs() {
                 {administers ? `${flight.flown_by_email ?? 'Unknown pilot'} · ` : ''}
                 {flight.aircraft_registration}
               </Text>
-              <Text style={styles.meters}>
+              {/* Struck rather than hidden: §3.4 keeps both rows, and the
+                  figures on a replaced entry are no longer what the aeroplane
+                  is counting. */}
+              <Text
+                style={[
+                  styles.meters,
+                  (flight.superseded_by || flight.logged_in_error) && styles.replaced,
+                ]}
+              >
                 {flight.hobbs_hours ? `${flight.hobbs_hours} hobbs` : 'no hobbs'}
                 {flight.tach_hours ? ` · ${flight.tach_hours} tach` : ''}
               </Text>
-              {flight.needs_review && flight.review_reason ? (
+              {flight.logged_in_error ? (
+                <Text style={styles.meta}>Logged in error</Text>
+              ) : flight.superseded_by ? (
+                <Text style={styles.meta}>Corrected</Text>
+              ) : null}
+              {flight.needs_review && flight.review_reason && !flight.superseded_by ? (
                 // §8.2: a meter gap is a flag for a person, never a rejection,
                 // and it is usually a maintenance run or an unlogged flight.
+                // A corrected entry stops asking: being replaced says more
+                // than being cleared, and nothing was edited to say it.
                 <Text style={styles.review}>{flight.review_reason}</Text>
               ) : null}
             </Card>
@@ -268,6 +283,7 @@ const styles = StyleSheet.create({
   route: { ...type.cardHeading, flex: 1 },
   date: { ...type.supporting, color: color.secondary },
   meta: { ...type.supporting, color: color.secondary, marginTop: space.xs },
+  replaced: { textDecorationLine: 'line-through', color: color.secondary },
   meters: { ...type.bodySmall, marginTop: space.xs, fontVariant: ['tabular-nums'] },
   pressed: { opacity: 0.7 },
 
