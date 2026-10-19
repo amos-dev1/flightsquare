@@ -560,3 +560,140 @@ describe('flight logging', () => {
   });
 
 });
+
+/**
+ * The aeroplane's own figures. A tenant and an aeroplane of their own, so the
+ * arithmetic is over flights this block logged and nothing else.
+ *
+ * Dates are relative to today, because "year to date" and "the last twelve
+ * months" are; a fixed date would make these tests expire.
+ */
+describe('aircraft flight stats', () => {
+  let app: FastifyInstance;
+  let stub: ResolvedSession | null = null;
+  let aircraftId: string;
+
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
+  beforeAll(async () => {
+    const tenant = await provisionTestTenant('flight-stats');
+    app = buildServer({
+      resolveSession: async () => {
+        if (!stub) throw new UnauthorizedError();
+        return stub;
+      },
+    });
+    await app.ready();
+    stub = { sessionId: SESSION_ID, userId: tenant.user_id, tenantId: tenant.tenant_id };
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/aircraft',
+      payload: { registration: 'N4410S', type_code: 'C172' },
+    });
+    aircraftId = created.json().id;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  function logFlight(payload: Record<string, unknown>) {
+    return app.inject({
+      method: 'POST',
+      url: '/flights',
+      headers: { 'idempotency-key': nextKey() },
+      payload: { aircraft_id: aircraftId, ...payload },
+    });
+  }
+
+  function stats() {
+    return app.inject({ method: 'GET', url: `/aircraft/${aircraftId}/flight-stats` });
+  }
+
+  it('says there is no history yet, rather than an average of nothing', async () => {
+    const response = await stats();
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.year_to_date).toEqual({ flights: 0, hobbs_hours: '0', tach_hours: '0' });
+    expect(body.monthly_average.window_start).toBeNull();
+    expect(body.monthly_average.hobbs_hours).toBeNull();
+    expect(body.monthly_hours).toHaveLength(12);
+    expect(body.fuel_burn).toMatchObject({ units: 'gallons', per_hobbs_hour: null, flights: 0 });
+  });
+
+  it('averages the hours and the burn, from each flight’s own readings', async () => {
+    const flights = [
+      // 20 gal over 2.0 hrs.
+      { flight_date: daysAgo(60), hobbs_start: '100.0', hobbs_end: '102.0', fuel_remaining_before: '40.0', fuel_remaining_after: '20.0' },
+      // 10 gal over 1.0 hr.
+      { flight_date: daysAgo(30), hobbs_start: '102.0', hobbs_end: '103.0', fuel_remaining_before: '30.0', fuel_remaining_after: '20.0' },
+      // Fuel added on the same entry: before or after the flight, the form
+      // does not say, so it tells us nothing about burn and is left out.
+      { flight_date: daysAgo(10), hobbs_start: '103.0', hobbs_end: '104.0', fuel_remaining_before: '30.0', fuel_remaining_after: '25.0', fuel_added_qty: '10.0' },
+      // 24 gal over 2.0 hrs.
+      { flight_date: daysAgo(5), hobbs_start: '104.0', hobbs_end: '106.0', fuel_remaining_before: '40.0', fuel_remaining_after: '16.0' },
+    ];
+    for (const flight of flights) {
+      expect((await logFlight(flight)).statusCode).toBe(201);
+    }
+
+    const body = (await stats()).json();
+    const thisYear = body.as_of.slice(0, 4);
+    const inYear = flights.filter((f) => f.flight_date.startsWith(thisYear));
+    expect(body.year_to_date.flights).toBe(inYear.length);
+
+    // Six hours across the sixty-one days since the first flight. A day
+    // either side for the timezone the aeroplane's today is measured in.
+    expect(body.monthly_average.window_start).toBe(flights[0]?.flight_date);
+    expect(Number(body.monthly_average.hobbs_hours)).toBeCloseTo(3.0, 0);
+
+    // Twelve months, oldest first, ending this one — and the empty ones are
+    // zeros rather than missing. Every hour logged lands in exactly one.
+    const months = body.monthly_hours as { month: string; flights: number; hobbs_hours: string }[];
+    expect(months).toHaveLength(12);
+    expect(months.at(-1)?.month).toBe(body.as_of.slice(0, 7));
+    expect(months.reduce((sum, m) => sum + m.flights, 0)).toBe(flights.length);
+    expect(months.reduce((sum, m) => sum + Number(m.hobbs_hours), 0)).toBeCloseTo(6, 1);
+    expect(months.some((m) => m.flights === 0 && m.hobbs_hours === '0')).toBe(true);
+
+    // (20 + 10 + 24) / (2 + 1 + 2), and the entry with fuel added is not in it.
+    expect(body.fuel_burn.flights).toBe(3);
+    expect(body.fuel_burn.per_hobbs_hour).toBe('10.8');
+  });
+
+  it('counts a corrected flight once, as its correction', async () => {
+    const before = (await stats()).json();
+    const wrong = await logFlight({ flight_date: daysAgo(2), hobbs_start: '106.0', hobbs_end: '116.0' });
+    await logFlight({
+      flight_date: daysAgo(2),
+      hobbs_start: '106.0',
+      hobbs_end: '107.0',
+      supersedes_id: wrong.json().id,
+      correction_reason: 'Hobbs misread',
+    });
+    const after = (await stats()).json();
+    expect(after.year_to_date.flights - before.year_to_date.flights).toBe(1);
+    expect(Number(after.year_to_date.hobbs_hours) - Number(before.year_to_date.hobbs_hours)).toBe(1);
+  });
+
+  it('lists only the flights that stand, newest first, as many as asked for', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/flights?aircraft_id=${aircraftId}&standing=true&limit=2`,
+    });
+    expect(response.statusCode).toBe(200);
+    const rows = response.json() as { superseded_by: string | null; flown_by_name: unknown }[];
+    expect(rows).toHaveLength(2);
+    expect(rows.every((row) => row.superseded_by === null)).toBe(true);
+    expect(rows[0]).toHaveProperty('flown_by_name');
+  });
+
+  it('404s an aeroplane it cannot see', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/aircraft/01920000-0000-7000-8000-00000000dead/flight-stats',
+    });
+    expect(response.statusCode).toBe(404);
+  });
+});
