@@ -201,45 +201,51 @@ export type StatusKind =
   | 'grounded'
   | 'neutral';
 
-const STATUS: Record<StatusKind, { icon: typeof Check; label: string; emphatic: boolean }> = {
-  available: { icon: Check, label: 'Available', emphatic: false },
+type Tone = 'ok' | 'warn' | 'danger' | 'quiet';
+
+const STATUS: Record<StatusKind, { icon: typeof Check; label: string; tone: Tone }> = {
+  available: { icon: Check, label: 'Available', tone: 'ok' },
   /*
     SPEC §4.4 has four states, and `upcoming` is the one the web was missing:
     something to plan around rather than to book a shop slot for. Collapsing it
     into `due_soon` would put an annual twenty-nine days out in the same
     register as an oil change two hours out.
   */
-  upcoming: { icon: CalendarClock, label: 'Upcoming', emphatic: false },
-  due_soon: { icon: Clock, label: 'Due soon', emphatic: false },
-  overdue: { icon: AlertTriangle, label: 'Overdue', emphatic: true },
-  grounded: { icon: Ban, label: 'Grounded', emphatic: true },
-  neutral: { icon: Info, label: '', emphatic: false },
+  upcoming: { icon: CalendarClock, label: 'Upcoming', tone: 'ok' },
+  due_soon: { icon: Clock, label: 'Due soon', tone: 'warn' },
+  overdue: { icon: AlertTriangle, label: 'Overdue', tone: 'danger' },
+  grounded: { icon: Ban, label: 'Grounded', tone: 'danger' },
+  neutral: { icon: Info, label: '', tone: 'quiet' },
+};
+
+/*
+  Green, orange, red by threshold — the colours are defined, and measured, in
+  globals.css. The orange and red chips carry a line because their surfaces
+  alone are not a boundary against a white card.
+*/
+const TONE: Record<Tone, string> = {
+  ok: 'bg-ok-surface text-ok',
+  warn: 'border border-warn-line bg-warn-surface text-warn',
+  danger: 'border border-danger-line bg-danger-surface text-danger',
+  quiet: 'bg-mist text-secondary',
 };
 
 export function Status({ kind, children }: { kind: StatusKind; children?: ReactNode }) {
-  const { icon: Icon, label, emphatic } = STATUS[kind];
+  const { icon: Icon, label, tone } = STATUS[kind];
   /*
-    `available` is the one kind that carries a colour, and it carries the tick
-    and the word as well — §11: never meaning through colour alone. It earns
-    the exception because it answers "can I take it" at a glance, from a
-    header that is on every screen about the aeroplane. Everything else stays
-    restrained: §11 keeps routine statuses quiet and reserves weight for the
-    grounding and the overdue.
+    Coloured by where the thing stands — green, orange, red — and still never
+    by colour alone (§11): every chip keeps its icon and its word, so the
+    colour is the third signal, for the glance from across a hangar. Neutral
+    stays mist grey, because it is a label rather than a threshold.
 
-    A custom label on `available` means something narrower than the plain
-    chip, so it does not inherit the green.
+    This used to be monochrome apart from the plain "Available" chip, on the
+    reading that §11 keeps routine statuses quiet. It kept them too quiet: an
+    oil change two tach hours out wore the same grey as one forty hours out,
+    and the difference is the one thing the chip is there to say.
   */
-  const ok = kind === 'available' && children === undefined;
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${
-        ok
-          ? 'bg-ok-surface text-ok'
-          : // Critical states get weight, a border and an icon — not a colour.
-            emphatic
-            ? 'border border-navy bg-mist'
-            : 'bg-mist text-secondary'
-      }`}
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${TONE[tone]}`}
     >
       <Icon aria-hidden size={14} strokeWidth={2} />
       {children ?? label}

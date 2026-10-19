@@ -11,12 +11,18 @@ import type {
  * How an item reads, and the distinction §11 insists on: never infer
  * "Airworthy" from the absence of a warning.
  *
- * An item seeded from the preset library has no compliance date behind it,
- * because adding an aircraft tells the system nothing about when its last
- * annual was. "Not recorded" and "Overdue" are different claims — one is
- * about our records and the other is about the aeroplane — and showing the
- * second when we mean the first is how a product ends up asserting something
- * about airworthiness that nobody checked.
+ * An item nobody has recorded compliance for still has a due point — the
+ * admin who added it said where to count from — so its due state is real and
+ * is shown. What it does not have is a record behind it. "Not recorded" and
+ * "Overdue" are different claims — one is about our records and the other is
+ * about the aeroplane — so they are two chips, never one standing in for the
+ * other.
+ *
+ * It used to be one: "Not recorded" *replaced* the due state, and an oil
+ * change 0.1 tach hours from due read the same on the Maintenance tab as one
+ * a year away, while the dashboard beside it said "Due soon". What is not
+ * done is the green: an item with nothing on record is never called
+ * "Current", because that is the claim §3.6 forbids.
  */
 export function DueStatus({
   item,
@@ -27,11 +33,12 @@ export function DueStatus({
   // item would be worse than either being wrong on its own.
   item: { state: MaintenanceState; ever_complied: boolean };
   /**
-   * Whether "no compliance on record" outranks the item's due state.
+   * Whether "no compliance on record" is said as well as the due state.
    *
    * True on the record screens, where it is the point: §3.6 keeps
    * "we have no record" and "it is fine" apart, and an item nobody has signed
-   * off is not current however far off its due point looks.
+   * off is not current however far off its due point looks — so it never gets
+   * the green, and when it is due soon or overdue it gets both chips.
    *
    * False on the dashboard glance, which answers *when* rather than how the
    * item was set up — a pilot walking out needs the countdown, and the badge
@@ -40,9 +47,19 @@ export function DueStatus({
    */
   compliance?: boolean;
 }) {
-  if (compliance && !item.ever_complied) return <Status kind="overdue">Not recorded</Status>;
-  if (item.state === 'overdue') return <Status kind="overdue" />;
-  if (item.state === 'due_soon') return <Status kind="due_soon" />;
+  const unrecorded = compliance && !item.ever_complied;
+  const notRecorded = <Status kind="neutral">Not recorded</Status>;
+
+  if (item.state === 'overdue' || item.state === 'due_soon') {
+    return (
+      <>
+        <Status kind={item.state} />
+        {unrecorded ? notRecorded : null}
+      </>
+    );
+  }
+  // Nothing due yet, and nothing on record: say the second, not "Current".
+  if (unrecorded) return notRecorded;
   /*
     SPEC §4.4's fourth state, which this helper was falling through to
     "Current": something to plan around rather than to book a shop slot for.
@@ -64,11 +81,14 @@ export function DueStatus({
  * that matters, and a maintenance countdown matters.
  */
 export function remainingLabel(item: MaintenanceItemResponse): string {
-  // Nothing to count down from. The due date a seeded item carries is an
-  // artifact of it being seeded, not a fact about the aeroplane, and
-  // reporting it as "due today" would dress that up as one.
-  if (!item.ever_complied) return 'No compliance on record';
-
+  /*
+    The countdown whether or not compliance has been recorded. Items are no
+    longer seeded with an arbitrary due date (§3.6: a new aircraft tracks
+    nothing until an admin says so), so the due point is the one the admin
+    set, and the dashboard already counts down to it — this screen saying
+    "No compliance on record" instead was the two disagreeing about one item.
+    That fact has its own chip now (`DueStatus`).
+  */
   const parts: string[] = [];
 
   if (item.days_remaining !== null) {
@@ -118,8 +138,8 @@ export function AvailabilityLine({ row }: { row: AircraftAvailabilityResponse })
 /**
  * SPEC §4.4's state, as a `Status` kind.
  *
- * Four states, four chips. §11 forbids colour carrying meaning on its own and
- * the web chips are monochrome anyway, so the icon and the word do all of it.
+ * Four states, four chips: green, orange or red by threshold, and each with
+ * its icon and its word, because §11 forbids colour carrying meaning alone.
  */
 export function kindFor(state: MaintenanceState): StatusKind {
   switch (state) {
