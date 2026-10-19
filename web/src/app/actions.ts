@@ -1226,7 +1226,9 @@ export async function fileSquawk(_state: FormState, form: FormData): Promise<For
   revalidatePath('/squawks');
   revalidatePath('/maintenance');
   revalidatePath('/aircraft');
-  revalidatePath(`/aircraft/${String(body.aircraft_id)}`);
+  // Every tab of the aeroplane, not only the overview: Maintenance lists its
+  // open squawks.
+  revalidatePath(`/aircraft/${String(body.aircraft_id)}`, 'layout');
   return { saved: true };
 }
 
@@ -1261,6 +1263,9 @@ async function patchSquawk(id: string, body: Record<string, unknown>): Promise<A
   revalidatePath('/squawks');
   revalidatePath('/maintenance');
   revalidatePath('/aircraft');
+  // The aeroplane's own tabs list its open squawks, and its header says
+  // whether it is grounded — both change with this.
+  revalidatePath('/aircraft/[id]', 'layout');
   return {};
 }
 
@@ -1288,6 +1293,8 @@ export async function deferSquawk(
 
   revalidatePath('/squawks');
   revalidatePath('/maintenance');
+  revalidatePath('/aircraft');
+  revalidatePath('/aircraft/[id]', 'layout');
   return {};
 }
 

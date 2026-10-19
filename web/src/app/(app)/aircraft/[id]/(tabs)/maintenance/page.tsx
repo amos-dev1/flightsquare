@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Button, Card, Empty, SectionHeading, Status } from '@/components/ui';
+import { SquawkCard } from '@/app/(app)/squawks/card';
 import {
   DueStatus,
   duePointLabel,
@@ -15,6 +16,7 @@ import type {
   EntitlementsResponse,
   MaintenanceItemResponse,
   MaintenanceSummaryResponse,
+  SquawkResponse,
 } from '@flightsquare/shared';
 
 /**
@@ -48,6 +50,14 @@ export default async function AircraftMaintenanceTab({
   const level = entitlements.permissions['maintenance.items'];
   const canReadItems = level !== 'none';
   const canWriteItems = level === 'write';
+
+  const canReadSquawks = entitlements.permissions.squawks !== 'none';
+  const canFileSquawks = entitlements.permissions.squawks === 'write';
+
+  // Deferred counts as open: a deferral lifts the grounding, not the defect.
+  const squawks = canReadSquawks
+    ? await apiFetch<SquawkResponse[]>(`/squawks?aircraft_id=${id}&open=true`)
+    : [];
 
   const items = canReadItems
     ? await apiFetch<MaintenanceItemResponse[]>(`/aircraft/${id}/maintenance-items`)
@@ -83,30 +93,45 @@ export default async function AircraftMaintenanceTab({
       */}
 
       {/*
-        Reporting a defect lives here, with the rest of what is wrong with
-        this aeroplane, rather than on the dashboard — that screen says what
-        the last pilot found, and this is where the next one writes.
+        What is wrong with this aeroplane right now, and the button to add to
+        it. Reporting a defect lives here, with the rest of what is wrong,
+        rather than on the dashboard — that screen says what the last pilot
+        found, and this is where the next one writes.
 
         §1.5 keeps `squawks` apart from `maintenance.items` precisely so a
-        pilot can report one without signing off work, so this button is
-        offered on `squawks: write` and never on the item permission. Both
-        bundles hold it (§4.4), which is the point: the person who finds the
-        defect is rarely the person who fixes it.
+        pilot can report one without signing off work, so this section is
+        shown on the squawk permission and never on the item one. Both bundles
+        hold `squawks: write` (§4.4), which is the point: the person who finds
+        the defect is rarely the person who fixes it. Resolving and deferring
+        still need `maintenance.items: write`, the same line the Squawks page
+        draws.
 
-        First on the tab, above the intervals, because it is the thing
-        somebody standing at the aeroplane came here to do — the intervals
-        are read far more often than they are changed.
+        First on the tab, above the intervals, because an open defect is the
+        thing somebody standing at the aeroplane most needs to know about.
       */}
-      {entitlements.permissions.squawks === 'write' ? (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <SectionHeading>Something wrong with it?</SectionHeading>
-          <Link href={`/squawks?aircraft=${id}`}>
-            <Button variant="secondary">
-              <Plus aria-hidden size={16} strokeWidth={2} />
-              Add squawk
-            </Button>
-          </Link>
-        </div>
+      {canReadSquawks ? (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SectionHeading>Open squawks</SectionHeading>
+            {canFileSquawks ? (
+              <Link href={`/squawks?aircraft=${id}`}>
+                <Button variant="secondary">
+                  <Plus aria-hidden size={16} strokeWidth={2} />
+                  Add squawk
+                </Button>
+              </Link>
+            ) : null}
+          </div>
+          {squawks.length === 0 ? (
+            <Card className="px-5 py-4 text-sm text-secondary">No open squawks.</Card>
+          ) : (
+            <div className="space-y-3">
+              {squawks.map((squawk) => (
+                <SquawkCard key={squawk.id} squawk={squawk} canClose={canWriteItems} />
+              ))}
+            </div>
+          )}
+        </section>
       ) : null}
       {canReadItems ? (
         <>
