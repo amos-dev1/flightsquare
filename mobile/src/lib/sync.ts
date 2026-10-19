@@ -97,7 +97,8 @@ export async function saveSquawk(payload: CreateSquawkRequest): Promise<string> 
  * never seen.
  */
 export async function saveAttachment(input: {
-  /** What it belongs to: a squawk's photograph or a completion's invoice. */
+  /** What it belongs to: a squawk's photograph, a completion's invoice, or a
+   *  flight's meter photograph. */
   owner: QueuedAttachment['payload']['owner'];
   /** Where the picker left it. Copied, not referenced. */
   uri: string;
@@ -188,20 +189,21 @@ async function uploadAttachment(entry: QueuedAttachment): Promise<unknown> {
 
   // One door per owner, because each needs a different permission (§1.5) and
   // the API declares its gate per route rather than reading the body.
-  const created = await withAuth(() =>
-    owner.kind === 'squawk'
-      ? api.createAttachment({
-          squawk_id: owner.squawkId,
-          ...(entry.payload.fileKind ? { kind: entry.payload.fileKind } : {}),
-          content_type: entry.payload.contentType,
-          byte_size: entry.payload.byteSize,
-        })
-      : api.createCompletionAttachment(owner.complianceRecordId, {
-          ...(entry.payload.fileKind ? { kind: entry.payload.fileKind } : {}),
-          content_type: entry.payload.contentType,
-          byte_size: entry.payload.byteSize,
-        }),
-  );
+  const fileInput = {
+    ...(entry.payload.fileKind ? { kind: entry.payload.fileKind } : {}),
+    content_type: entry.payload.contentType,
+    byte_size: entry.payload.byteSize,
+  };
+  const created = await withAuth(() => {
+    switch (owner.kind) {
+      case 'squawk':
+        return api.createAttachment({ squawk_id: owner.squawkId, ...fileInput });
+      case 'completion':
+        return api.createCompletionAttachment(owner.complianceRecordId, fileInput);
+      case 'flight':
+        return api.createFlightAttachment(owner.flightId, fileInput);
+    }
+  });
 
   const file = new File(entry.payload.localUri);
   const response = await fetch(created.upload_url!, {
@@ -213,11 +215,16 @@ async function uploadAttachment(entry: QueuedAttachment): Promise<unknown> {
     throw new Error(`the upload was refused (${response.status})`);
   }
 
-  const completed = await withAuth(() =>
-    owner.kind === 'squawk'
-      ? api.completeAttachment(created.id)
-      : api.completeCompletionAttachment(owner.complianceRecordId, created.id),
-  );
+  const completed = await withAuth(() => {
+    switch (owner.kind) {
+      case 'squawk':
+        return api.completeAttachment(created.id);
+      case 'completion':
+        return api.completeCompletionAttachment(owner.complianceRecordId, created.id);
+      case 'flight':
+        return api.completeFlightAttachment(owner.flightId, created.id);
+    }
+  });
 
   // The local copy existed to survive the queue, and the queue is done with
   // it. Leaving it behind fills the device with photographs of defects that

@@ -162,7 +162,11 @@ export default async function FlightsPage({
       ) : (
         <Card className="divide-y divide-line">
           {flights.map((flight) => (
-            <FlightRow key={flight.id} flight={flight} />
+            <FlightRow
+              key={flight.id}
+              flight={flight}
+              showPhotoGaps={entitlements.permissions.aircraft === 'write'}
+            />
           ))}
         </Card>
       )}
@@ -208,7 +212,19 @@ function Filter({
   );
 }
 
-function FlightRow({ flight }: { flight: FlightResponse }) {
+/*
+  0042: the aeroplane asked for a meter photo and none arrived. Shown to
+  whoever administers the fleet — the same `aircraft: write` that may
+  correct any flight — because they are the one who follows it up; the
+  pilot sees it on the flight itself, where they can add the photo.
+*/
+function FlightRow({
+  flight,
+  showPhotoGaps,
+}: {
+  flight: FlightResponse;
+  showPhotoGaps: boolean;
+}) {
   // Superseded and in-error entries stay on the list and are labelled rather
   // than hidden: §3.4 keeps both rows, and a trail with the wrong half taken
   // out is not one. The figures are struck through, because they are no
@@ -235,6 +251,11 @@ function FlightRow({ flight }: { flight: FlightResponse }) {
           {flight.needs_review && !replaced ? (
             <span className="ml-2">
               <Status kind="due_soon">Needs review</Status>
+            </span>
+          ) : null}
+          {showPhotoGaps && flight.meter_photo_missing ? (
+            <span className="ml-2">
+              <Status kind="due_soon">Meter photo missing</Status>
             </span>
           ) : null}
           {flight.logged_in_error ? (

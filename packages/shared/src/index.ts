@@ -518,6 +518,12 @@ export interface AircraftResponse {
   fuel_capacity: string | null;
   fuel_units: FuelUnits;
   /**
+   * Whether logging a flight on this aeroplane asks for a photograph of the
+   * meters (0042). The form asks; the API never refuses a flight without one
+   * (§8.1, §8.2) — a flight that arrives without is shown as missing it.
+   */
+  require_meter_photos: boolean;
+  /**
    * What the last pilot left in the tanks — aircraft *state*, and never
    * computed by arithmetic across flights (§3.4). Null until somebody
    * records one.
@@ -555,6 +561,7 @@ export interface CreateAircraftRequest {
   default_rate_cents?: number;
   fuel_capacity?: string;
   fuel_units?: FuelUnits;
+  require_meter_photos?: boolean;
 
   /**
    * Where the meters stand today (M2).
@@ -674,6 +681,19 @@ export interface FlightResponse {
    * and the database refuses regardless).
    */
   correctable: boolean;
+
+  /**
+   * Photographs of the meters filed against this flight (or the one it
+   * corrects), uploaded and not removed. Additive (0042).
+   */
+  meter_photos: number;
+  /**
+   * The aeroplane asked for a meter photograph when this flight was logged,
+   * and none has arrived. A flag for whoever checks the log, never a reason
+   * the flight was refused (§8.1, §8.2) — a phone build that predates the
+   * setting, or an upload that failed at the tiedown, both end up here.
+   */
+  meter_photo_missing: boolean;
 
   /** Recorded as read. Neither meter is derived from the other. */
   hobbs_start: string | null;
@@ -1420,7 +1440,7 @@ export interface CreateSquawkRequest {
  * only what actually arrived.
  */
 /** What a stored file is. A label for the UI, never a hint about its source. */
-export type AttachmentKind = 'photo' | 'invoice' | 'logbook_entry' | 'document';
+export type AttachmentKind = 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo';
 
 export interface AttachmentResponse {
   id: string;
@@ -1432,6 +1452,8 @@ export interface AttachmentResponse {
    */
   compliance_record_id?: string | null;
   aircraft_document_id?: string | null;
+  /** The fourth owner (0042): a photograph of the meters after a flight. */
+  flight_id?: string | null;
   kind?: AttachmentKind;
   /**
    * `removed` means filed by mistake. The row stays and keeps saying what it

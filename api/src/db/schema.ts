@@ -350,6 +350,9 @@ export interface AircraftConfigTable {
   currency: Generated<string>;
   fuel_capacity: string | null;
   fuel_units: Generated<FuelUnits>;
+  /** Ask for a photograph of the meters when a flight is logged (0042). A
+   *  request of the form; never a reason a flight is refused. */
+  require_meter_photos: Generated<boolean>;
   mel_reference: string | null;
   equipment: Generated<Record<string, unknown>>;
   performance: Generated<Record<string, unknown>>;
@@ -966,6 +969,8 @@ export interface FlightsTable {
   supersedes_id: ColumnType<string | null, string | undefined, never>;
   correction_reason: ColumnType<string | null, string | undefined, never>;
   logged_in_error: ColumnType<boolean, boolean | undefined, never>;
+  /** Snapshotted by trigger at insert (0042); whatever a caller sends is overwritten. */
+  meter_photos_requested: ColumnType<boolean, never, never>;
 }
 
 export interface FlightMetersTable {
@@ -1024,12 +1029,13 @@ export interface TrustedDevicesTable {
 export interface AttachmentsTable {
   id: Generated<string>;
   tenant_id: string;
-  /** At most one of the three is set (0038). Never two: see the migration. */
+  /** At most one of the four is set (0038, 0042). Never two: see the migrations. */
   squawk_id: string | null;
   compliance_record_id: string | null;
   aircraft_document_id: string | null;
+  flight_id: string | null;
   /** What the file is, for mockup 05's tiles. A label, never a source. */
-  kind: Generated<'photo' | 'invoice' | 'logbook_entry' | 'document'>;
+  kind: Generated<'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo'>;
   storage_key: string;
   content_type: string;
   /** Declared before upload, replaced by what storage received. */

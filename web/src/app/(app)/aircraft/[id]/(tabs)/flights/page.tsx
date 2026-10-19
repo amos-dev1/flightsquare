@@ -3,7 +3,11 @@ import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { Card, Empty, SectionHeading, Status } from '@/components/ui';
-import type { FlightResponse, FlightSummaryResponse } from '@flightsquare/shared';
+import type {
+  EntitlementsResponse,
+  FlightResponse,
+  FlightSummaryResponse,
+} from '@flightsquare/shared';
 
 /**
  * What this aeroplane has flown, and who had it.
@@ -27,13 +31,15 @@ export default async function AircraftFlightsTab({
 
   let flights: FlightResponse[];
   let summary: FlightSummaryResponse;
+  let entitlements: EntitlementsResponse;
   try {
-    [flights, summary] = await Promise.all([
+    [flights, summary, entitlements] = await Promise.all([
       apiFetch<FlightResponse[]>(`/flights?aircraft_id=${id}`),
       // §8.2: the totals are the server's. Adding up the list here would be
       // wrong past the 200 rows it caps at, and wrong in the direction
       // nobody notices.
       apiFetch<FlightSummaryResponse>(`/flights/summary?aircraft_id=${id}`),
+      apiFetch<EntitlementsResponse>('/entitlements'),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
@@ -63,7 +69,11 @@ export default async function AircraftFlightsTab({
           <SectionHeading>Every flight</SectionHeading>
           <Card className="divide-y divide-line">
             {flights.map((flight) => (
-              <FlightRow key={flight.id} flight={flight} />
+              <FlightRow
+                key={flight.id}
+                flight={flight}
+                showPhotoGaps={entitlements.permissions.aircraft === 'write'}
+              />
             ))}
           </Card>
           {/*
@@ -91,7 +101,19 @@ function Figure({ label, value }: { label: string; value: string | number }) {
   );
 }
 
-function FlightRow({ flight }: { flight: FlightResponse }) {
+/*
+  0042: the aeroplane asked for a meter photo and none arrived. Shown to
+  whoever administers the fleet — the same `aircraft: write` that may
+  correct any flight — because they are the one who follows it up; the
+  pilot sees it on the flight itself, where they can add the photo.
+*/
+function FlightRow({
+  flight,
+  showPhotoGaps,
+}: {
+  flight: FlightResponse;
+  showPhotoGaps: boolean;
+}) {
   // Corrected and in-error entries stay on the list, labelled, with their
   // figures struck: §3.4 keeps both rows and a trail missing the half that
   // was wrong is not one.
@@ -112,6 +134,11 @@ function FlightRow({ flight }: { flight: FlightResponse }) {
           {flight.needs_review && !replaced ? (
             <span className="ml-2">
               <Status kind="due_soon">Needs review</Status>
+            </span>
+          ) : null}
+          {showPhotoGaps && flight.meter_photo_missing ? (
+            <span className="ml-2">
+              <Status kind="due_soon">Meter photo missing</Status>
             </span>
           ) : null}
           {flight.logged_in_error ? (

@@ -111,6 +111,33 @@ export function AircraftSettingsForm({ aircraft }: { aircraft: AircraftResponse 
           </Field>
         </div>
 
+        {/*
+          0042: asked of the form, never enforced by refusing a flight — a
+          phone build from before this setting logs without one, and the API
+          has to take it (§8.1). So the hint says what happens then, rather
+          than promising a guarantee nobody can keep.
+        */}
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            name="require_meter_photos"
+            defaultChecked={
+              state.values?.require_meter_photos !== undefined
+                ? state.values.require_meter_photos === 'on'
+                : aircraft.require_meter_photos
+            }
+            className="mt-0.5 size-4 accent-teal"
+          />
+          <span>
+            <span className="font-semibold">Require a photo of the meters with each flight</span>
+            <span className="block text-secondary">
+              Logging a flight asks for a photo of the Hobbs and tach before it can be saved. A
+              flight that arrives without one — from an older version of the app, or an upload
+              that failed — is saved anyway and marked as missing its photo.
+            </span>
+          </span>
+        </label>
+
         {/* §3.7: the rate a charge is computed from is snapshotted onto the
             charge, never referenced — so changing it here re-prices nothing
             that already happened. Worth saying where somebody changes it. */}

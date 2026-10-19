@@ -25,7 +25,52 @@ import { Alert, Button } from '@/components/ui';
 export type UploadOwner =
   | { kind: 'completion'; id: string }
   | { kind: 'document'; id: string }
-  | { kind: 'squawk'; id: string };
+  | { kind: 'squawk'; id: string }
+  | { kind: 'flight'; id: string };
+
+/**
+ * The three steps for one file, without the button.
+ *
+ * Shared by `FileUpload` and by the log-flight form, which uploads its meter
+ * photographs after the flight exists rather than from a button of their own.
+ * Resolves rather than throws: every caller wants to say what went wrong in
+ * words beside the thing that went wrong.
+ */
+export async function uploadFile(
+  owner: UploadOwner,
+  file: File,
+  options: {
+    fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo';
+    revalidate?: string;
+    onStep?: (step: string) => void;
+  } = {},
+): Promise<{ error?: string }> {
+  options.onStep?.('Preparing…');
+  const signed = await startUpload(owner, {
+    content_type: file.type || 'application/octet-stream',
+    byte_size: file.size,
+    ...(options.fileKind ? { kind: options.fileKind } : {}),
+  });
+  if (signed.error || !signed.upload_url || !signed.id) {
+    // The server's own words, which carry the quota numbers §1.6 puts in the
+    // body precisely so a screen can say something accurate.
+    return { error: signed.error ?? 'that upload could not be started' };
+  }
+
+  options.onStep?.('Uploading…');
+  const sent = await fetch(signed.upload_url, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  }).catch(() => null);
+  if (!sent?.ok) {
+    return { error: 'The upload did not finish. Nothing has been saved against the record.' };
+  }
+
+  options.onStep?.('Finishing…');
+  const done = await finishUpload(owner, signed.id, options.revalidate);
+  return done.error ? { error: done.error } : {};
+}
 
 export function FileUpload({
   owner,
@@ -37,7 +82,7 @@ export function FileUpload({
   owner: UploadOwner;
   label?: string;
   /** What the file is, for the list that renders it later. Not its source. */
-  fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document';
+  fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo';
   /** The path whose cache this invalidates once the file has landed. */
   revalidate?: string;
   onDone?: () => void;
@@ -49,39 +94,10 @@ export function FileUpload({
 
   async function send(file: File) {
     setError(null);
-    setProgress('Preparing…');
-
-    const signed = await startUpload(owner, {
-      content_type: file.type || 'application/octet-stream',
-      byte_size: file.size,
-      ...(fileKind ? { kind: fileKind } : {}),
-    });
-    if (signed.error || !signed.upload_url || !signed.id) {
-      setProgress(null);
-      // The server's own words, which carry the quota numbers §1.6 puts in the
-      // body precisely so a screen can say something accurate.
-      setError(signed.error ?? 'that upload could not be started');
-      return;
-    }
-
-    setProgress('Uploading…');
-    const sent = await fetch(signed.upload_url, {
-      method: 'PUT',
-      headers: { 'Content-Type': file.type || 'application/octet-stream' },
-      body: file,
-    }).catch(() => null);
-
-    if (!sent?.ok) {
-      setProgress(null);
-      setError('The upload did not finish. Nothing has been saved against the record.');
-      return;
-    }
-
-    setProgress('Finishing…');
-    const done = await finishUpload(owner, signed.id, revalidate);
+    const result = await uploadFile(owner, file, { fileKind, revalidate, onStep: setProgress });
     setProgress(null);
-    if (done.error) {
-      setError(done.error);
+    if (result.error) {
+      setError(result.error);
       return;
     }
     if (input.current) input.current.value = '';

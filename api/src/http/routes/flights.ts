@@ -2,11 +2,20 @@ import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import type {
   AircraftFlightStatsResponse,
+  AttachFileRequest,
+  AttachmentResponse,
   CreateFlightRequest,
   FlightResponse,
   FlightSummaryResponse,
 } from '@flightsquare/shared';
 
+import {
+  ATTACHMENT_COLUMNS,
+  assertUploadable,
+  recordArrival,
+  signAttachmentUpload,
+  toAttachment,
+} from '../../attachments/upload.js';
 import { withIdempotency } from '../../db/idempotency.js';
 import { ownMembership } from '../../db/membership.js';
 import { ConflictError, foreignKeyViolation, NotFoundError, PermissionError } from '../errors.js';
@@ -75,6 +84,20 @@ const supersededBy = sql<string | null>`(
   SELECT s.id FROM flights s WHERE s.supersedes_id = flights.id
 )`;
 
+/*
+  Photographs of the meters that arrived and were not put aside — on this
+  flight, or on the one it corrects. Retyping a misread Hobbs is not a reason
+  to photograph the same panel twice, and the photograph of it is already
+  filed against the flight being replaced.
+*/
+const meterPhotos = sql<number>`(
+  SELECT count(*)::int FROM attachments a
+   WHERE a.kind = 'meter_photo'
+     AND a.status = 'active'
+     AND a.uploaded_at IS NOT NULL
+     AND (a.flight_id = flights.id OR a.flight_id = flights.supersedes_id)
+)`;
+
 const correctable = sql<boolean>`(
   app.permission_level('aircraft') = 'write'
   OR (flights.flown_by = app.current_membership_id()
@@ -139,14 +162,24 @@ function selectFlights(trx: Tx) {
       'flight_fuel.currency',
       supersededBy.as('superseded_by'),
       correctable.as('correctable'),
+      'flights.meter_photos_requested',
+      meterPhotos.as('meter_photos'),
     ]);
 }
 
 type FlightRow = Awaited<ReturnType<ReturnType<typeof selectFlights>['execute']>>[number];
 
 function toResponse(row: FlightRow): FlightResponse {
+  const { meter_photos_requested: requested, ...rest } = row;
   return {
-    ...row,
+    ...rest,
+    /*
+      Asked for when it was logged, and still has none. A flight said to have
+      been logged in error claims nothing happened, so there was nothing to
+      photograph; one since replaced is answered by its correction.
+    */
+    meter_photo_missing:
+      requested && row.meter_photos === 0 && !row.logged_in_error && row.superseded_by === null,
     // The column is a CHECK-constrained text, so the database has already
     // refused anything outside the set.
     category: row.category as FlightResponse['category'],
@@ -557,6 +590,143 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           flights: burnFlights,
         },
       } satisfies AircraftFlightStatsResponse;
+    },
+  );
+
+  // ---------------------------------------------------------------------------
+  // Meter photographs (0042) — the fourth attachment owner.
+  //
+  // The same three steps every upload uses (§3.8), behind a door of their own
+  // gated on `flights` rather than on the squawk door's `squawks`: the
+  // photograph belongs to the flight, and whoever may log one may illustrate
+  // it. The squawk door refuses flight-owned rows, so the two cannot be mixed.
+  //
+  // The flight is written first and the upload names it, which is why a flight
+  // can exist without its photograph — offline, or with an upload that failed —
+  // and why that is shown as `meter_photo_missing` rather than refused.
+  // ---------------------------------------------------------------------------
+
+  app.post<{ Params: { id: string }; Body: AttachFileRequest }>(
+    '/flights/:id/attachments',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['content_type', 'byte_size'],
+          additionalProperties: false,
+          properties: {
+            // §8.2: the device names it, so the offline queue can refer to it.
+            id: { type: 'string', format: 'uuid' },
+            kind: { type: 'string', enum: ['meter_photo'] },
+            content_type: { type: 'string', maxLength: 100 },
+            byte_size: { type: 'integer', minimum: 1 },
+          },
+        },
+      },
+      config: { requiresTenant: true, permission: ['flights', 'write'] },
+    },
+    async (request, reply) => {
+      const body = request.body;
+      assertUploadable(body.content_type, body.byte_size);
+
+      const { entitlements } = await request.loadGates();
+
+      const created = await request.withTenant((trx) =>
+        signAttachmentUpload(trx, {
+          tenantId: request.ctx!.tenantId!,
+          userId: request.ctx!.userId,
+          quota: entitlements.quota('storage.bytes'),
+          owner: { flight_id: request.params.id },
+          kind: 'meter_photo',
+          ...(body.id ? { id: body.id } : {}),
+          contentType: body.content_type,
+          byteSize: body.byte_size,
+        }),
+      );
+
+      return reply.status(201).send({
+        id: created.id,
+        squawk_id: null,
+        compliance_record_id: null,
+        aircraft_document_id: null,
+        flight_id: request.params.id,
+        kind: 'meter_photo',
+        status: 'active',
+        content_type: body.content_type,
+        byte_size: body.byte_size,
+        uploaded: false,
+        upload_url: created.uploadUrl,
+      } satisfies AttachmentResponse);
+    },
+  );
+
+  /**
+   * The upload landed. Matched against the flight in the `WHERE`, as the
+   * documents door does, so a mismatched pair is a 404 and nothing else.
+   */
+  app.post<{ Params: { id: string; attachmentId: string } }>(
+    '/flights/:id/attachments/:attachmentId/complete',
+    { config: { requiresTenant: true, permission: ['flights', 'write'] } },
+    async (request) => {
+      const row = await request.withTenant((trx) =>
+        trx
+          .selectFrom('attachments')
+          .select(ATTACHMENT_COLUMNS)
+          .where('id', '=', request.params.attachmentId)
+          .where('flight_id', '=', request.params.id)
+          .executeTakeFirst(),
+      );
+      if (!row) throw new NotFoundError();
+
+      const size = await recordArrival(row.storage_key);
+
+      await request.withTenant((trx) =>
+        trx
+          .updateTable('attachments')
+          .set({ byte_size: size, uploaded_at: new Date() })
+          .where('id', '=', request.params.attachmentId)
+          .execute(),
+      );
+
+      return toAttachment({ ...row, byte_size: size, uploaded_at: new Date() });
+    },
+  );
+
+  /**
+   * The photographs of one flight, with the files signed for this response.
+   *
+   * Read on `flights: read`, which both bundles hold: who flew what is shared
+   * by design (§4.4), and the panel photograph is the evidence for the
+   * figures every member is billed and maintained against. A correction lists
+   * the photographs of the flight it replaced as well, for the reason
+   * `meterPhotos` counts them.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/flights/:id/attachments',
+    { config: { requiresTenant: true, permission: ['flights', 'read'] } },
+    async (request) => {
+      const rows = await request.withTenant(async (trx) => {
+        const flight = await trx
+          .selectFrom('flights')
+          .select(['id', 'supersedes_id'])
+          .where('id', '=', request.params.id)
+          .executeTakeFirst();
+        if (!flight) throw new NotFoundError();
+
+        return trx
+          .selectFrom('attachments')
+          .select(ATTACHMENT_COLUMNS)
+          .where('flight_id', 'in', [
+            flight.id,
+            ...(flight.supersedes_id ? [flight.supersedes_id] : []),
+          ])
+          .where('status', '=', 'active')
+          .where('uploaded_at', 'is not', null)
+          .orderBy('created_at')
+          .execute();
+      });
+
+      return Promise.all(rows.map(toAttachment)) satisfies Promise<AttachmentResponse[]>;
     },
   );
 

@@ -473,6 +473,19 @@ export function createClient(options: ClientOptions) {
     getAttachment: (id: string) => request<AttachmentResponse>('GET', `/attachments/${id}`),
     listSquawkAttachments: (squawkId: string) =>
       request<AttachmentResponse[]>('GET', `/squawks/${squawkId}/attachments`),
+    /**
+     * A flight's meter photographs (0042), through the flight's own door —
+     * gated on `flights`, not `squawks`, for the reason each owner has one.
+     */
+    createFlightAttachment: (flightId: string, input: AttachFileRequest) =>
+      request<AttachmentResponse>('POST', `/flights/${flightId}/attachments`, input),
+    completeFlightAttachment: (flightId: string, attachmentId: string) =>
+      request<AttachmentResponse>(
+        'POST',
+        `/flights/${flightId}/attachments/${attachmentId}/complete`,
+      ),
+    listFlightAttachments: (flightId: string) =>
+      request<AttachmentResponse[]>('GET', `/flights/${flightId}/attachments`),
 
     // ---- scheduling (§3.3) ----------------------------------------------
     /**

@@ -89,16 +89,23 @@ export interface QueuedAttachment extends QueuedWriteBase {
      *
      * Aircraft documents do not queue. An insurance certificate arrives as an
      * email attachment from a broker and is filed at a desk, not on one bar.
+     *
+     * A flight's meter photograph does (0042), and for §3.4's reason above
+     * all the others: it is taken at the tiedown, in the same minute as the
+     * post-flight entry it belongs to, and that entry must never wait for a
+     * network. It sorts one millisecond behind its flight like every other
+     * file behind its owner.
      */
     owner:
       | { kind: 'squawk'; squawkId: string }
-      | { kind: 'completion'; complianceRecordId: string };
+      | { kind: 'completion'; complianceRecordId: string }
+      | { kind: 'flight'; flightId: string };
     /** A file:// URI in the app's own document directory, not the picker cache. */
     localUri: string;
     contentType: string;
     byteSize: number;
     /** What the file is, for the UI that renders it later (0038). */
-    fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document';
+    fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo';
   };
 }
 

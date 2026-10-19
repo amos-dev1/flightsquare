@@ -379,6 +379,9 @@ export async function updateAircraftConfig(
     fuel_capacity: text('fuel_capacity'),
     fuel_units: text('fuel_units'),
     seats: text('seats'),
+    // An unticked box sends nothing, so it is recorded as 'off' rather than
+    // left out: on a re-render after an error, absent would mean "as saved".
+    require_meter_photos: form.get('require_meter_photos') === 'on' ? 'on' : 'off',
   };
 
   const body: Record<string, unknown> = {
@@ -389,6 +392,7 @@ export async function updateAircraftConfig(
     fuel_units: values.fuel_units,
     fuel_capacity: values.fuel_capacity || null,
     seats: values.seats ? Number(values.seats) : null,
+    require_meter_photos: values.require_meter_photos === 'on',
   };
 
   if (values.default_rate) {
@@ -595,11 +599,22 @@ export async function logFlight(
   // A correction lands on the flight it produced, where the superseded entry
   // is visible beside it. A new flight lands on the aeroplane, where the
   // meters it just moved are.
-  if (values.supersedes_id) {
-    revalidatePath(`/flights/${values.supersedes_id}`);
-    redirect(`/flights/${flight.id}?corrected=1`);
+  if (values.supersedes_id) revalidatePath(`/flights/${values.supersedes_id}`);
+  const next = values.supersedes_id
+    ? `/flights/${flight.id}?corrected=1`
+    : `/aircraft/${aircraftId}?logged=1`;
+
+  /*
+    Meter photographs (0042) still to send: hand the flight back instead of
+    leaving. The bytes go from the browser straight to storage against this
+    flight's id (§3.8 — the owner first, the upload naming it), so the page
+    has to still be there to send them, and it navigates to `next` itself
+    once they have landed.
+  */
+  if (Number(text('meter_photo_count')) > 0) {
+    return { saved: true, values: { ...values, flight_id: flight.id, next } };
   }
-  redirect(`/aircraft/${aircraftId}?logged=1`);
+  redirect(next);
 }
 
 /**
@@ -915,7 +930,8 @@ export async function startUpload(
   owner:
     | { kind: 'completion'; id: string }
     | { kind: 'document'; id: string }
-    | { kind: 'squawk'; id: string },
+    | { kind: 'squawk'; id: string }
+    | { kind: 'flight'; id: string },
   input: { content_type: string; byte_size: number; kind?: string },
 ): Promise<{ id?: string; upload_url?: string; error?: string }> {
   const path =
@@ -923,7 +939,9 @@ export async function startUpload(
       ? `/maintenance-completions/${owner.id}/attachments`
       : owner.kind === 'document'
         ? `/aircraft-documents/${owner.id}/attachments`
-        : '/attachments';
+        : owner.kind === 'flight'
+          ? `/flights/${owner.id}/attachments`
+          : '/attachments';
 
   try {
     const created = await apiFetch<{ id: string; upload_url?: string }>(path, {
@@ -943,7 +961,8 @@ export async function finishUpload(
   owner:
     | { kind: 'completion'; id: string }
     | { kind: 'document'; id: string }
-    | { kind: 'squawk'; id: string },
+    | { kind: 'squawk'; id: string }
+    | { kind: 'flight'; id: string },
   attachmentId: string,
   revalidate?: string,
 ): Promise<ActionResult> {
@@ -952,7 +971,9 @@ export async function finishUpload(
       ? `/maintenance-completions/${owner.id}/attachments/${attachmentId}/complete`
       : owner.kind === 'document'
         ? `/aircraft-documents/${owner.id}/attachments/${attachmentId}/complete`
-        : `/attachments/${attachmentId}/complete`;
+        : owner.kind === 'flight'
+          ? `/flights/${owner.id}/attachments/${attachmentId}/complete`
+          : `/attachments/${attachmentId}/complete`;
 
   try {
     await apiFetch(path, { method: 'POST' });
