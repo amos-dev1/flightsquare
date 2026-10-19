@@ -31,7 +31,13 @@ export async function apiFetch<T>(
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
-      'content-type': 'application/json',
+      /*
+        Only when there is a body to describe. Fastify refuses an empty body
+        declared as JSON with a 400 before the route — or its auth — ever
+        runs, which is what every bodiless POST here was getting: the upload
+        `complete` step above all, so no web upload could ever finish.
+      */
+      ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
       'x-flightsquare-client': 'web',
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...init.headers,
