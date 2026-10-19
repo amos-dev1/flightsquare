@@ -84,6 +84,34 @@
    */
   --color-ok: #0E6B41;
   --color-ok-surface: #E3F2EA;
+
+  /*
+   * The rest of the threshold: due soon and overdue.
+   *
+   * Semantic exceptions like the green above (§11: "Preserve existing
+   * functional error, warning, and success colors where they communicate
+   * necessary meaning"), so a status reads from across the hangar the way
+   * the green already did — an oil change two tach hours out was the same
+   * mist grey as one forty hours out. Every chip still carries its icon and
+   * its word; the colour is the third signal, never the only one.
+   *
+   * Warn is not the caution banner's amber: navy on that is right for a
+   * banner, but a chip wants its text in the hue. Red is for overdue and
+   * grounded only — the states that mean an aircraft cannot, or should not,
+   * fly — which is what the caution note above has always reserved it for.
+   *
+   * Measured in context: text on its surface 6.31:1 (warn) and 6.46:1
+   * (danger), clearing AA for normal text. The surfaces are too close to a
+   * white card to be a boundary on their own (≈1.1:1), so each chip carries a
+   * line in the stronger shade: 3.19:1 and 5.55:1 against white, over the 3:1
+   * §13 asks of a non-text boundary.
+   */
+  --color-warn: #8A4500;
+  --color-warn-surface: #FDEFD8;
+  --color-warn-line: #D97706;
+  --color-danger: #A3201A;
+  --color-danger-surface: #FCE9E7;
+  --color-danger-line: #C0352B;
 }
 
 html {
