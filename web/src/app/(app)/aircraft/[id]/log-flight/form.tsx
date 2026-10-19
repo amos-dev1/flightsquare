@@ -1,10 +1,22 @@
 'use client';
 
-import { AlertTriangle, Fuel, Gauge, Info, MapPin, NotebookPen, Plus, X } from 'lucide-react';
-import { useActionState, useState } from 'react';
+import {
+  AlertTriangle,
+  Camera,
+  Fuel,
+  Gauge,
+  Info,
+  MapPin,
+  NotebookPen,
+  Plus,
+  X,
+} from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useActionState, useEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 
 import { logFlight, type FormState } from '@/app/actions';
+import { uploadFile } from '@/components/upload';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
 import type { AircraftResponse } from '@flightsquare/shared';
 // The subpath, not the root. `@flightsquare/shared` has no build step and its
@@ -143,6 +155,61 @@ export function LogFlightForm({
       current.map((draft, i) => (i === index ? { ...draft, ...patch } : draft)),
     );
 
+  /*
+    Meter photographs (0042), asked for only where the aeroplane's admin has
+    said so. Held here rather than in a named file input, because the bytes
+    never go through the server action: the action saves the flight and hands
+    back its id, and the browser sends each file straight to storage against
+    it (§3.8 — the owner first, the upload naming it).
+  */
+  const asksForPhotos = aircraft.require_meter_photos;
+  const router = useRouter();
+  const [photos, setPhotos] = useState<{ file: File; preview: string }[]>([]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  // Which photographs have landed, so "try again" sends only the rest and a
+  // re-render never sends one twice.
+  const sent = useRef(new Set<File>());
+
+  /*
+    Previews are object URLs, and each holds its file in memory until revoked:
+    one when it is removed, the rest when the form goes. Not on every change to
+    the list, which would revoke the previews still on screen.
+  */
+  const previews = useRef<string[]>([]);
+  previews.current = photos.map((photo) => photo.preview);
+  useEffect(() => () => previews.current.forEach((url) => URL.revokeObjectURL(url)), []);
+
+  const flightId = state.saved ? state.values?.flight_id : undefined;
+  const next = state.values?.next;
+
+  async function sendPhotos() {
+    if (!flightId || !next) return;
+    setSendError(null);
+    const waiting = photos.filter((photo) => !sent.current.has(photo.file));
+    for (const [index, photo] of waiting.entries()) {
+      setSending(`Sending photo ${index + 1} of ${waiting.length}…`);
+      const result = await uploadFile({ kind: 'flight', id: flightId }, photo.file, {
+        fileKind: 'meter_photo',
+      });
+      if (result.error) {
+        setSending(null);
+        setSendError(result.error);
+        return;
+      }
+      sent.current.add(photo.file);
+    }
+    setSending(null);
+    router.push(next);
+  }
+
+  // The flight is saved: send the photographs, once.
+  useEffect(() => {
+    if (flightId) void sendPhotos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flightId]);
+
   const hobbsHours = hoursBetween(meters.hobbs_start, meters.hobbs_end);
   const tachHours = hoursBetween(meters.tach_start, meters.tach_end);
 
@@ -160,8 +227,20 @@ export function LogFlightForm({
     Number(meters.hobbs_start) !== Number(aircraft.hobbs);
 
   return (
-    <form action={action} className="space-y-6">
+    <form
+      action={action}
+      className="space-y-6"
+      onSubmit={(event) => {
+        // Asked of the form and nowhere else: the API takes a flight without
+        // one (§8.1), so this is the only place the request can be made.
+        if (asksForPhotos && photos.length === 0) {
+          event.preventDefault();
+          setPhotoError('Add a photo of the meters before saving.');
+        }
+      }}
+    >
       <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+      <input type="hidden" name="meter_photo_count" value={photos.length} />
 
       {/*
         When and where first, because it is what the pilot has just finished
@@ -287,6 +366,81 @@ export function LogFlightForm({
           </Alert>
         ) : null}
       </Group>
+
+      {asksForPhotos ? (
+        <Group
+          icon={Camera}
+          title="Meter photos"
+          hint="This aircraft asks for a photo of the Hobbs and tach with each flight. One photo is enough if it shows both."
+        >
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold">
+              Photos
+              <span className="ml-1 font-normal text-secondary">(required)</span>
+            </span>
+            {/*
+              No `capture`: on a phone it would force the camera and hide the
+              library, and a pilot who photographed the panel before shutting
+              down needs the library.
+            */}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/heic,image/webp"
+              multiple
+              aria-invalid={photoError ? true : undefined}
+              className="block w-full text-sm text-secondary file:mr-3 file:h-11 file:rounded-lg file:border file:border-control file:bg-surface file:px-4 file:text-sm file:font-semibold file:text-navy hover:file:bg-subtle"
+              onChange={(event) => {
+                const picked = Array.from(event.target.files ?? []);
+                setPhotos((current) => [
+                  ...current,
+                  ...picked.map((file) => ({ file, preview: URL.createObjectURL(file) })),
+                ]);
+                setPhotoError(null);
+                // Cleared so picking the same file again after removing it
+                // still fires a change.
+                event.target.value = '';
+              }}
+            />
+          </label>
+
+          {photoError ? (
+            <p className="flex items-center gap-1.5 text-xs font-medium">
+              <AlertTriangle aria-hidden size={14} strokeWidth={2} />
+              {photoError}
+            </p>
+          ) : null}
+
+          {photos.length > 0 ? (
+            <ul className="flex flex-wrap gap-3">
+              {photos.map((photo, index) => (
+                <li key={photo.preview} className="relative">
+                  {/* A local object URL, not a remote image: next/image has
+                      nothing to optimise here. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photo.preview}
+                    alt={`Meter photo ${index + 1}`}
+                    className="h-20 w-20 rounded-lg border border-line bg-subtle object-cover"
+                  />
+                  {!flightId ? (
+                    <button
+                      type="button"
+                      aria-label={`Remove meter photo ${index + 1}`}
+                      onClick={() => {
+                        URL.revokeObjectURL(photo.preview);
+                        setPhotos((current) => current.filter((_, i) => i !== index));
+                      }}
+                      className="absolute -right-2 -top-2 flex size-7 items-center justify-center rounded-full border border-line bg-surface text-navy shadow-sm hover:bg-subtle"
+                    >
+                      <X aria-hidden size={14} strokeWidth={2} />
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Group>
+      ) : null}
 
       {/* The unit said once, in the heading, rather than on all four labels. */}
       <Group icon={Fuel} title={`Fuel · ${unit}`}>
@@ -451,10 +605,39 @@ export function LogFlightForm({
 
       {state.error ? <Alert>{state.error}</Alert> : null}
 
+      {/*
+        The flight is saved and the meters have moved; only a photograph did
+        not land. Saying the save failed would be false, so this names what is
+        missing and offers both ways on — the flight shows as missing its photo
+        until one arrives, and a photo can still be added from the flight.
+      */}
+      {sendError && next ? (
+        <div className="space-y-3">
+          <Alert>
+            The flight is saved and the meters have moved, but a meter photo did not upload:{' '}
+            {sendError}
+          </Alert>
+          <div className="flex flex-wrap gap-3">
+            <Button type="button" onClick={() => void sendPhotos()}>
+              Try the upload again
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => router.push(next)}>
+              Continue without it
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {/* One dominant primary action, and it stays reachable on a phone. */}
       <div className="sticky bottom-0 -mx-6 border-t border-line bg-surface px-6 py-4 sm:static sm:mx-0 sm:border-0 sm:p-0">
-        <Button type="submit" disabled={pending} className="w-full sm:w-auto">
-          {pending ? 'Saving…' : 'Save flight'}
+        {/* Disabled once saved: the photographs belong to that flight, and a
+            second press while they send would only replay it. */}
+        <Button
+          type="submit"
+          disabled={pending || Boolean(flightId)}
+          className="w-full sm:w-auto"
+        >
+          {pending ? 'Saving…' : (sending ?? (flightId ? 'Saved' : 'Save flight'))}
         </Button>
         <p className="mt-2 flex items-center gap-1.5 text-xs text-secondary">
           <Info aria-hidden size={13} strokeWidth={2} />

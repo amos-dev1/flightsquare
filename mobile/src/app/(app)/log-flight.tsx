@@ -260,6 +260,15 @@ export default function LogFlight() {
    */
   const [squawks, setSquawks] = useState<SquawkDraft[]>([]);
 
+  /**
+   * Photographs of the panel, when the aeroplane asks for them (0042).
+   *
+   * Held as drafts like a squawk's, and queued behind the flight on save —
+   * never uploaded from here, because this screen must save with no signal
+   * (§8.2) and a photograph is the slowest thing on it to send.
+   */
+  const [meterPhotos, setMeterPhotos] = useState<PhotoDraft[]>([]);
+
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -321,6 +330,8 @@ export default function LogFlight() {
       // §3.6 keeps each defect its own record, and one already filed is one
       // already queued. Carrying a draft forward would file it twice.
       setSquawks([]);
+      // A photograph of this flight's panel is not a photograph of the next.
+      setMeterPhotos([]);
       setError(null);
       // Carried values are prefills, not answers: the figures below came from
       // the last flight and the server may know better by the next focus.
@@ -518,6 +529,25 @@ export default function LogFlight() {
     meters.hobbs_start !== '' &&
     Number(meters.hobbs_start) !== Number(aircraft.hobbs);
 
+  /*
+    Whether this aeroplane asks for a photograph of the meters.
+
+    Only once the aeroplane on screen is the one being logged: the state
+    survives a switch between aircraft until the fetch answers, and offline it
+    never does — so the previous aeroplane's setting must not decide this one's
+    form. Not knowing means not asking. The server records what was asked when
+    the flight arrives and shows an admin anything missing (0042); this screen
+    refusing to save at a tiedown with no signal would be §3.4's failure mode
+    by a new road.
+
+    A correction keeps the photographs of the flight it replaces, so one whose
+    original already has a photograph is not asked again.
+  */
+  const photosAsked =
+    aircraft?.id === aircraftId &&
+    aircraft.require_meter_photos === true &&
+    !(correcting && correcting.meter_photos > 0);
+
   async function submit() {
     if (!meters.hobbs_end && !meters.tach_end) {
       setError('Enter the Hobbs or tach reading at shutdown.');
@@ -535,10 +565,15 @@ export default function LogFlight() {
       setError('Say what was wrong with the entry. It stays on the record.');
       return;
     }
+    if (photosAsked && meterPhotos.length === 0) {
+      setError('Add a photo of the Hobbs and tach — this aircraft asks for one with every flight.');
+      return;
+    }
 
     setBusy(true);
     setError(null);
     try {
+      const recordedAt = recordedAtFor(flightDate);
       const flightId = await saveFlight({
         aircraft_id: aircraftId,
         flight_date: flightDate,
@@ -550,7 +585,7 @@ export default function LogFlight() {
         // reading by it. Send `now` for a flight logged this morning and the
         // aircraft's totals would wind *backwards* to yesterday's shutdown,
         // with every number downstream following.
-        recorded_at: recordedAtFor(flightDate),
+        recorded_at: recordedAt,
         category,
         // §3.4: this row replaces that one, and both stay. There is no PATCH.
         ...(correctingId
@@ -573,6 +608,18 @@ export default function LogFlight() {
           : {}),
         ...(remarks.trim() ? { remarks: remarks.trim() } : {}),
       });
+
+      // Each meter photograph its own queue entry, one millisecond behind the
+      // flight, so the flight exists by the time the upload names it (§3.8).
+      for (const photo of meterPhotos) {
+        await saveAttachment({
+          owner: { kind: 'flight', flightId },
+          uri: photo.uri,
+          contentType: photo.contentType,
+          fileKind: 'meter_photo',
+          after: recordedAt,
+        });
+      }
 
       /**
        * Each squawk queued separately, and named against the flight it was
@@ -647,7 +694,10 @@ export default function LogFlight() {
    * never photographs anything should never see the prompt, and one who does
    * sees it at the moment it is obvious why.
    */
-  async function addPhoto(draftKey: string, from: 'camera' | 'library') {
+  async function takePhoto(
+    from: 'camera' | 'library',
+    subject: string,
+  ): Promise<PhotoDraft | null> {
     const permission =
       from === 'camera'
         ? await ImagePicker.requestCameraPermissionsAsync()
@@ -655,32 +705,40 @@ export default function LogFlight() {
     if (!permission.granted) {
       setError(
         from === 'camera'
-          ? 'FlightSquare needs camera access to photograph a defect. Settings › FlightSquare.'
+          ? `FlightSquare needs camera access to photograph ${subject}. Settings › FlightSquare.`
           : 'FlightSquare needs photo access to attach a picture. Settings › FlightSquare.',
       );
-      return;
+      return null;
     }
 
     const result =
       from === 'camera'
         ? await ImagePicker.launchCameraAsync(PHOTO_OPTIONS)
         : await ImagePicker.launchImageLibraryAsync(PHOTO_OPTIONS);
-    if (result.canceled) return;
+    if (result.canceled) return null;
 
     const asset = result.assets[0];
-    if (!asset) return;
+    if (!asset) return null;
 
     setError(null);
+    return {
+      key: `${Date.now()}-${asset.uri}`,
+      uri: asset.uri,
+      contentType: contentTypeOf(asset),
+    };
+  }
+
+  async function addPhoto(draftKey: string, from: 'camera' | 'library') {
+    const photo = await takePhoto(from, 'a defect');
+    if (!photo) return;
     edit(draftKey, {
-      photos: [
-        ...(squawks.find((one) => one.key === draftKey)?.photos ?? []),
-        {
-          key: `${Date.now()}-${asset.uri}`,
-          uri: asset.uri,
-          contentType: contentTypeOf(asset),
-        },
-      ],
+      photos: [...(squawks.find((one) => one.key === draftKey)?.photos ?? []), photo],
     });
+  }
+
+  async function addMeterPhoto(from: 'camera' | 'library') {
+    const photo = await takePhoto(from, 'the meters');
+    if (photo) setMeterPhotos((all) => [...all, photo]);
   }
 
   const removePhoto = (draftKey: string, photoKey: string) =>
@@ -838,6 +896,62 @@ export default function LogFlight() {
             </Notice>
           ) : null}
         </Card>
+
+        {/* Meter photos ------------------------------------------------ */}
+        {photosAsked ? (
+          <Card style={styles.group}>
+            {/*
+              Next to the meters it is evidence for, and only when the
+              aeroplane asks (0042) — on every other aircraft this screen stays
+              exactly as short as it was, which §3.4 cares about more than
+              anything else here.
+            */}
+            <CardHeading>Meter photos</CardHeading>
+            <Body muted>This aircraft asks for a photo of the Hobbs and tach with every flight.</Body>
+
+            {meterPhotos.length > 0 ? (
+              <View style={styles.photos}>
+                {meterPhotos.map((photo) => (
+                  <View key={photo.key} style={styles.thumbWrap}>
+                    <Image source={{ uri: photo.uri }} style={styles.thumb} />
+                    <Pressable
+                      onPress={() =>
+                        setMeterPhotos((all) => all.filter((one) => one.key !== photo.key))
+                      }
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove this photo"
+                      hitSlop={space.sm}
+                      style={({ pressed }) => [styles.thumbRemove, pressed && styles.pressed]}
+                    >
+                      <Feather name="x" size={14} color={color.onDark} />
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            <View style={styles.pair}>
+              <Pressable
+                onPress={() => void addMeterPhoto('camera')}
+                accessibilityRole="button"
+                accessibilityLabel="Take a photo of the meters"
+                style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}
+              >
+                <Feather name="camera" size={18} color={color.navy} />
+                <Text style={styles.photoLabel}>Take photo</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void addMeterPhoto('library')}
+                accessibilityRole="button"
+                accessibilityLabel="Choose a photo of the meters"
+                style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}
+              >
+                <Feather name="image" size={18} color={color.navy} />
+                <Text style={styles.photoLabel}>Choose photo</Text>
+              </Pressable>
+            </View>
+          </Card>
+        ) : null}
 
         {/* Route ------------------------------------------------------- */}
         <Card style={styles.group}>

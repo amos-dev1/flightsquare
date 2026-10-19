@@ -2,8 +2,16 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
+import { FileText } from 'lucide-react';
+
 import { Alert, Card, Meter, PageTitle, SectionHeading, Status } from '@/components/ui';
-import type { AircraftResponse, FlightResponse } from '@flightsquare/shared';
+import { FileUpload } from '@/components/upload';
+import type {
+  AircraftResponse,
+  AttachmentResponse,
+  EntitlementsResponse,
+  FlightResponse,
+} from '@flightsquare/shared';
 
 import { CorrectFlight } from './client';
 
@@ -36,7 +44,16 @@ export default async function FlightPage({
     throw error;
   }
 
-  const aircraft = await apiFetch<AircraftResponse>(`/aircraft/${flight.aircraft_id}`);
+  const [aircraft, entitlements, photos] = await Promise.all([
+    apiFetch<AircraftResponse>(`/aircraft/${flight.aircraft_id}`),
+    apiFetch<EntitlementsResponse>('/entitlements'),
+    // Its own and, for a correction, the one it replaced — the API decides.
+    apiFetch<AttachmentResponse[]>(`/flights/${id}/attachments`),
+  ]);
+  const canAddPhoto =
+    entitlements.permissions.flights === 'write' &&
+    !flight.logged_in_error &&
+    !flight.superseded_by;
   const unit = aircraft.fuel_units === 'litres' ? 'L' : 'gal';
 
   const route =
@@ -59,6 +76,9 @@ export default async function FlightPage({
           {flight.superseded_by ? <Status kind="neutral">Corrected</Status> : null}
           {flight.needs_review && !flight.superseded_by ? (
             <Status kind="due_soon">Needs review</Status>
+          ) : null}
+          {flight.meter_photo_missing ? (
+            <Status kind="due_soon">Meter photo missing</Status>
           ) : null}
         </div>
         <p className="mt-1 text-sm text-secondary">
@@ -147,6 +167,61 @@ export default async function FlightPage({
           </p>
         </section>
       )}
+
+      {/*
+        Meter photographs (0042): what was asked for, and what arrived. Shown
+        wherever there is one, and wherever one was asked for and is missing —
+        which is also where a pilot whose upload failed at the tiedown puts it
+        right, against this flight rather than by logging it again.
+      */}
+      {photos.length > 0 || flight.meter_photo_missing ? (
+        <section className="space-y-3">
+          <SectionHeading>Meter photos</SectionHeading>
+          <Card className="space-y-4 px-5 py-4">
+            {flight.meter_photo_missing ? (
+              <p className="text-sm text-secondary">
+                This aircraft asked for a photo of the meters when the flight was logged, and none
+                has arrived. The flight is recorded either way.
+              </p>
+            ) : null}
+            {photos.length > 0 ? (
+              <ul className="flex flex-wrap gap-3">
+                {photos.map((photo, index) => (
+                  <li key={photo.id}>
+                    {/* Full size in a new tab: the URL is signed and
+                        short-lived, so that is the whole of a bigger view. */}
+                    <a href={photo.url} target="_blank" rel="noreferrer">
+                      {photo.content_type === 'application/pdf' ? (
+                        <span className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-lg border border-line bg-subtle text-xs font-semibold text-secondary">
+                          <FileText aria-hidden size={20} strokeWidth={1.75} />
+                          PDF
+                        </span>
+                      ) : (
+                        // Not next/image: the host is object storage and the
+                        // URL is signed and expires.
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={photo.url}
+                          alt={`Meter photo ${index + 1}`}
+                          className="h-24 w-24 rounded-lg border border-line bg-subtle object-cover"
+                        />
+                      )}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {canAddPhoto ? (
+              <FileUpload
+                owner={{ kind: 'flight', id: flight.id }}
+                fileKind="meter_photo"
+                label={photos.length > 0 ? 'Add another photo' : 'Add a meter photo'}
+                revalidate={`/flights/${flight.id}`}
+              />
+            ) : null}
+          </Card>
+        </section>
+      ) : null}
 
       {flight.fuel_remaining_after || flight.fuel_added_qty ? (
         <section className="space-y-3">

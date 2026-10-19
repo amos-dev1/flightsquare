@@ -32,6 +32,9 @@ const configFields = {
   default_rate_cents: { type: 'integer', minimum: 0 },
   fuel_capacity: decimal,
   fuel_units: { type: 'string', enum: ['gallons', 'litres'] },
+  // 0042: ask for a photograph of the meters with each flight. The form asks;
+  // the API never refuses a flight for lacking one (§8.1, §8.2).
+  require_meter_photos: { type: 'boolean' },
 } as const;
 
 const createSchema = {
@@ -135,6 +138,7 @@ async function selectAircraft(trx: Tx, id?: string) {
          LIMIT 1)`.as('default_rate_cents'),
       'aircraft_config.fuel_capacity',
       'aircraft_config.fuel_units',
+      'aircraft_config.require_meter_photos',
       /**
        * §3.4: fuel remaining is aircraft *state* — latest reading wins, and
        * it is never computed by arithmetic across flights, because pilots
@@ -229,6 +233,7 @@ function toResponse(row: Awaited<ReturnType<typeof selectAircraft>>[number]): Ai
     currency: row.currency ?? 'USD',
     fuel_capacity: row.fuel_capacity,
     fuel_units: row.fuel_units ?? 'gallons',
+    require_meter_photos: row.require_meter_photos ?? false,
     fuel_remaining: row.fuel_remaining,
     fuel_remaining_at: row.fuel_remaining_at?.toISOString() ?? null,
     last_location: row.last_location,
@@ -335,6 +340,9 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
             ...(body.rate_basis !== undefined ? { rate_basis: body.rate_basis } : {}),
             fuel_capacity: body.fuel_capacity ?? null,
             ...(body.fuel_units !== undefined ? { fuel_units: body.fuel_units } : {}),
+            ...(body.require_meter_photos !== undefined
+              ? { require_meter_photos: body.require_meter_photos }
+              : {}),
           })
           .execute();
 
@@ -419,6 +427,7 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
         default_rate_cents: rateCents,
         fuel_capacity: fuelCapacity,
         fuel_units: fuelUnits,
+        require_meter_photos: requireMeterPhotos,
         ...aircraftFields
       } = request.body;
       const { entitlements } = await request.loadGates();
@@ -433,6 +442,9 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
           ? { fuel_capacity: fuelCapacity as string | null }
           : {}),
         ...(fuelUnits !== undefined ? { fuel_units: fuelUnits as 'gallons' } : {}),
+        ...(requireMeterPhotos !== undefined
+          ? { require_meter_photos: requireMeterPhotos as boolean }
+          : {}),
       };
 
       const rows = await request.withTenant(async (trx) => {

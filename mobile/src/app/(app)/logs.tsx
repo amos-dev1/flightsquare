@@ -223,6 +223,12 @@ export default function Logs() {
                 // than being cleared, and nothing was edited to say it.
                 <Text style={styles.review}>{flight.review_reason}</Text>
               ) : null}
+              {/* 0042: the aeroplane asked for a photograph of the panel and
+                  none arrived. A flag for whoever checks the log, in the same
+                  quiet line as a meter gap — never a reason it was refused. */}
+              {administers && flight.meter_photo_missing ? (
+                <Text style={styles.review}>Meter photo missing</Text>
+              ) : null}
             </Card>
           </Pressable>
         ))

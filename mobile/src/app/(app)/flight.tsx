@@ -1,7 +1,14 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { ApiError, type FlightResponse, type StatementResponse } from '@flightsquare/shared';
+import {
+  Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View,
+} from 'react-native';
+import {
+  ApiError,
+  type AttachmentResponse,
+  type FlightResponse,
+  type StatementResponse,
+} from '@flightsquare/shared';
 
 import {
   Body, Button, Card, CardHeading, Field, Input, Notice, SectionHeading, Status,
@@ -9,8 +16,9 @@ import {
 import { Sheet } from '@/components/sheet';
 import { saveFlight } from '@/lib/sync';
 import { api, messageFor, withAuth } from '@/lib/api';
+import { usePermission } from '@/lib/entitlements';
 import { formatMoney, routeOf } from '@/lib/format';
-import { color, space, type } from '@/theme';
+import { color, radius, space, type } from '@/theme';
 
 /**
  * One flight, and the only thing that can be done about it.
@@ -46,6 +54,11 @@ export default function Flight() {
   /** The sheet for the one claim a correction cannot make by changing numbers. */
   const [takingBack, setTakingBack] = useState(false);
   const [statement, setStatement] = useState<StatementResponse | null>(null);
+  /** The photographs of the panel (0042), signed for this load only. */
+  const [photos, setPhotos] = useState<AttachmentResponse[]>([]);
+  // The same test the logs list uses: whoever holds `aircraft: write` is the
+  // person a missing photograph is a flag for.
+  const administers = usePermission('aircraft') === 'write';
   const [missing, setMissing] = useState(false);
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,6 +70,13 @@ export default function Flight() {
       setFlight(found);
       setMissing(false);
       setOffline(false);
+      // Only asked for when there is something to fetch: most flights carry
+      // none, and a second request for an empty list costs a pilot on one bar.
+      setPhotos(
+        found.meter_photos > 0
+          ? await withAuth(() => api.listFlightAttachments(id)).catch(() => [])
+          : [],
+      );
     } catch (error) {
       // A 404 and no signal are different answers and get different words.
       // §6 does not distinguish a flight in another tenant from one that
@@ -120,6 +140,9 @@ export default function Flight() {
             ) : flight.superseded_by ? (
               <View style={styles.badge}><Status label="Corrected" /></View>
             ) : null}
+            {administers && flight.meter_photo_missing ? (
+              <View style={styles.badge}><Status label="Meter photo missing" /></View>
+            ) : null}
           </View>
 
           {flight.superseded_by ? (
@@ -179,6 +202,29 @@ export default function Flight() {
               />
             </View>
           </Card>
+
+          {photos.length > 0 ? (
+            <Card>
+              <SectionHeading>Meter photos</SectionHeading>
+              {/* The panel as it read, for checking the figures above against.
+                  Full size in the browser: the URL is signed and short-lived,
+                  so opening it is the whole of what a bigger view needs. */}
+              <View style={styles.photos}>
+                {photos.map((photo) =>
+                  photo.url ? (
+                    <Pressable
+                      key={photo.id}
+                      onPress={() => void Linking.openURL(photo.url!)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel="Open this photo of the meters"
+                    >
+                      <Image source={{ uri: photo.url }} style={styles.thumb} />
+                    </Pressable>
+                  ) : null,
+                )}
+              </View>
+            </Card>
+          ) : null}
 
           {flight.fuel_remaining_after || flight.fuel_added_qty ? (
             <Card>
@@ -471,4 +517,15 @@ const styles = StyleSheet.create({
   },
   lineLabel: { ...type.supporting, color: color.secondary, flex: 1 },
   lineValue: { ...type.bodySmall, flexShrink: 1, textAlign: 'right' },
+
+  photos: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm, marginTop: space.md },
+  thumb: {
+    width: 88,
+    height: 88,
+    borderRadius: radius.control,
+    // A dark panel and a sunlit one both need an edge on white.
+    borderWidth: 1,
+    borderColor: color.line,
+    backgroundColor: color.mist,
+  },
 });

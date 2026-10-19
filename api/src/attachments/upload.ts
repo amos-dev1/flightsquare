@@ -39,9 +39,10 @@ export type AttachmentOwner =
   | { squawk_id: string }
   | { compliance_record_id: string }
   | { aircraft_document_id: string }
+  | { flight_id: string }
   | null;
 
-export type AttachmentKind = 'photo' | 'invoice' | 'logbook_entry' | 'document';
+export type AttachmentKind = 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo';
 
 /**
  * What a form may not send.
@@ -155,6 +156,15 @@ async function assertOwnerExists(trx: Tx, owner: AttachmentOwner): Promise<void>
     if (!row) throw new NotFoundError();
     return;
   }
+  if ('flight_id' in owner) {
+    const row = await trx
+      .selectFrom('flights')
+      .select('id')
+      .where('id', '=', owner.flight_id)
+      .executeTakeFirst();
+    if (!row) throw new NotFoundError();
+    return;
+  }
   const row = await trx
     .selectFrom('aircraft_documents')
     .select('id')
@@ -169,6 +179,7 @@ export const ATTACHMENT_COLUMNS = [
   'squawk_id',
   'compliance_record_id',
   'aircraft_document_id',
+  'flight_id',
   'kind',
   'status',
   'storage_key',
@@ -183,6 +194,7 @@ export interface AttachmentRow {
   squawk_id: string | null;
   compliance_record_id: string | null;
   aircraft_document_id: string | null;
+  flight_id: string | null;
   kind: string;
   status: string;
   storage_key: string;
@@ -204,6 +216,7 @@ export async function toAttachment(row: AttachmentRow): Promise<AttachmentRespon
     squawk_id: row.squawk_id,
     compliance_record_id: row.compliance_record_id,
     aircraft_document_id: row.aircraft_document_id,
+    flight_id: row.flight_id,
     kind: row.kind as AttachmentKind,
     status: row.status as 'active' | 'removed',
     content_type: row.content_type,
