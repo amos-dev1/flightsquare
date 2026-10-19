@@ -2,6 +2,7 @@ import type {
   AerodromeResponse,
   AircraftAvailabilityResponse,
   AircraftDocumentResponse,
+  AircraftFlightStatsResponse,
   AircraftResponse,
   AircraftTypeResponse,
   AttachFileRequest,
@@ -182,11 +183,23 @@ export function createClient(options: ClientOptions) {
      * flew what is how a club reconciles its meters and its money — but what
      * a pilot usually wants to look at is their own.
      */
-    listFlights: (query: { aircraftId?: string; needsReview?: boolean; mine?: boolean } = {}) => {
+    listFlights: (
+      query: {
+        aircraftId?: string;
+        needsReview?: boolean;
+        mine?: boolean;
+        /** Leave out entries since corrected or taken back as logged in error. */
+        standing?: boolean;
+        /** At most this many, newest first. The server caps it at 200 regardless. */
+        limit?: number;
+      } = {},
+    ) => {
       const params = new URLSearchParams();
       if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
       if (query.needsReview) params.set('needs_review', 'true');
       if (query.mine) params.set('mine', 'true');
+      if (query.standing) params.set('standing', 'true');
+      if (query.limit !== undefined) params.set('limit', String(query.limit));
       const search = params.toString();
       return request<FlightResponse[]>('GET', search ? `/flights?${search}` : '/flights');
     },
@@ -211,6 +224,9 @@ export function createClient(options: ClientOptions) {
         search ? `/flights/summary?${search}` : '/flights/summary',
       );
     },
+    /** How one aeroplane is being used — averages the client must not work out (§8.2). */
+    aircraftFlightStats: (aircraftId: string) =>
+      request<AircraftFlightStatsResponse>('GET', `/aircraft/${aircraftId}/flight-stats`),
     /** §8.2: the idempotency key is required, not optional, on this one. */
     createFlight: (input: CreateFlightRequest, idempotencyKey: string) =>
       request<FlightResponse>('POST', '/flights', input, { idempotencyKey }),

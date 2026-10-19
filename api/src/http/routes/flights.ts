@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import type {
+  AircraftFlightStatsResponse,
   CreateFlightRequest,
   FlightResponse,
   FlightSummaryResponse,
@@ -112,6 +113,7 @@ function selectFlights(trx: Tx) {
       'aircraft.registration as aircraft_registration',
       'flights.flown_by',
       'users.email as flown_by_email',
+      'users.name as flown_by_name',
       'flights.flight_date',
       'flights.departed_from',
       'flights.arrived_at',
@@ -212,9 +214,28 @@ async function correctionRefusals<T>(run: () => Promise<T>): Promise<T> {
 }
 
 export async function flightRoutes(app: FastifyInstance): Promise<void> {
-  app.get<{ Querystring: { aircraft_id?: string; needs_review?: string; mine?: string } }>(
+  app.get<{
+    Querystring: {
+      aircraft_id?: string;
+      needs_review?: string;
+      mine?: string;
+      standing?: string;
+      limit?: number;
+    };
+  }>(
     '/flights',
-    { config: { requiresTenant: true, permission: ['flights', 'read'] } },
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            // At most 200 either way; this only asks for fewer.
+            limit: { type: 'integer', minimum: 1, maximum: 200 },
+          },
+        },
+      },
+      config: { requiresTenant: true, permission: ['flights', 'read'] },
+    },
     async (request) => {
       const rows = await request.withTenant(async (trx) => {
         let query = selectFlights(trx);
@@ -253,10 +274,19 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
             await ownMembership(trx, request.ctx!.userId),
           );
         }
+        /*
+          `standing=true` — only the entries that count: not replaced by a
+          correction, and not taken back as logged in error. A glance at
+          "the last few flights" wants what happened, where the full list
+          keeps both halves of every correction on purpose (§3.4).
+        */
+        if (request.query.standing === 'true') {
+          query = query.where(stands).where('flights.logged_in_error', '=', false);
+        }
         return query
           .orderBy('flights.flight_date', 'desc')
           .orderBy('flights.recorded_at', 'desc')
-          .limit(200)
+          .limit(request.query.limit ?? 200)
           .execute();
       });
       return rows.map(toResponse);
@@ -329,6 +359,204 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           last_flight_date: row.last_flight_date,
         } satisfies FlightSummaryResponse;
       });
+    },
+  );
+
+  /**
+   * How one aeroplane is being used: this year so far, a month on average,
+   * and what it burns an hour.
+   *
+   * Its own endpoint rather than more fields on `/flights/summary`, because
+   * these answers only make sense for one aeroplane — a fleet's fuel burn per
+   * hour is an average of different engines, which is a number about nothing.
+   *
+   * §8.2 for the same reason the summary exists: a figure on a dashboard
+   * matters, and the client never computes one.
+   *
+   * "This year" and "the last twelve months" are measured from the
+   * aeroplane's own today, as the maintenance countdowns are — aircraft
+   * timezone, then tenant, then UTC — so a flight logged late on 31 December
+   * in California does not land in the wrong year.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/aircraft/:id/flight-stats',
+    { config: { requiresTenant: true, permission: ['flights', 'read'] } },
+    async (request) => {
+      const id = request.params.id;
+      /*
+        The aeroplane's own today and the flights that count, shared by both
+        queries below so the chart and the figures beside it cannot disagree
+        about which flights there were.
+      */
+      const scope = sql`
+          plane AS (
+            SELECT a.id,
+                   coalesce(c.fuel_units, 'gallons') AS fuel_units,
+                   (now() AT TIME ZONE coalesce(a.timezone, t.timezone, 'UTC'))::date AS today
+              FROM public.aircraft a
+              LEFT JOIN public.aircraft_config c ON c.aircraft_id = a.id
+              LEFT JOIN public.tenants t ON t.id = a.tenant_id
+             WHERE a.id = ${id}
+          ),
+          standing AS (
+            -- The flights that count: not superseded by a correction, and not
+            -- taken back as logged in error (which carries no meters anyway).
+            SELECT f.flight_date,
+                   m.hobbs_hours, m.tach_hours,
+                   fu.fuel_remaining_before, fu.fuel_remaining_after, fu.fuel_added_qty
+              FROM public.flights f
+              LEFT JOIN public.flight_meters m ON m.flight_id = f.id
+              LEFT JOIN public.flight_fuel fu ON fu.flight_id = f.id
+             WHERE f.aircraft_id = ${id}
+               AND NOT f.logged_in_error
+               AND NOT EXISTS (SELECT 1 FROM public.flights s WHERE s.supersedes_id = f.id)
+          )
+      `;
+      const { row, months } = await request.withTenant(async (trx) => {
+        const result = await sql<{
+          as_of: string;
+          fuel_units: string;
+          ytd_flights: string;
+          ytd_hobbs: string;
+          ytd_tach: string;
+          window_start: string | null;
+          window_days: number;
+          window_hobbs: string;
+          window_tach: string;
+          burn_hobbs: string | null;
+          burn_tach: string | null;
+          burn_flights: string;
+        }>`
+          WITH ${scope},
+          bounds AS (
+            -- Twelve months back, or the first flight if that is later: an
+            -- aeroplane added in June has not flown zero hours in January.
+            -- No flights at all is no window, not a year of nothing: greatest()
+            -- skips a NULL, so it is said explicitly.
+            SELECT p.today,
+                   CASE WHEN f.first_flight IS NULL THEN NULL
+                        ELSE greatest((p.today - interval '1 year')::date + 1, f.first_flight)
+                   END AS window_start
+              FROM plane p,
+                   (SELECT min(flight_date) AS first_flight FROM standing) f
+          ),
+          windowed AS (
+            SELECT s.* FROM standing s, bounds b
+             WHERE s.flight_date BETWEEN b.window_start AND b.today
+          ),
+          burnable AS (
+            -- A flight's own start-up and shut-down readings, and nothing
+            -- across flights (§3.4). Fuel added on the same entry could have
+            -- gone in before the flight or after it, so that entry says
+            -- nothing about burn; and a shut-down reading above the start-up
+            -- one is a top-off nobody logged, not negative fuel.
+            SELECT * FROM windowed
+             WHERE fuel_remaining_before IS NOT NULL
+               AND fuel_remaining_after IS NOT NULL
+               AND coalesce(fuel_added_qty, 0) = 0
+               AND fuel_remaining_before >= fuel_remaining_after
+          )
+          SELECT p.today::text AS as_of,
+                 p.fuel_units,
+                 (SELECT count(*) FROM standing s
+                   WHERE s.flight_date >= date_trunc('year', p.today)
+                     AND s.flight_date <= p.today) AS ytd_flights,
+                 (SELECT coalesce(sum(hobbs_hours), 0) FROM standing s
+                   WHERE s.flight_date >= date_trunc('year', p.today)
+                     AND s.flight_date <= p.today) AS ytd_hobbs,
+                 (SELECT coalesce(sum(tach_hours), 0) FROM standing s
+                   WHERE s.flight_date >= date_trunc('year', p.today)
+                     AND s.flight_date <= p.today) AS ytd_tach,
+                 b.window_start::text AS window_start,
+                 coalesce(p.today - b.window_start + 1, 0) AS window_days,
+                 (SELECT coalesce(sum(hobbs_hours), 0) FROM windowed) AS window_hobbs,
+                 (SELECT coalesce(sum(tach_hours), 0) FROM windowed) AS window_tach,
+                 (SELECT round(sum(fuel_remaining_before - fuel_remaining_after)
+                               / nullif(sum(hobbs_hours), 0), 1)
+                    FROM burnable WHERE hobbs_hours > 0) AS burn_hobbs,
+                 (SELECT round(sum(fuel_remaining_before - fuel_remaining_after)
+                               / nullif(sum(tach_hours), 0), 1)
+                    FROM burnable WHERE tach_hours > 0) AS burn_tach,
+                 (SELECT count(*) FROM burnable) AS burn_flights
+            FROM plane p, bounds b
+        `.execute(trx);
+
+        /*
+          Hours flown in each of the last twelve calendar months, this one
+          included and so far. generate_series makes the empty months rows
+          rather than gaps — a month nobody flew is a zero on the chart, not a
+          month that is missing from it.
+        */
+        const monthly = await sql<{
+          month: string;
+          flights: string;
+          hobbs_hours: string;
+          tach_hours: string;
+        }>`
+          WITH ${scope},
+          months AS (
+            SELECT generate_series(
+                     date_trunc('month', p.today) - interval '11 months',
+                     date_trunc('month', p.today),
+                     interval '1 month'
+                   )::date AS month,
+                   p.today
+              FROM plane p
+          )
+          SELECT to_char(m.month, 'YYYY-MM') AS month,
+                 count(s.flight_date) AS flights,
+                 coalesce(sum(s.hobbs_hours), 0) AS hobbs_hours,
+                 coalesce(sum(s.tach_hours), 0) AS tach_hours
+            FROM months m
+            LEFT JOIN standing s
+              ON s.flight_date >= m.month
+             AND s.flight_date < (m.month + interval '1 month')::date
+             AND s.flight_date <= m.today
+           GROUP BY m.month
+           ORDER BY m.month
+        `.execute(trx);
+
+        return { row: result.rows[0], months: monthly.rows };
+      });
+      // RLS has already hidden another tenant's aeroplane; §6 makes that a
+      // plain "not found" rather than anything that admits it exists.
+      if (!row) throw new NotFoundError();
+
+      const days = Number(row.window_days);
+      // Four weeks, because a month's average from a fortnight of flying is
+      // the fortnight doubled and presented as a fact.
+      const enoughHistory = days >= 28;
+      const perMonth = (hours: string) =>
+        enoughHistory ? ((Number(hours) * 30.4375) / days).toFixed(1) : null;
+      const burnFlights = Number(row.burn_flights);
+      const enoughBurn = burnFlights >= 3;
+
+      return {
+        as_of: row.as_of,
+        year_to_date: {
+          flights: Number(row.ytd_flights),
+          hobbs_hours: row.ytd_hobbs,
+          tach_hours: row.ytd_tach,
+        },
+        monthly_hours: months.map((month) => ({
+          month: month.month,
+          flights: Number(month.flights),
+          hobbs_hours: month.hobbs_hours,
+          tach_hours: month.tach_hours,
+        })),
+        monthly_average: {
+          window_start: row.window_start,
+          days,
+          hobbs_hours: perMonth(row.window_hobbs),
+          tach_hours: perMonth(row.window_tach),
+        },
+        fuel_burn: {
+          units: row.fuel_units === 'litres' ? 'litres' : 'gallons',
+          per_hobbs_hour: enoughBurn ? row.burn_hobbs : null,
+          per_tach_hour: enoughBurn ? row.burn_tach : null,
+          flights: burnFlights,
+        },
+      } satisfies AircraftFlightStatsResponse;
     },
   );
 

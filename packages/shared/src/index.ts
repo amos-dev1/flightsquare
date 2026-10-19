@@ -641,6 +641,12 @@ export interface FlightResponse {
   aircraft_registration: string;
   flown_by: string;
   flown_by_email: string | null;
+  /**
+   * The pilot's name as they gave it, where they gave one. Additive (§8.1):
+   * older builds go on reading the email, and a screen that wants a name
+   * falls back to the email when this is null.
+   */
+  flown_by_name: string | null;
   flight_date: string;
   departed_from: string | null;
   arrived_at: string | null;
@@ -721,6 +727,66 @@ export interface FlightSummaryResponse {
   /** Calendar days, or null when there are no flights to bound. */
   first_flight_date: string | null;
   last_flight_date: string | null;
+}
+
+/**
+ * How one aeroplane is being used, worked out on the server (§8.2).
+ *
+ * Every figure counts only flights that stand — a corrected entry is counted
+ * once, as its correction, and one taken back as logged in error not at all.
+ * Hours are strings because meters are `numeric` (§3.4), and both meters are
+ * given because neither is derived from the other; a screen showing one has
+ * to say which.
+ */
+export interface AircraftFlightStatsResponse {
+  /** The aeroplane's own today, in its timezone — what "this year" means. */
+  as_of: string;
+  /** Since 1 January of `as_of`'s year. */
+  year_to_date: {
+    flights: number;
+    hobbs_hours: string;
+    tach_hours: string;
+  };
+  /**
+   * Hours flown in each of the last twelve calendar months, oldest first, the
+   * current month included and counted so far. Always twelve rows: a month
+   * nobody flew is a zero, not a gap.
+   */
+  monthly_hours: {
+    /** `YYYY-MM`, in the aeroplane's timezone. */
+    month: string;
+    flights: number;
+    hobbs_hours: string;
+    tach_hours: string;
+  }[];
+  /**
+   * Hours per month across the last twelve months, or since the first flight
+   * if that is more recent. Null hours when there is less than four weeks of
+   * history: one flight yesterday is not sixty hours a month.
+   */
+  monthly_average: {
+    window_start: string | null;
+    days: number;
+    hobbs_hours: string | null;
+    tach_hours: string | null;
+  };
+  /**
+   * Fuel burned per hour, over the same twelve months — an estimate from what
+   * pilots read off the gauges, never a measurement.
+   *
+   * Taken from each flight's own start-up and shut-down readings and nothing
+   * across flights (§3.4: fuel is state, and arithmetic across flights is how
+   * an unlogged top-off becomes a number). A flight that also recorded fuel
+   * added is left out, because the form does not say whether it went in
+   * before the flight or after. Null below three usable flights.
+   */
+  fuel_burn: {
+    units: 'gallons' | 'litres';
+    per_hobbs_hour: string | null;
+    per_tach_hour: string | null;
+    /** How many flights the figure rests on, so a screen can say so. */
+    flights: number;
+  };
 }
 
 export interface CreateFlightRequest {
