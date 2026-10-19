@@ -46,6 +46,7 @@ export default function RootLayout() {
         }}
       >
         <Stack.Screen name="sign-in" options={{ headerShown: false }} />
+        <Stack.Screen name="forgot-password" options={{ title: 'Reset password' }} />
         <Stack.Screen name="choose-tenant" options={{ headerShown: false }} />
         <Stack.Screen name="(app)" options={{ headerShown: false }} />
       </Stack>

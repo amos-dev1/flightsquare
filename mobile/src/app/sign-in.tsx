@@ -178,6 +178,20 @@ export default function SignIn() {
             {error ? <Notice tone="error">{error}</Notice> : null}
 
             <Button label="Sign in" onPress={submit} busy={busy} disabled={!email || !password} />
+
+            {/*
+              The way back in for somebody who cannot get past the step above.
+              Carries the address already typed, so it is not asked twice.
+            */}
+            <Pressable
+              onPress={() =>
+                router.push({ pathname: '/forgot-password', params: { email: email.trim() } })
+              }
+              accessibilityRole="link"
+              style={({ pressed }) => [styles.link, pressed && styles.pressed]}
+            >
+              <Text style={styles.linkLabel}>Forgot password?</Text>
+            </Pressable>
           </>
         ) : (
           <>
@@ -256,4 +270,8 @@ const styles = StyleSheet.create({
   remember: { flexDirection: 'row', alignItems: 'center', gap: space.md, minHeight: 44 },
   rememberLabel: { ...type.bodySmall, flexShrink: 1 },
   pressed: { opacity: 0.7 },
+  // §11 §6: a link is underlined, never told apart by colour alone, and the
+  // touch target is the 44px §13 asks for even though the text is smaller.
+  link: { minHeight: 44, justifyContent: 'center', alignSelf: 'center' },
+  linkLabel: { ...type.body, color: color.tealText, textDecorationLine: 'underline' },
 });
