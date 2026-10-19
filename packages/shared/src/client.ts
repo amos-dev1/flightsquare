@@ -141,6 +141,20 @@ export function createClient(options: ClientOptions) {
       ),
 
     /**
+     * Ask for a password-reset email. Always accepted (202): whether the
+     * address has an account is exactly what this must not reveal, so a
+     * caller cannot tell and should not say. The link in the email opens the
+     * web app's reset page, which is where the new password is chosen.
+     */
+    requestPasswordReset: (email: string) =>
+      request<{ status: 'accepted' }>(
+        'POST',
+        '/auth/password-reset/request',
+        { email },
+        { anonymous: true },
+      ),
+
+    /**
      * Spend the code and get the session.
      *
      * `remember_device` is asked per sign-in rather than assumed — a shared
