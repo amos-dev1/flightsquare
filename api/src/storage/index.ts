@@ -25,23 +25,38 @@ import { config } from '../config.js';
  * endpoint and credentials rather than a change of code.
  */
 
-const client = new S3Client({
-  region: config.storage.region,
-  endpoint: config.storage.endpoint,
-  forcePathStyle: config.storage.forcePathStyle,
-  // Omitted entirely when no key is configured, rather than passed as
-  // undefined: that is what lets the SDK's provider chain reach the App Runner
-  // instance role. Handing it a key it cannot use would turn a missing grant
-  // into an authentication error and hide the role that was meant to be used.
-  ...(config.storage.accessKeyId && config.storage.secretAccessKey
-    ? {
-        credentials: {
-          accessKeyId: config.storage.accessKeyId,
-          secretAccessKey: config.storage.secretAccessKey,
-        },
-      }
-    : {}),
-});
+function storageClient(endpoint: string | undefined): S3Client {
+  return new S3Client({
+    region: config.storage.region,
+    endpoint,
+    forcePathStyle: config.storage.forcePathStyle,
+    // Omitted entirely when no key is configured, rather than passed as
+    // undefined: that is what lets the SDK's provider chain reach the App Runner
+    // instance role. Handing it a key it cannot use would turn a missing grant
+    // into an authentication error and hide the role that was meant to be used.
+    ...(config.storage.accessKeyId && config.storage.secretAccessKey
+      ? {
+          credentials: {
+            accessKeyId: config.storage.accessKeyId,
+            secretAccessKey: config.storage.secretAccessKey,
+          },
+        }
+      : {}),
+  });
+}
+
+/** What the API itself talks to: reads back sizes, makes the bucket. */
+const client = storageClient(config.storage.endpoint);
+
+/**
+ * What URLs handed to devices are signed with. Signing is local arithmetic —
+ * nothing is sent — so this client never needs to reach its own endpoint; it
+ * only has to name the host the device will connect to, because that host is
+ * part of the signature (see `publicEndpoint` in config).
+ */
+const signer = config.storage.publicEndpoint
+  ? storageClient(config.storage.publicEndpoint)
+  : client;
 
 /**
  * Where an attachment's bytes live.
@@ -94,7 +109,7 @@ export function isAllowedType(contentType: string): boolean {
  */
 export function signUpload(key: string, contentType: string): Promise<string> {
   return getSignedUrl(
-    client,
+    signer,
     new PutObjectCommand({
       Bucket: config.storage.bucket,
       Key: key,
@@ -107,7 +122,7 @@ export function signUpload(key: string, contentType: string): Promise<string> {
 /** A URL the device can GET from, for a short while. */
 export function signDownload(key: string): Promise<string> {
   return getSignedUrl(
-    client,
+    signer,
     new GetObjectCommand({ Bucket: config.storage.bucket, Key: key }),
     { expiresIn: config.storage.urlTtlSeconds },
   );
