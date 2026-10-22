@@ -52,6 +52,21 @@ export FS_API_PUBLIC_URL="http://$HOST:3000"
 export FS_WEB_URL="http://$HOST:3001"
 export EXPO_PUBLIC_API_URL="http://$HOST:3000"
 
+# Photographs travel by signed URL, straight between the device and MinIO, and
+# the host is part of the signature — so a phone needs URLs signed for this
+# machine's LAN address, and MinIO's S3 port has to answer on it. The API
+# itself still talks to MinIO over loopback. --local keeps it all on loopback.
+if [ "$HOST" = 127.0.0.1 ]; then
+  export FS_STORAGE_BIND=127.0.0.1
+  unset FS_STORAGE_PUBLIC_ENDPOINT
+else
+  export FS_STORAGE_BIND=0.0.0.0
+  export FS_STORAGE_PUBLIC_ENDPOINT="http://$HOST:9000"
+fi
+# Recreates the container only if its binding changed; the volume, and every
+# file in it, is kept either way.
+dc up -d storage >/dev/null 2>&1 || true
+
 require_db
 # The API creates the bucket itself on boot; this only waits for something to
 # create it in.
@@ -88,7 +103,7 @@ cat <<BANNER
 
     EXPO_PUBLIC_API_URL=http://$HOST:3000 npx expo start   (from mobile/)
 
-  Photographs go to MinIO on :9000, console on :9001.
+  Photographs go to MinIO on $HOST:9000 (console on 127.0.0.1:9001).
 
   Mail is logged, not sent — ./scripts/outbox.sh reads it. Set
   FS_MAIL_API_KEY to send for real. Stripe runs on the stub unless

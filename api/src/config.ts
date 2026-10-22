@@ -166,6 +166,18 @@ export const config = {
           accessKeyId: process.env.FS_STORAGE_KEY ?? 'flightsquare',
           secretAccessKey: process.env.FS_STORAGE_SECRET ?? 'storage_dev_password',
         }),
+    /**
+     * The address a *device* reaches storage at, when it differs from the one
+     * the API uses.
+     *
+     * A signed URL carries its host inside the signature, so it has to be
+     * signed for the address the phone will actually connect to — rewriting
+     * the host afterwards would break it. In development the API talks to
+     * MinIO on loopback, but loopback on a phone is the phone; `scripts/dev.sh`
+     * sets this to the machine's LAN address. Unset, URLs are signed for
+     * `endpoint`, which is right for real S3 and for a browser on this machine.
+     */
+    publicEndpoint: process.env.FS_STORAGE_PUBLIC_ENDPOINT || undefined,
     region: process.env.FS_STORAGE_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
     bucket: process.env.FS_STORAGE_BUCKET ?? process.env.S3_BUCKET ?? 'flightsquare',
     forcePathStyle: (process.env.FS_STORAGE_PATH_STYLE ?? 'true') === 'true',

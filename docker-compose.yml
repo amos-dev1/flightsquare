@@ -58,9 +58,15 @@ services:
       MINIO_ROOT_USER: ${FS_STORAGE_KEY:-flightsquare}
       MINIO_ROOT_PASSWORD: ${FS_STORAGE_SECRET:-storage_dev_password}
     ports:
-      # Loopback, like the database: local development is not a network
-      # service. 9000 is the S3 API, 9001 the console.
-      - "127.0.0.1:${FS_STORAGE_PORT:-9000}:9000"
+      # Loopback by default, like the database: local development is not a
+      # network service. 9000 is the S3 API, 9001 the console.
+      #
+      # The S3 API alone can be opened to the LAN with FS_STORAGE_BIND=0.0.0.0,
+      # which `scripts/dev.sh` does in its LAN mode: a phone loads photographs
+      # and uploads them straight from storage, by signed URL, so it has to be
+      # able to reach it. Every request still needs a signature, the console
+      # stays on loopback, and the database never leaves it.
+      - "${FS_STORAGE_BIND:-127.0.0.1}:${FS_STORAGE_PORT:-9000}:9000"
       - "127.0.0.1:${FS_STORAGE_CONSOLE_PORT:-9001}:9001"
     volumes:
       - storage:/data
