@@ -1,12 +1,13 @@
 import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import type {
+  AircraftFlightStatsResponse,
   AircraftResponse,
   FlightResponse,
   FlightSummaryResponse,
-  MaintenanceItemResponse,
+  MaintenanceSummaryResponse,
   MeResponse,
   MembershipSummaryResponse,
   ReservationResponse,
@@ -17,9 +18,11 @@ import type {
 
 import { Body, Button, Field, Picker, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
+import { Pill, remainingLabel, toneOf, wordFor } from '@/components/maintenance';
+import { AircraftStats } from '@/components/flight-stats';
 import { api, withAuth } from '@/lib/api';
 import { readSession } from '@/lib/auth';
-import { useEntitlements, useMoreThanOnePilot } from '@/lib/entitlements';
+import { useEntitlements, useMoreThanOnePilot, usePermission } from '@/lib/entitlements';
 import { formatMoney, routeOf } from '@/lib/format';
 import { SELECTED_AIRCRAFT, readPref, writePref } from '@/lib/prefs';
 import { color, radius, space, type } from '@/theme';
@@ -56,7 +59,12 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<FlightSummaryResponse | null>(null);
   const [flights, setFlights] = useState<FlightResponse[]>([]);
   const [squawks, setSquawks] = useState<SquawkResponse[]>([]);
-  const [items, setItems] = useState<MaintenanceItemResponse[]>([]);
+  /** The selected aeroplane's maintenance summary — fetched per selection. */
+  const [due, setDue] = useState<MaintenanceSummaryResponse | null>(null);
+  /** And how it is being used — the web dashboard's stats card (§8.2: server-worked). */
+  const [stats, setStats] = useState<AircraftFlightStatsResponse | null>(null);
+  /** Bumped by every load, so the summary refreshes with everything else. */
+  const [loads, setLoads] = useState(0);
   const [reservations, setReservations] = useState<ReservationResponse[]>([]);
   const [picking, setPicking] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -79,7 +87,7 @@ export default function Dashboard() {
       promise.catch(() => fallback);
 
     try {
-      const [profile, club, clubs, ledger, aircraft, totals, mine, defects, due, booked] =
+      const [profile, club, clubs, ledger, aircraft, totals, mine, defects, booked] =
         await Promise.all([
           withAuth(() => api.me()),
           withAuth(() => api.tenant()),
@@ -88,8 +96,7 @@ export default function Dashboard() {
           optional(withAuth(() => api.listAircraft()), []),
           optional(withAuth(() => api.flightSummary({ mine: true })), null),
           optional(withAuth(() => api.listFlights({ mine: true })), []),
-          optional(withAuth(() => api.listSquawks()), []),
-          optional(withAuth(() => api.listMaintenanceItems()), []),
+          optional(withAuth(() => api.listSquawks({ open: true })), []),
           optional(
             withAuth(() => api.listReservations({ mine: true, from: new Date().toISOString() })),
             [],
@@ -106,7 +113,7 @@ export default function Dashboard() {
       setSummary(totals);
       setFlights(mine);
       setSquawks(defects);
-      setItems(due);
+      setLoads((n) => n + 1);
       setReservations(booked);
       setOffline(false);
 
@@ -158,11 +165,45 @@ export default function Dashboard() {
   const usable = fleet.filter((one) => one.status === 'active');
   const selected = usable.find((one) => one.id === selectedId) ?? null;
 
-  // Aircraft-scoped, so it moves with the selection and nothing else does.
-  const issues = useMemo(
-    () => (selected ? countIssues(selected.id, squawks, items) : 0),
-    [selected, squawks, items],
-  );
+  /*
+    What is due on the selected aeroplane, from the maintenance *summary* —
+    not the item list. §1.5 gives a Pilot `maintenance.summary: read` and
+    `maintenance.items: none`, so the list this used to read was a 403 for
+    exactly the people a dashboard is for, and their count quietly left
+    maintenance out. The summary answers for both, as it does on the web.
+
+    Aircraft-scoped, so it moves with the selection and nothing else does.
+  */
+  const selectedAircraftId = selected?.id ?? null;
+  useEffect(() => {
+    if (!selectedAircraftId) {
+      setDue(null);
+      setStats(null);
+      return;
+    }
+    let current = true;
+    void withAuth(() => api.maintenanceSummary(selectedAircraftId))
+      .catch(() => null)
+      .then((summary) => {
+        if (current) setDue(summary);
+      });
+    // Its own catch: a member without `flights: read` loses the card, not the
+    // maintenance list beside it.
+    void withAuth(() => api.aircraftFlightStats(selectedAircraftId))
+      .catch(() => null)
+      .then((figures) => {
+        if (current) setStats(figures);
+      });
+    return () => {
+      current = false;
+    };
+  }, [selectedAircraftId, loads]);
+
+  const openSquawks = selected
+    ? squawks.filter((squawk) => squawk.aircraft_id === selected.id && squawk.status !== 'resolved')
+    : [];
+  // Only an admin can open a tracked item; a Pilot's tap would be a 403.
+  const canOpenItems = usePermission('maintenance.items') !== 'none';
 
   const upcoming = reservations.filter((r) => r.status !== 'cancelled').slice(0, 3);
   // Nobody to share with means no calendar to lead with (§4.3).
@@ -291,29 +332,11 @@ export default function Dashboard() {
 
             <View style={styles.rule} />
 
-            {/*
-              §11 §11: a count is a count. It is never read as airworthiness,
-              and nothing here says "available" or "grounded" — the
-              Maintenance screen is where each item gets its correct name,
-              and the booking path asks `aircraft_availability` (§3.3).
-            */}
-            <Pressable
-              onPress={() => router.push('/maintenance')}
-              accessibilityRole="button"
-              accessibilityLabel={`${issues} open ${issues === 1 ? 'issue' : 'issues'}. Review`}
-              style={({ pressed }) => [styles.issues, pressed && styles.pressed]}
-            >
-              <Feather
-                name={issues > 0 ? 'alert-triangle' : 'check'}
-                size={20}
-                color={color.navy}
-              />
-              <Text style={styles.issueCount}>
-                {issues === 0 ? 'No open issues' : `${issues} open ${issues === 1 ? 'issue' : 'issues'}`}
-              </Text>
-              <Text style={styles.link}>Review</Text>
-              <Feather name="chevron-right" size={18} color={color.tealText} />
-            </Pressable>
+            <DueList summary={due} canOpen={canOpenItems} />
+
+            <View style={styles.rule} />
+
+            <SquawkList squawks={openSquawks} />
           </View>
         ) : loaded ? (
           <EmptyFleet />
@@ -349,6 +372,23 @@ export default function Dashboard() {
               />
             </View>
           </View>
+        ) : null}
+
+        {/*
+          6½ — How the aeroplane is being used. Aircraft-scoped like the card
+          above it, so it sits with the aircraft and before the account's own
+          bookings and flights; the heading names the tail so the two scopes
+          cannot be mistaken for each other.
+        */}
+        {selected && stats ? (
+          <>
+            <SectionRow heading={`${selected.registration} stats`} onPress={() => undefined} />
+            <AircraftStats
+              stats={stats}
+              // Hobbs where it has one, tach where it has only that (§11).
+              meter={selected.hobbs === null && selected.tach !== null ? 'tach' : 'hobbs'}
+            />
+          </>
         ) : null}
 
         {/*
@@ -790,30 +830,158 @@ function fuel(aircraft: AircraftResponse): string | null {
   })} ${unit}`;
 }
 
+/** Three rows of each, and the rest a tap away on the Maintenance screen. */
+const SHOWN = 3;
+
 /**
- * Things wanting attention on this aeroplane, which is not the same as things
- * overdue.
+ * The maintenance that is due soon or overdue on this aeroplane, by name.
  *
- * A maintenance item that is `overdue` with `ever_complied === false` was
- * seeded with the aeroplane and never confirmed — it belongs in the count,
- * because somebody should deal with it, and it does not let this screen say
- * the word "overdue" about an aeroplane. The Maintenance tab is where each
- * group gets its correct name.
+ * It used to be a count — "2 open issues" — which made somebody open another
+ * screen to learn whether that meant an oil change or an annual. Each item now
+ * says what it is, how far off it is in its own units, and its state, in the
+ * same colours as the Maintenance screen. Worst first, because the server
+ * already sorted it that way.
+ *
+ * Never an airworthiness claim (§11): the empty state says nothing tracked is
+ * due, or that nothing is tracked at all — not that the aeroplane is fine.
  */
-function countIssues(
-  aircraftId: string,
-  squawks: SquawkResponse[],
-  items: MaintenanceItemResponse[],
-): number {
-  const open = squawks.filter(
-    (squawk) => squawk.aircraft_id === aircraftId && squawk.status !== 'resolved',
-  ).length;
-  const attention = items.filter(
-    (item) =>
-      item.aircraft_id === aircraftId &&
-      (item.state === 'overdue' || item.state === 'due_soon'),
-  ).length;
-  return open + attention;
+function DueList({
+  summary,
+  canOpen,
+}: {
+  summary: MaintenanceSummaryResponse | null;
+  canOpen: boolean;
+}) {
+  const attention = (summary?.upcoming ?? []).filter(
+    (item) => item.state === 'overdue' || item.state === 'due_soon',
+  );
+
+  return (
+    <View style={styles.attention}>
+      <ListHead
+        heading="Maintenance due"
+        action={attention.length > SHOWN ? `View all (${attention.length})` : 'View all'}
+        onPress={() => router.push('/maintenance')}
+      />
+      {attention.length === 0 ? (
+        <Text style={styles.attentionEmpty}>
+          {summary === null
+            ? 'Maintenance status could not be loaded.'
+            : summary.upcoming.length === 0
+              ? 'Nothing is being tracked on this aeroplane yet.'
+              : 'Nothing tracked is due soon or overdue.'}
+        </Text>
+      ) : (
+        attention.slice(0, SHOWN).map((item) => {
+          const row = (
+            <>
+              <View style={styles.attentionText}>
+                <Text style={styles.attentionTitle} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={[styles.attentionMeta, { color: toneOf(item.state).ink }]}>
+                  {item.state === 'overdue'
+                    ? `Overdue${item.governing_remaining ? ` · ${remainingLabel(item.governing_kind, item.governing_remaining.replace('-', ''))} over` : ''}`
+                    : `${remainingLabel(item.governing_kind, item.governing_remaining)} left`}
+                  {/* §3.6: "no record" and "overdue" are different claims. */}
+                  {!item.ever_complied ? ' · no compliance recorded' : ''}
+                </Text>
+              </View>
+              <Pill state={item.state} label={wordFor(item.state)} />
+            </>
+          );
+          return canOpen ? (
+            <Pressable
+              key={item.id}
+              onPress={() =>
+                router.push({ pathname: '/(app)/maintenance-item', params: { id: item.id } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`${item.name}, ${wordFor(item.state)}`}
+              style={({ pressed }) => [styles.attentionRow, pressed && styles.pressed]}
+            >
+              {row}
+              <Feather name="chevron-right" size={18} color={color.secondary} />
+            </Pressable>
+          ) : (
+            <View key={item.id} style={styles.attentionRow}>
+              {row}
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
+}
+
+/**
+ * This aeroplane's open squawks — open and deferred, because a deferral lifts
+ * the grounding and not the defect — each opening the whole of it.
+ */
+function SquawkList({ squawks }: { squawks: SquawkResponse[] }) {
+  return (
+    <View style={styles.attention}>
+      <ListHead
+        heading="Open squawks"
+        action={squawks.length > SHOWN ? `View all (${squawks.length})` : 'View all'}
+        onPress={() => router.push('/maintenance')}
+      />
+      {squawks.length === 0 ? (
+        // Not "airworthy": §11 forbids reading that out of a missing warning.
+        <Text style={styles.attentionEmpty}>Nothing reported.</Text>
+      ) : (
+        squawks.slice(0, SHOWN).map((squawk) => (
+          <Pressable
+            key={squawk.id}
+            onPress={() => router.push({ pathname: '/(app)/squawk', params: { id: squawk.id } })}
+            accessibilityRole="button"
+            accessibilityLabel={`${squawk.summary}${squawk.grounding && squawk.status === 'open' ? ', grounding' : ''}. Open`}
+            style={({ pressed }) => [styles.attentionRow, pressed && styles.pressed]}
+          >
+            <View style={styles.attentionText}>
+              <Text style={styles.attentionTitle} numberOfLines={2}>
+                {squawk.summary}
+              </Text>
+              <Text style={styles.attentionMeta}>
+                {squawk.status === 'deferred' ? 'Deferred · ' : ''}
+                {shortDate(squawk.reported_at.slice(0, 10))}
+              </Text>
+            </View>
+            {squawk.grounding && squawk.status === 'open' ? (
+              <Pill state="overdue" label="Grounding" />
+            ) : null}
+            <Feather name="chevron-right" size={18} color={color.secondary} />
+          </Pressable>
+        ))
+      )}
+    </View>
+  );
+}
+
+function ListHead({
+  heading,
+  action,
+  onPress,
+}: {
+  heading: string;
+  action: string;
+  onPress: () => void;
+}) {
+  return (
+    <View style={styles.attentionHead}>
+      <Text style={styles.attentionHeading}>{heading}</Text>
+      <Pressable
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`${action}, ${heading}`}
+        hitSlop={space.sm}
+        style={({ pressed }) => [styles.sectionAction, pressed && styles.pressed]}
+      >
+        <Text style={styles.link}>{action}</Text>
+        <Feather name="chevron-right" size={16} color={color.tealText} />
+      </Pressable>
+    </View>
+  );
 }
 
 /** §11: never a bare sign. The wording carries it. */
@@ -977,14 +1145,33 @@ const styles = StyleSheet.create({
   recorded: { ...type.supporting, color: color.secondary },
   recordedList: { gap: 2, paddingHorizontal: space.base, paddingVertical: space.md },
 
-  issues: {
+  // What is due, and what is wrong — rows inside the aircraft card.
+  attention: { paddingVertical: space.sm },
+  attentionHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.base,
+    minHeight: 44,
+  },
+  attentionHeading: { ...type.cardHeading },
+  attentionEmpty: {
+    ...type.bodySmall,
+    color: color.secondary,
+    paddingHorizontal: space.base,
+    paddingBottom: space.sm,
+  },
+  attentionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.sm,
-    padding: space.base,
-    minHeight: 56,
+    paddingHorizontal: space.base,
+    paddingVertical: space.sm,
+    minHeight: 52,
   },
-  issueCount: { ...type.cardHeading, flex: 1 },
+  attentionText: { flex: 1, gap: 2 },
+  attentionTitle: { ...type.bodySmall, fontFamily: type.cardHeading.fontFamily },
+  attentionMeta: { ...type.supporting, color: color.secondary },
 
   empty: { padding: space.base, gap: space.md },
   emptyRow: {

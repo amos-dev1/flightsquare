@@ -194,6 +194,10 @@ function FleetTabs() {
         options={{ href: null, title: "Report a defect", headerLeft: Back }}
       />
       <Tabs.Screen
+        name="squawk"
+        options={{ href: null, title: "Squawk", headerLeft: Back }}
+      />
+      <Tabs.Screen
         name="maintenance-item"
         options={{ href: null, title: "Tracked item", headerLeft: Back }}
       />

@@ -1,6 +1,7 @@
 'use client';
 
-import { useActionState, useState, useTransition } from 'react';
+import { useActionState, useEffect, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Plus } from 'lucide-react';
 
 import {
@@ -8,111 +9,194 @@ import {
   updateAircraftDocument,
   type FormState,
 } from '@/app/actions';
-import { Alert, Button, Field, Input, Textarea } from '@/components/ui';
-import { FileUpload } from '@/components/upload';
+import { Alert, Button, Field, Input, Select } from '@/components/ui';
+import { uploadFile } from '@/components/upload';
 import type { AircraftDocumentKind } from '@flightsquare/shared';
 
-/** Which kinds have a date to count down to. The rest are not asked. */
-const EXPIRES: Record<AircraftDocumentKind, boolean> = {
-  airworthiness: false,
-  registration: true,
-  operating_limitations: false,
-  weight_balance: false,
-  insurance: true,
-  other: true,
-};
+import { DOCUMENT_TYPES } from './types';
+
+/** What the browser offers to pick — what the API accepts for a document. */
+const ACCEPT = 'application/pdf,image/jpeg,image/png,image/heic,image/webp';
 
 /**
- * Filing a document, and then its file.
+ * Adding a document: what it is, when it expires if it does, and the file.
  *
- * Two steps on purpose rather than one combined form. The document row carries
- * the dates and is written first — which is the order the schema enforces, and
- * which makes "the insurance expires on 31 March and nobody has scanned it yet"
- * an expressible state rather than a thing a club has to remember separately.
+ * One form, where it used to be one per type plus a second step for the file.
+ * The type is a choice from the list; "Other" asks for a name, and every other
+ * type is named by its type, so a title is never typed twice.
  *
- * The expiry field is only asked for where there is one. A standard
- * airworthiness certificate is good for as long as the aeroplane is maintained
- * and a weight and balance sheet until it is modified; putting an empty date box
- * in front of somebody is how a guess ends up on the record.
+ * The file is required here, because a document with nothing to open is
+ * something a pilot cannot use. It still travels in the order the schema wants
+ * (§3.8): the action saves the document and hands back its id, and the browser
+ * sends the file straight to storage against it — the bytes never pass through
+ * the Next server. If the upload fails, the document is already saved and the
+ * form says so, rather than pretending nothing happened.
+ *
+ * The expiry date is offered for every type and required for none: a standard
+ * airworthiness certificate never expires, but a special one, a registration
+ * and a policy do, and whoever files it knows which this is.
  */
-export function DocumentForm({
-  aircraftId,
-  kind,
-}: {
-  aircraftId: string;
-  kind: AircraftDocumentKind;
-}) {
+export function DocumentForm({ aircraftId }: { aircraftId: string }) {
+  const [open, setOpen] = useState(false);
+  // A fresh form for each document: the last one's saved state must not be
+  // what the next one opens on.
+  const [round, setRound] = useState(0);
+
+  if (!open) {
+    return (
+      <Button variant="secondary" onClick={() => setOpen(true)}>
+        <Plus aria-hidden size={16} strokeWidth={2} />
+        Add document
+      </Button>
+    );
+  }
+
+  return (
+    <AddDocument
+      key={round}
+      aircraftId={aircraftId}
+      onClose={() => {
+        setRound((n) => n + 1);
+        setOpen(false);
+      }}
+    />
+  );
+}
+
+function AddDocument({ aircraftId, onClose }: { aircraftId: string; onClose: () => void }) {
+  const router = useRouter();
+  const [kind, setKind] = useState<AircraftDocumentKind | ''>('');
+  const [file, setFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [state, action, pending] = useActionState<FormState, FormData>(
     createAircraftDocument.bind(null, aircraftId),
     {},
   );
 
-  const documentId = state.values?.document_id;
+  const documentId = state.saved ? state.values?.document_id : undefined;
+  const noun = DOCUMENT_TYPES.find((type) => type.kind === kind)?.noun ?? '';
+
+  async function sendFile() {
+    if (!documentId || !file) return;
+    setSending(true);
+    setSendError(null);
+    const result = await uploadFile({ kind: 'document', id: documentId }, file, {
+      fileKind: 'document',
+      revalidate: `/aircraft/${aircraftId}/documents`,
+    });
+    setSending(false);
+    if (result.error) {
+      setSendError(result.error);
+      return;
+    }
+    // Done: close, and the next one starts on a clean form.
+    router.refresh();
+    onClose();
+  }
+
+  // The document is saved: send its file, once.
+  useEffect(() => {
+    if (documentId) void sendFile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
 
   return (
-    <details className="group">
-      <summary className="inline-flex h-11 cursor-pointer list-none items-center gap-2 rounded-lg px-2 text-sm font-semibold hover:bg-subtle">
-        <Plus aria-hidden size={16} strokeWidth={2} />
-        Add
-      </summary>
-
-      <form action={action} className="mt-3 space-y-4 border-t border-line pt-4">
-        <input type="hidden" name="kind" value={kind} />
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Title" required hint="What it is, so a renewal can be told from the one before.">
-            <Input name="title" required maxLength={200} defaultValue={state.values?.title} />
-          </Field>
-          <Field label="Reference" hint="Policy or certificate number. Not parsed.">
-            <Input
-              name="reference"
-              maxLength={100}
-              className="tabular"
-              defaultValue={state.values?.reference}
-            />
-          </Field>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Issued">
-            <Input name="issued_on" type="date" defaultValue={state.values?.issued_on} />
-          </Field>
-          {EXPIRES[kind] ? (
-            <Field label="Expires" hint="A reminder goes out 60 days before. It never grounds the aircraft.">
-              <Input name="expires_on" type="date" defaultValue={state.values?.expires_on} />
-            </Field>
-          ) : (
-            <p className="self-end text-sm text-secondary">
-              This one does not expire, so there is no date to ask for.
-            </p>
-          )}
-        </div>
-
-        <Field label="Notes">
-          <Textarea name="notes" rows={2} maxLength={2000} defaultValue={state.values?.notes} />
+    <form
+      action={action}
+      className="space-y-4 rounded-xl border border-line bg-surface p-5"
+      onSubmit={(event) => {
+        if (!file) {
+          event.preventDefault();
+          setFileError('Choose the PDF or photo of the document.');
+        }
+      }}
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Type" required>
+          <Select
+            name="kind"
+            required
+            value={kind}
+            onChange={(event) => setKind(event.target.value as AircraftDocumentKind)}
+          >
+            <option value="" disabled>
+              Choose a type
+            </option>
+            {DOCUMENT_TYPES.map((type) => (
+              <option key={type.kind} value={type.kind}>
+                {type.noun}
+              </option>
+            ))}
+          </Select>
         </Field>
 
-        {state.error ? <Alert>{state.error}</Alert> : null}
-
-        {documentId ? (
-          <div className="space-y-3 rounded-xl border border-line bg-subtle px-4 py-3">
-            <p className="text-sm">
-              Recorded. Attach the scan or photograph now, or leave it and add one later.
-            </p>
-            <FileUpload
-              owner={{ kind: 'document', id: documentId }}
-              label="Attach the file"
-              fileKind="document"
-              revalidate={`/aircraft/${aircraftId}/documents`}
+        {/* Named by its type, unless it is "Other" — then it needs a name. */}
+        {kind === 'other' ? (
+          <Field label="Document name" required>
+            <Input
+              name="title"
+              required
+              maxLength={200}
+              placeholder="e.g. 337 for the GPS install"
+              defaultValue={state.values?.title}
             />
-          </div>
+          </Field>
         ) : (
-          <Button type="submit" disabled={pending}>
-            {pending ? 'Saving…' : 'Save document'}
-          </Button>
+          <input type="hidden" name="title" value={noun} />
         )}
-      </form>
-    </details>
+
+        <Field
+          label="Expires"
+          hint="Optional. Leave it empty if this one does not expire. It never affects bookings."
+        >
+          <Input name="expires_on" type="date" defaultValue={state.values?.expires_on} />
+        </Field>
+
+        <Field label="File" required hint="A PDF or a photo.">
+          <input
+            type="file"
+            accept={ACCEPT}
+            aria-invalid={fileError ? true : undefined}
+            disabled={Boolean(documentId)}
+            className="block w-full text-sm text-secondary file:mr-3 file:h-11 file:rounded-lg file:border file:border-control file:bg-surface file:px-4 file:text-sm file:font-semibold file:text-navy hover:file:bg-subtle"
+            onChange={(event) => {
+              setFile(event.target.files?.[0] ?? null);
+              setFileError(null);
+            }}
+          />
+        </Field>
+      </div>
+
+      {fileError ? <Alert>{fileError}</Alert> : null}
+      {state.error ? <Alert>{state.error}</Alert> : null}
+
+      {sendError ? (
+        <div className="space-y-3">
+          <Alert>
+            The document is saved, but its file did not upload: {sendError}
+          </Alert>
+          <Button type="button" onClick={() => void sendFile()}>
+            Try the upload again
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-3">
+          <Button type="submit" disabled={pending || sending || Boolean(documentId)}>
+            {pending ? 'Saving…' : sending ? 'Uploading…' : 'Save document'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={pending || sending}
+            onClick={onClose}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+    </form>
   );
 }
 

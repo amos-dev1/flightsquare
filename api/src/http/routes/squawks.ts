@@ -227,6 +227,30 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
   );
 
   /**
+   * One squawk, in full — the same projection the list returns, deferrals and
+   * photographs included, so a detail screen and a list row cannot disagree.
+   *
+   * Added for the phone, which had a list it could not open: every defect was
+   * a card with its summary and nothing behind it. A squawk in another tenant
+   * is a 404, never a 403 — RLS has already made it invisible, and §6 keeps an
+   * error from leaking cross-tenant existence.
+   */
+  app.get<{ Params: { id: string } }>(
+    '/squawks/:id',
+    { config: { requiresTenant: true, permission: ['squawks', 'read'] } },
+    async (request) => {
+      const [squawk] = await request.withTenant(async (trx) =>
+        withDeferrals(
+          trx,
+          await selectSquawks(trx).where('s.id', '=', request.params.id).execute(),
+        ),
+      );
+      if (!squawk) throw new NotFoundError();
+      return squawk;
+    },
+  );
+
+  /**
    * Filing one. `squawks: write` — this is the pilot's half of §1.5's line,
    * and the Pilot bundle holds it.
    *

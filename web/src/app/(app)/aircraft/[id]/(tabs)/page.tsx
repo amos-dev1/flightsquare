@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
-import { Alert, Card, KeyMetric, SectionHeading, Status } from '@/components/ui';
+import { Alert, Button, Card, KeyMetric, SectionHeading, Status } from '@/components/ui';
 import { DueStatus, duePointLabel, remainingIn } from '@/app/(app)/maintenance/shared';
 import type {
   AircraftAvailabilityResponse,
@@ -216,12 +216,12 @@ export default async function AircraftDashboard({
             </p>
           )}
 
+          {/* A button rather than an underlined sentence: it is the way on to
+              the whole list, and on a phone it wants to look tappable. Secondary,
+              because Log flight is this screen's one primary action (§11 §6). */}
           <div className="px-5 py-3">
-            <Link
-              href={`/aircraft/${id}/maintenance`}
-              className="inline-flex min-h-11 items-center text-sm font-semibold underline decoration-1 underline-offset-4"
-            >
-              {upcoming.length > 0 ? 'Everything that is tracked' : 'What is tracked'}
+            <Link href={`/aircraft/${id}/maintenance`}>
+              <Button variant="secondary">All maintenance</Button>
             </Link>
           </div>
         </Card>
