@@ -193,7 +193,7 @@ export default function Book() {
               disabled={active.length <= 1}
               label={chosen ? `${chosen.registration}. Change aircraft` : 'Choose an aircraft'}
             >
-              <AircraftThumbnail size="small" />
+              <AircraftThumbnail size="small" photo={chosen?.photo} />
               <View style={styles.chooserText}>
                 <Text style={styles.registration}>{chosen?.registration ?? 'Choose one'}</Text>
                 <Text style={styles.meta}>{chosen?.type_code ?? 'Type not recorded'}</Text>
@@ -354,7 +354,7 @@ export default function Book() {
                 pressed && styles.pressed,
               ]}
             >
-              <AircraftThumbnail size="small" />
+              <AircraftThumbnail size="small" photo={one.photo} />
               <View style={styles.chooserText}>
                 <Text style={styles.registration}>{one.registration}</Text>
                 <Text style={styles.meta}>{one.type_code ?? 'Type not recorded'}</Text>

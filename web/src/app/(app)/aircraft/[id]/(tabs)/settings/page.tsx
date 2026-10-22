@@ -10,7 +10,7 @@ import type {
   MeterReadingResponse,
 } from '@flightsquare/shared';
 
-import { ArchiveButton, ReadingForm } from '../../client';
+import { AircraftPhotoEditor, ArchiveButton, ReadingForm } from '../../client';
 import { AircraftSettingsForm } from '../../settings-form';
 import { Authorizations } from '../../authorizations';
 
@@ -57,6 +57,17 @@ export default async function AircraftSettingsTab({
 
   return (
     <div className="space-y-6">
+      {canWrite ? (
+        <section className="space-y-3">
+          <SectionHeading>Photo</SectionHeading>
+          <AircraftPhotoEditor
+            aircraftId={aircraft.id}
+            registration={aircraft.registration}
+            photo={aircraft.photo ?? null}
+          />
+        </section>
+      ) : null}
+
       {canWrite ? (
         <section className="space-y-3">
           <SectionHeading>Details</SectionHeading>

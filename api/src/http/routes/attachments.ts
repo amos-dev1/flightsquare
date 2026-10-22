@@ -42,7 +42,7 @@ import { NotFoundError } from '../errors.js';
  * route the boot-time check cannot verify.
  *
  * The consequence is a predicate repeated below: the single-row doors refuse a
- * row owned by a completion, a document or (0042) a flight. Without it, `squawks: write` would
+ * row owned by a completion, a document, (0042) a flight or (0043) an aeroplane. Without it, `squawks: write` would
  * complete somebody else's upload and the three-door split would collapse back
  * into one. Squawk-owned *or ownerless* is what they serve, and the second half
  * is §8.1 — an ownerless attachment is creatable through this door today, so a
@@ -127,6 +127,7 @@ export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
           .where('compliance_record_id', 'is', null)
           .where('aircraft_document_id', 'is', null)
           .where('flight_id', 'is', null)
+          .where('aircraft_id', 'is', null)
           .executeTakeFirst(),
       );
       if (!row) throw new NotFoundError();
@@ -165,6 +166,7 @@ export async function attachmentRoutes(app: FastifyInstance): Promise<void> {
           .where('compliance_record_id', 'is', null)
           .where('aircraft_document_id', 'is', null)
           .where('flight_id', 'is', null)
+          .where('aircraft_id', 'is', null)
           .executeTakeFirst(),
       );
       if (!row) throw new NotFoundError();

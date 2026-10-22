@@ -491,6 +491,7 @@ export default function Schedule() {
           <Option
             key={one.id}
             label={one.registration}
+            photo={one.photo}
             detail={one.type_code ?? 'Type not recorded'}
             grounded={availability.find((a) => a.aircraft_id === one.id)?.available === false}
             chosen={aircraftId === one.id}
@@ -533,6 +534,7 @@ function Option({
   chosen,
   grounded,
   registration = true,
+  photo,
   onPress,
 }: {
   label: string;
@@ -541,6 +543,8 @@ function Option({
   grounded?: boolean;
   /** Whether the label is a tail number, which §11 sets in uppercase. */
   registration?: boolean;
+  /** The aeroplane's picture, where the option is one. */
+  photo?: { url: string } | null;
   onPress: () => void;
 }) {
   return (
@@ -554,7 +558,7 @@ function Option({
         pressed && styles.pressed,
       ]}
     >
-      <AircraftThumbnail size="small" />
+      <AircraftThumbnail size="small" photo={photo} />
       <View style={styles.optionText}>
         <Text style={[styles.optionLabel, registration && styles.optionRegistration]}>
           {label}

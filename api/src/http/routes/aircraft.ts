@@ -1,13 +1,21 @@
 import type { FastifyInstance } from 'fastify';
 import type {
   AircraftResponse,
+  AttachFileRequest,
+  AttachmentResponse,
   CreateAircraftRequest,
   MeterReadingResponse,
 } from '@flightsquare/shared';
 
 import { sql } from 'kysely';
 
+import {
+  assertUploadable,
+  recordArrival,
+  signAttachmentUpload,
+} from '../../attachments/upload.js';
 import { assertQuota } from '../../db/entitlements.js';
+import { signDownload } from '../../storage/index.js';
 import { ownMembership } from '../../db/membership.js';
 import { selectAvailability, toAvailability } from './maintenance.js';
 import {
@@ -205,12 +213,36 @@ async function selectAircraft(trx: Tx, id?: string) {
            AND NOT EXISTS (SELECT 1 FROM public.flights s WHERE s.supersedes_id = f.id)
          ORDER BY f.recorded_at DESC, f.id DESC
          LIMIT 1)`.as('last_location_at'),
+      /**
+       * The aeroplane's picture (0043): the newest active one that actually
+       * arrived. Nothing on `aircraft` points at it — a replacement puts its
+       * predecessor aside, and if that ever failed this would still choose
+       * the right one.
+       */
+      sql<string | null>`(
+        SELECT a.id
+          FROM public.attachments a
+         WHERE a.aircraft_id = aircraft.id
+           AND a.status = 'active'
+           AND a.uploaded_at IS NOT NULL
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT 1)`.as('photo_id'),
+      sql<string | null>`(
+        SELECT a.storage_key
+          FROM public.attachments a
+         WHERE a.aircraft_id = aircraft.id
+           AND a.status = 'active'
+           AND a.uploaded_at IS NOT NULL
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT 1)`.as('photo_key'),
     ]);
   if (id !== undefined) query = query.where('aircraft.id', '=', id);
   return query.orderBy('aircraft.registration').execute();
 }
 
-function toResponse(row: Awaited<ReturnType<typeof selectAircraft>>[number]): AircraftResponse {
+async function toResponse(
+  row: Awaited<ReturnType<typeof selectAircraft>>[number],
+): Promise<AircraftResponse> {
   return {
     id: row.id,
     registration: row.registration,
@@ -238,8 +270,17 @@ function toResponse(row: Awaited<ReturnType<typeof selectAircraft>>[number]): Ai
     fuel_remaining_at: row.fuel_remaining_at?.toISOString() ?? null,
     last_location: row.last_location,
     last_location_at: row.last_location_at?.toISOString() ?? null,
+    // Signed per response, never stored: the link is a bearer credential for
+    // one object (§3.8), and the fleet list is read on `aircraft: read`.
+    photo:
+      row.photo_id && row.photo_key
+        ? { attachment_id: row.photo_id, url: await signDownload(row.photo_key) }
+        : null,
   };
 }
+
+/** A photograph, not a scan: the aeroplane's picture is shown, never opened as a PDF. */
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/heic', 'image/webp'];
 
 /**
  * The three ways a write to `aircraft` fails because of what the caller
@@ -281,7 +322,7 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
     { config: { requiresTenant: true, permission: ['aircraft', 'read'] } },
     async (request) => {
       const rows = await request.withTenant((trx) => selectAircraft(trx));
-      return rows.map(toResponse);
+      return Promise.all(rows.map(toResponse));
     },
   );
 
@@ -408,7 +449,7 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
         return selectAircraft(trx, aircraft.id);
       }).catch(rethrowAircraftWriteError);
 
-      return reply.status(201).send(toResponse(created[0]!));
+      return reply.status(201).send(await toResponse(created[0]!));
     },
   );
 
@@ -650,6 +691,153 @@ export async function aircraftRoutes(app: FastifyInstance): Promise<void> {
         id: created.id,
         recorded_at: created.recorded_at.toISOString(),
       });
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // The aeroplane's picture (0043) — the fifth attachment owner.
+  //
+  // The same three steps every upload uses (§3.8), behind a door gated on
+  // `aircraft: write`: choosing how the aeroplane is shown to every member is
+  // the same decision as its registration and home base, so it sits with the
+  // settings rather than with anyone who can book it. The squawk door refuses
+  // aircraft-owned rows, so `squawks: write` cannot reach one.
+  //
+  // There is no delete. A replacement or a removal marks the old picture
+  // `removed`, and its bytes go on counting toward `storage.bytes` because
+  // they are still in the bucket (§10, 2026-10-02).
+  // -------------------------------------------------------------------------
+
+  app.post<{ Params: { id: string }; Body: AttachFileRequest }>(
+    '/aircraft/:id/photo',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['content_type', 'byte_size'],
+          additionalProperties: false,
+          properties: {
+            // §8.2: the device names it.
+            id: { type: 'string', format: 'uuid' },
+            kind: { type: 'string', enum: ['aircraft_photo'] },
+            content_type: { type: 'string', enum: PHOTO_TYPES },
+            byte_size: { type: 'integer', minimum: 1 },
+          },
+        },
+      },
+      config: { requiresTenant: true, permission: ['aircraft', 'write'] },
+    },
+    async (request, reply) => {
+      const body = request.body;
+      assertUploadable(body.content_type, body.byte_size);
+
+      const { entitlements } = await request.loadGates();
+
+      const created = await request.withTenant((trx) =>
+        signAttachmentUpload(trx, {
+          tenantId: request.ctx!.tenantId!,
+          userId: request.ctx!.userId,
+          quota: entitlements.quota('storage.bytes'),
+          owner: { aircraft_id: request.params.id },
+          kind: 'aircraft_photo',
+          ...(body.id ? { id: body.id } : {}),
+          contentType: body.content_type,
+          byteSize: body.byte_size,
+        }),
+      );
+
+      return reply.status(201).send({
+        id: created.id,
+        squawk_id: null,
+        compliance_record_id: null,
+        aircraft_document_id: null,
+        flight_id: null,
+        aircraft_id: request.params.id,
+        kind: 'aircraft_photo',
+        status: 'active',
+        content_type: body.content_type,
+        byte_size: body.byte_size,
+        uploaded: false,
+        upload_url: created.uploadUrl,
+      } satisfies AttachmentResponse);
+    },
+  );
+
+  /**
+   * The upload landed: record what arrived, and put aside the picture it
+   * replaces, in one transaction. Returns the aeroplane, since what the
+   * caller wants next is the screen with the new picture on it.
+   */
+  app.post<{ Params: { id: string; attachmentId: string } }>(
+    '/aircraft/:id/photo/:attachmentId/complete',
+    { config: { requiresTenant: true, permission: ['aircraft', 'write'] } },
+    async (request) => {
+      const row = await request.withTenant((trx) =>
+        trx
+          .selectFrom('attachments')
+          .select(['id', 'storage_key'])
+          .where('id', '=', request.params.attachmentId)
+          .where('aircraft_id', '=', request.params.id)
+          .where('status', '=', 'active')
+          .executeTakeFirst(),
+      );
+      if (!row) throw new NotFoundError();
+
+      const size = await recordArrival(row.storage_key);
+
+      const rows = await request.withTenant(async (trx) => {
+        await trx
+          .updateTable('attachments')
+          .set({ byte_size: size, uploaded_at: new Date() })
+          .where('id', '=', row.id)
+          .execute();
+
+        await trx
+          .updateTable('attachments')
+          .set({
+            status: 'removed',
+            removed_at: new Date(),
+            removed_by: await ownMembership(trx, request.ctx!.userId),
+            removed_reason: 'replaced by a newer photo',
+          })
+          .where('aircraft_id', '=', request.params.id)
+          .where('status', '=', 'active')
+          .where('id', '<>', row.id)
+          .execute();
+
+        return selectAircraft(trx, request.params.id);
+      });
+
+      const aircraft = rows[0];
+      if (!aircraft) throw new NotFoundError();
+      return toResponse(aircraft);
+    },
+  );
+
+  /** No picture. The rows stay, as every removal here does. */
+  app.post<{ Params: { id: string } }>(
+    '/aircraft/:id/photo/remove',
+    { config: { requiresTenant: true, permission: ['aircraft', 'write'] } },
+    async (request) => {
+      const rows = await request.withTenant(async (trx) => {
+        await trx
+          .updateTable('attachments')
+          .set({
+            status: 'removed',
+            removed_at: new Date(),
+            removed_by: await ownMembership(trx, request.ctx!.userId),
+            removed_reason: 'photo removed from the aircraft settings',
+          })
+          .where('aircraft_id', '=', request.params.id)
+          .where('status', '=', 'active')
+          .execute();
+
+        return selectAircraft(trx, request.params.id);
+      });
+
+      const aircraft = rows[0];
+      if (!aircraft) throw new NotFoundError();
+      return toResponse(aircraft);
     },
   );
 }

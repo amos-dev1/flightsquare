@@ -1,4 +1,4 @@
-import { AlertTriangle, Ban, CalendarClock, Check, Clock, Info } from 'lucide-react';
+import { AlertTriangle, Ban, CalendarClock, Check, Clock, Info, Plane } from 'lucide-react';
 import type { ComponentProps, ReactNode } from 'react';
 
 /**
@@ -143,6 +143,53 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
       <p className="text-base font-semibold">{title}</p>
       {children ? <div className="mt-2 text-sm text-secondary">{children}</div> : null}
     </div>
+  );
+}
+
+/**
+ * The aeroplane's picture (0043), or a quiet placeholder where there is none.
+ *
+ * A placeholder rather than nothing so a fleet list keeps its alignment; it is
+ * a generic outline icon on mist, never the logo (§11 §10). Not next/image:
+ * the host is object storage and the URL is signed and expires. The picture is
+ * decoration beside a registration that is always printed, so its alt text is
+ * empty unless the caller says otherwise.
+ */
+export function AircraftPhoto({
+  photo,
+  size = 'sm',
+  alt = '',
+  className = '',
+}: {
+  photo?: { url: string } | null;
+  size?: 'sm' | 'md' | 'lg';
+  alt?: string;
+  className?: string;
+}) {
+  const box = {
+    sm: 'h-12 w-16 rounded-lg',
+    md: 'h-16 w-24 rounded-lg',
+    lg: 'aspect-[4/3] w-full max-w-sm rounded-xl',
+  }[size];
+
+  if (!photo) {
+    return (
+      <div
+        aria-hidden
+        className={`flex shrink-0 items-center justify-center border border-line bg-mist text-slate ${box} ${className}`}
+      >
+        <Plane size={size === 'lg' ? 24 : 20} strokeWidth={1.75} />
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={photo.url}
+      alt={alt}
+      className={`shrink-0 border border-line bg-mist object-cover ${box} ${className}`}
+    />
   );
 }
 
