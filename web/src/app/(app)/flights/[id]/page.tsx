@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { ApiError, apiFetch } from '@/lib/api';
 import { FileText } from 'lucide-react';
 
+import { categoryLabel } from '@/components/flight-category';
 import { Alert, Card, Meter, PageTitle, SectionHeading, Status } from '@/components/ui';
 import { FileUpload } from '@/components/upload';
 import type {
@@ -85,6 +86,7 @@ export default async function FlightPage({
           <time dateTime={flight.flight_date}>{flight.flight_date}</time>
           {' · '}
           {flight.flown_by_email ?? 'Unknown pilot'}
+          {categoryLabel(flight.category) ? ` · ${categoryLabel(flight.category)}` : ''}
         </p>
       </div>
 
