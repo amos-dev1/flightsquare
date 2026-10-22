@@ -8,6 +8,7 @@ import {
   Info,
   MapPin,
   NotebookPen,
+  Plane,
   Plus,
   X,
 } from 'lucide-react';
@@ -16,6 +17,7 @@ import { useActionState, useEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 
 import { logFlight, type FormState } from '@/app/actions';
+import { FlightCategoryChoice } from '@/components/flight-category';
 import { uploadFile } from '@/components/upload';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
 import type { AircraftResponse } from '@flightsquare/shared';
@@ -510,6 +512,10 @@ export function LogFlightForm({
         own section below: its own record, its own severity, its own grounding
         judgement (§3.6). An empty box asks the open question it is for.
       */}
+      <Group icon={Plane} title="What this flight was">
+        <FlightCategoryChoice defaultValue={state.values?.category} />
+      </Group>
+
       <Group icon={NotebookPen} title="Notes">
         <label className="block">
           <span className="sr-only">Notes</span>

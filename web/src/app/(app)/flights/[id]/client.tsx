@@ -4,6 +4,7 @@ import { Ban, PencilLine } from 'lucide-react';
 import { useActionState, useState, useTransition } from 'react';
 
 import { logFlight, markLoggedInError, type FormState } from '@/app/actions';
+import { FlightCategoryChoice } from '@/components/flight-category';
 import { Alert, Button, Card, Field, Input, SectionHeading, Textarea } from '@/components/ui';
 import type { AircraftResponse, FlightResponse } from '@flightsquare/shared';
 import { uuidv7 } from '@flightsquare/shared/uuidv7';
@@ -197,6 +198,13 @@ function CorrectionForm({
             />
           </Field>
         </div>
+      </Card>
+
+      {/* A correction replaces the whole entry, so this travels with it too —
+          otherwise correcting a Hobbs figure would quietly drop the category. */}
+      <Card className="space-y-4 p-5 sm:p-6">
+        <span className="block text-sm font-semibold">What this flight was</span>
+        <FlightCategoryChoice defaultValue={was('category', flight.category ?? null) || null} />
       </Card>
 
       <Card className="space-y-4 p-5 sm:p-6">

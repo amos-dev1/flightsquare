@@ -453,7 +453,7 @@ export async function logFlight(
   const values = Object.fromEntries(
     ['flight_date', 'hobbs_start', 'hobbs_end', 'tach_start', 'tach_end',
      'fuel_remaining_before', 'fuel_remaining_after', 'fuel_added_qty', 'fuel_added_cost',
-     'departed_from', 'arrived_at', 'remarks',
+     'departed_from', 'arrived_at', 'remarks', 'category',
      // §3.4: a correction is this flight replacing another, so it arrives on
      // the same form and down the same path. There is no PATCH.
      'supersedes_id', 'correction_reason'].map((k) => [k, text(k)]),
@@ -517,6 +517,11 @@ export async function logFlight(
     if (values[key]) body[key] = values[key].toUpperCase();
   }
   if (values.remarks) body.remarks = values.remarks;
+  // What the aeroplane was doing. Descriptive only; the API's enum refuses
+  // anything else, so a value that is not one of the three is simply not sent.
+  if (['personal', 'business', 'maintenance'].includes(values.category ?? '')) {
+    body.category = values.category;
+  }
 
   if (values.supersedes_id) {
     // Five characters, matching the CHECK behind it. "oops" is not a record
