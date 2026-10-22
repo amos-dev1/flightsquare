@@ -254,6 +254,26 @@ export async function searchAerodromes(q: string): Promise<AerodromeResponse[]> 
   }
 }
 
+/**
+ * The airport behind one identifier, if the table knows it — the phone's
+ * lookup on the log-flight form, for the web.
+ *
+ * Decoration only: an identifier the table has never heard of is still a true
+ * answer and stays loggable (0014 dropped the foreign key), so "not found" and
+ * "could not ask" are both just nothing to show.
+ */
+export async function lookupAerodrome(ident: string): Promise<AerodromeResponse | null> {
+  const code = ident.trim();
+  if (code.length < 3) return null;
+  try {
+    return await apiFetch<AerodromeResponse>(
+      `/reference/aerodromes/${encodeURIComponent(code)}`,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function createAircraft(_state: FormState, form: FormData): Promise<FormState> {
   const text = (key: string) => String(form.get(key) ?? '').trim();
   // Everything the form offered, kept so an error does not empty it (§11).

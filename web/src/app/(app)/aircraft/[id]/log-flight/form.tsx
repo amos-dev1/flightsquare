@@ -16,11 +16,11 @@ import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 
-import { logFlight, type FormState } from '@/app/actions';
+import { logFlight, lookupAerodrome, type FormState } from '@/app/actions';
 import { FlightCategoryChoice } from '@/components/flight-category';
 import { uploadFile } from '@/components/upload';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
-import type { AircraftResponse } from '@flightsquare/shared';
+import type { AerodromeResponse, AircraftResponse } from '@flightsquare/shared';
 // The subpath, not the root. `@flightsquare/shared` has no build step and its
 // index re-exports with `./client.js` specifiers — correct for Node ESM,
 // unresolvable for the bundler, which gets an empty module and fails at
@@ -43,6 +43,43 @@ function hoursBetween(start: string, end: string): string | null {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * The airport behind what has been typed, as the phone shows it.
+ *
+ * Debounced, because it runs on a keystroke, and a slow answer to "KL" is
+ * dropped once "KLOT" has been typed. Shows nothing when the table does not
+ * know the code — a grass strip with a name is still a true answer.
+ */
+function useAerodrome(ident: string): AerodromeResponse | null {
+  const [found, setFound] = useState<AerodromeResponse | null>(null);
+
+  useEffect(() => {
+    const code = ident.trim();
+    if (code.length < 3) {
+      setFound(null);
+      return;
+    }
+    let live = true;
+    const timer = setTimeout(() => {
+      void lookupAerodrome(code).then((row) => {
+        if (live) setFound(row);
+      });
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [ident]);
+
+  return found;
+}
+
+/** "Lewis University Airport · Chicago/Romeoville, IL" */
+function describeAerodrome(aerodrome: AerodromeResponse): string {
+  const place = [aerodrome.municipality, aerodrome.region].filter(Boolean).join(', ');
+  return place ? `${aerodrome.name} · ${place}` : aerodrome.name;
+}
 
 /**
  * One labelled group, always open.
@@ -221,6 +258,13 @@ export function LogFlightForm({
   /** Where the aeroplane is standing, as far as this product's records go. */
   const here = aircraft.last_location ?? aircraft.home_base ?? '';
 
+  // What has been typed into From and To, so the airport behind each can be
+  // named under it. The inputs stay uncontrolled; this only follows them.
+  const [fromCode, setFromCode] = useState(state.values?.departed_from ?? here);
+  const [toCode, setToCode] = useState(state.values?.arrived_at ?? '');
+  const from = useAerodrome(fromCode);
+  const to = useAerodrome(toCode);
+
   // §8.2: a start that does not meet the last reading is flagged, never
   // rejected — so say so here rather than letting it look like an error.
   const hobbsGap =
@@ -269,20 +313,25 @@ export function LogFlightForm({
             the aeroplane knows, and filling it in would suggest the pilot is
             coming straight back.
           */}
-          <Field label="From" hint={here ? "Where it last landed" : "e.g. KPAO"}>
+          <Field
+            label="From"
+            hint={from ? describeAerodrome(from) : here ? 'Where it last landed' : 'e.g. KPAO'}
+          >
             <Input
               name="departed_from"
               className="uppercase"
               autoCapitalize="characters"
               defaultValue={state.values?.departed_from ?? here}
+              onChange={(event) => setFromCode(event.target.value)}
             />
           </Field>
-          <Field label="To" hint="e.g. KTRK">
+          <Field label="To" hint={to ? describeAerodrome(to) : 'e.g. KTRK'}>
             <Input
               name="arrived_at"
               className="uppercase"
               autoCapitalize="characters"
               defaultValue={state.values?.arrived_at}
+              onChange={(event) => setToCode(event.target.value)}
             />
           </Field>
         </div>
