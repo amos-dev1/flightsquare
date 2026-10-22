@@ -21,7 +21,7 @@ import {
 } from '@/components/aircraft';
 import { Body, Button, Card, Notice, SectionHeading } from '@/components/ui';
 import { api, withAuth } from '@/lib/api';
-import { useMoreThanOnePilot } from '@/lib/entitlements';
+import { useMoreThanOnePilot, usePermission } from '@/lib/entitlements';
 import { color, space, type } from '@/theme';
 
 /**
@@ -40,6 +40,8 @@ import { color, space, type } from '@/theme';
 export default function AircraftDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const shared = useMoreThanOnePilot();
+  // §8.1: the button is cosmetics; the API refuses a Pilot regardless.
+  const canConfigure = usePermission('aircraft') === 'write';
 
   const [aircraft, setAircraft] = useState<AircraftResponse | null>(null);
   const [dispatch, setDispatch] = useState<AircraftAvailabilityResponse | undefined>(undefined);
@@ -251,6 +253,20 @@ export default function AircraftDetail() {
               variant="secondary"
               onPress={() =>
                 router.push({ pathname: '/schedule', params: { aircraft: aircraft.id } })
+              }
+            />
+          ) : null}
+
+          {/* The web's Settings tab: photo, rates, meters, sign-offs, archive. */}
+          {canConfigure ? (
+            <Button
+              label="Aircraft settings"
+              variant="secondary"
+              onPress={() =>
+                router.push({
+                  pathname: '/(app)/aircraft-settings',
+                  params: { id: aircraft.id },
+                })
               }
             />
           ) : null}

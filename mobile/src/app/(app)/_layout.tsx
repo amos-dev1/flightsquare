@@ -214,6 +214,10 @@ function FleetTabs() {
         options={{ href: null, title: "Documents", headerLeft: Back }}
       />
       <Tabs.Screen
+        name="aircraft-settings"
+        options={{ href: null, title: "Aircraft settings", headerLeft: Back }}
+      />
+      <Tabs.Screen
         name="queue"
         options={{ href: null, title: "Waiting to sync", headerLeft: Back }}
       />
