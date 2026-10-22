@@ -36,6 +36,7 @@ import type {
   PreviewMaintenanceResponse,
   VoidCompletionRequest,
   MeResponse,
+  MemberResponse,
   MembershipSummaryResponse,
   MeterReadingResponse,
   RefreshResponse,
@@ -178,6 +179,8 @@ export function createClient(options: ClientOptions) {
     me: () => request<MeResponse>('GET', '/me'),
     memberships: () => request<MembershipSummaryResponse[]>('GET', '/me/memberships'),
     tenant: () => request<TenantResponse>('GET', '/tenant'),
+    /** The roster. `members: read`, which a Pilot does not hold. */
+    listMembers: () => request<MemberResponse[]>('GET', '/members'),
     entitlements: () => request<EntitlementsResponse>('GET', '/entitlements'),
 
     // ---- fleet ----------------------------------------------------------

@@ -874,6 +874,18 @@ on a phone a correction is the same queued write with three more fields, so
 §8.2's offline queue needed no new `kind` — which matters, because `queue.ts`
 reads a kind it does not recognise back **as a flight**.
 
+**Logging a flight for somebody else is an administrator's act** (2026-10-21).
+`flown_by` is the billing subject (§3.4), and `POST /flights` had always
+accepted it from anyone holding `flights: write` — so a Pilot could put a
+charge on another member's statement. `0044` keeps the capability, because a
+treasurer entering a paper sheet is real, and requires `aircraft: write` for
+it, the same admin test `0041` uses for a late correction, in a BEFORE INSERT
+trigger rather than a handler. No shipped phone build sends anybody's
+membership but the pilot's own, so §8.1 is not tightened against any client. A correction that
+names nobody keeps the pilot of the flight it replaces — before that, an admin
+correcting a member's figures moved the flight, and its charge, onto the
+admin. Server-side, because shipped builds send no `flown_by` on a correction.
+
 **`deleted_at` is a control-plane marker, not an application verb** (2026-09-20). §6 asks for a `deleted_at IS NULL` predicate in the RLS policy *and* for soft deletion; Postgres will not give both, because on UPDATE it re-checks the new row against the policies that apply to SELECT — so a row that sets `deleted_at` stops satisfying the policy that made it visible, and the write is refused. Resolved in favour of the invariant: `deleted_at` means account closure and purge (§7.3), written by the admin plane. **An application-facing "delete" is a status column** — a removed member is `status = 'removed'`, an archived aircraft will be an aircraft status. §5.5 requires archived records to keep their history and return on re-upgrade, so hiding them at the database level would have been wrong anyway.
 
 ### Open

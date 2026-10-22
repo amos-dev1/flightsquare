@@ -20,7 +20,7 @@ import { logFlight, lookupAerodrome, type FormState } from '@/app/actions';
 import { FlightCategoryChoice } from '@/components/flight-category';
 import { uploadFile } from '@/components/upload';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
-import type { AerodromeResponse, AircraftResponse } from '@flightsquare/shared';
+import type { AerodromeResponse, AircraftResponse, MemberResponse } from '@flightsquare/shared';
 // The subpath, not the root. `@flightsquare/shared` has no build step and its
 // index re-exports with `./client.js` specifiers — correct for Node ESM,
 // unresolvable for the bundler, which gets an empty module and fails at
@@ -125,9 +125,15 @@ const blankSquawk = (): SquawkDraft => ({ summary: '', severity: 'minor', detail
 export function LogFlightForm({
   aircraft,
   canSquawk,
+  pilots,
 }: {
   aircraft: AircraftResponse;
   canSquawk: boolean;
+  /**
+   * Who an admin may log this for (0044), the logger themselves first. Absent
+   * for anyone who may only log their own — the API refuses the rest anyway.
+   */
+  pilots?: { me: MemberResponse | null; others: MemberResponse[] };
 }) {
   const [state, action, pending] = useActionState<FormState, FormData>(
     logFlight.bind(null, aircraft.id),
@@ -294,6 +300,26 @@ export function LogFlightForm({
         over. The meters need reading off the panel; this does not.
       */}
       <Group icon={MapPin} title="The flight">
+        {/*
+          Only offered to an admin, and only when there is somebody else to
+          choose. `flown_by` is who owes for it (§3.4), so the default is the
+          person typing — the case on almost every flight — and the empty value
+          means exactly that: the API fills in the logger's own membership.
+        */}
+        {pilots && pilots.others.length > 0 ? (
+          <Field label="Who flew" hint="The flight, and any charge for it, goes on their record.">
+            <Select name="flown_by" defaultValue={state.values?.flown_by ?? ''}>
+              <option value="">
+                Me{pilots.me ? ` (${pilots.me.name ?? pilots.me.email})` : ''}
+              </option>
+              {pilots.others.map((member) => (
+                <option key={member.id} value={member.id}>
+                  {member.name ? `${member.name} (${member.email})` : member.email}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
         <Field label="Date" required>
           <Input
             name="flight_date"

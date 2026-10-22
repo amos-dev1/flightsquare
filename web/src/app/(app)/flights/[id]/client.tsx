@@ -93,6 +93,10 @@ function CorrectionForm({
     <form action={action} className="space-y-6">
       <input type="hidden" name="idempotency_key" value={idempotencyKey} />
       <input type="hidden" name="supersedes_id" value={flight.id} />
+      {/* Who flew it does not change because somebody else fixed the figures.
+          Without this an admin's correction would move the flight, and its
+          charge, onto the admin. */}
+      <input type="hidden" name="flown_by" value={flight.flown_by} />
       {/* No squawks on a correction: the defect belongs to the flight it was
           found on, and filing it again would file it twice (§3.6). */}
       <input type="hidden" name="squawk_count" value="0" />

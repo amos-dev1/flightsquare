@@ -473,7 +473,7 @@ export async function logFlight(
   const values = Object.fromEntries(
     ['flight_date', 'hobbs_start', 'hobbs_end', 'tach_start', 'tach_end',
      'fuel_remaining_before', 'fuel_remaining_after', 'fuel_added_qty', 'fuel_added_cost',
-     'departed_from', 'arrived_at', 'remarks', 'category',
+     'departed_from', 'arrived_at', 'remarks', 'category', 'flown_by',
      // §3.4: a correction is this flight replacing another, so it arrives on
      // the same form and down the same path. There is no PATCH.
      'supersedes_id', 'correction_reason'].map((k) => [k, text(k)]),
@@ -542,6 +542,10 @@ export async function logFlight(
   if (['personal', 'business', 'maintenance'].includes(values.category ?? '')) {
     body.category = values.category;
   }
+  // Somebody else (0044). Empty means the logger, which the API fills in; an
+  // admin is the only one offered the choice, and the database refuses it from
+  // anybody else.
+  if (values.flown_by) body.flown_by = values.flown_by;
 
   if (values.supersedes_id) {
     // Five characters, matching the CHECK behind it. "oops" is not a record
