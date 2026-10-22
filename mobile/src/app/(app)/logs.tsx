@@ -247,7 +247,7 @@ export default function Logs() {
             accessibilityLabel={`Log a flight in ${one.registration}`}
             style={({ pressed }) => [styles.option, pressed && styles.pressed]}
           >
-            <AircraftThumbnail size="small" />
+            <AircraftThumbnail size="small" photo={one.photo} />
             <View style={styles.optionText}>
               <Text style={styles.optionLabel}>{one.registration}</Text>
               <Text style={styles.optionType}>{one.type_code ?? 'Type not recorded'}</Text>

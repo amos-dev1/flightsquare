@@ -185,6 +185,21 @@ export function createClient(options: ClientOptions) {
     getAircraft: (id: string) => request<AircraftResponse>('GET', `/aircraft/${id}`),
     createAircraft: (input: CreateAircraftRequest) =>
       request<AircraftResponse>('POST', '/aircraft', input),
+    /**
+     * The aeroplane's picture (0043). The three steps every upload takes: sign
+     * a PUT, send the bytes straight to storage, then complete — which also
+     * puts aside the picture it replaces.
+     */
+    createAircraftPhoto: (aircraftId: string, input: AttachFileRequest) =>
+      request<AttachmentResponse>('POST', `/aircraft/${aircraftId}/photo`, input),
+    completeAircraftPhoto: (aircraftId: string, attachmentId: string) =>
+      request<AircraftResponse>(
+        'POST',
+        `/aircraft/${aircraftId}/photo/${attachmentId}/complete`,
+      ),
+    /** Removed, never deleted — the bytes stay and still count toward storage. */
+    removeAircraftPhoto: (aircraftId: string) =>
+      request<AircraftResponse>('POST', `/aircraft/${aircraftId}/photo/remove`),
     listMeterReadings: (aircraftId: string) =>
       request<MeterReadingResponse[]>('GET', `/aircraft/${aircraftId}/meter-readings`),
     createMeterReading: (aircraftId: string, input: CreateMeterReadingRequest) =>

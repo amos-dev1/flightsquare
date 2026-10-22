@@ -1029,13 +1029,17 @@ export interface TrustedDevicesTable {
 export interface AttachmentsTable {
   id: Generated<string>;
   tenant_id: string;
-  /** At most one of the four is set (0038, 0042). Never two: see the migrations. */
+  /** At most one of the five is set (0038, 0042, 0043). Never two: see the migrations. */
   squawk_id: string | null;
   compliance_record_id: string | null;
   aircraft_document_id: string | null;
   flight_id: string | null;
+  /** The aeroplane's own picture (0043); always with kind `aircraft_photo`. */
+  aircraft_id: string | null;
   /** What the file is, for mockup 05's tiles. A label, never a source. */
-  kind: Generated<'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo'>;
+  kind: Generated<
+    'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo' | 'aircraft_photo'
+  >;
   storage_key: string;
   content_type: string;
   /** Declared before upload, replaced by what storage received. */

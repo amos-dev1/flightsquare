@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
-import { PageTitle } from '@/components/ui';
+import { AircraftPhoto, PageTitle } from '@/components/ui';
 import type { AircraftResponse, EntitlementsResponse } from '@flightsquare/shared';
 
 import { LogFlightForm } from './form';
@@ -24,15 +24,20 @@ export default async function LogFlightPage({ params }: { params: Promise<{ id: 
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href={`/aircraft/${id}`}
-          className="inline-flex min-h-11 items-center text-sm font-semibold text-teal-text underline underline-offset-2"
-        >
-          {aircraft.registration}
-        </Link>
-        <div className="mt-1">
-          <PageTitle>Log flight</PageTitle>
+      <div className="flex items-center gap-4">
+        {/* At the tiedown, the picture is the quickest check that this is the
+            right aeroplane before the meters go against it. */}
+        {aircraft.photo ? <AircraftPhoto photo={aircraft.photo} size="md" /> : null}
+        <div>
+          <Link
+            href={`/aircraft/${id}`}
+            className="inline-flex min-h-11 items-center text-sm font-semibold text-teal-text underline underline-offset-2"
+          >
+            {aircraft.registration}
+          </Link>
+          <div className="mt-1">
+            <PageTitle>Log flight</PageTitle>
+          </div>
         </div>
       </div>
 

@@ -931,7 +931,8 @@ export async function startUpload(
     | { kind: 'completion'; id: string }
     | { kind: 'document'; id: string }
     | { kind: 'squawk'; id: string }
-    | { kind: 'flight'; id: string },
+    | { kind: 'flight'; id: string }
+    | { kind: 'aircraft'; id: string },
   input: { content_type: string; byte_size: number; kind?: string },
 ): Promise<{ id?: string; upload_url?: string; error?: string }> {
   const path =
@@ -941,7 +942,9 @@ export async function startUpload(
         ? `/aircraft-documents/${owner.id}/attachments`
         : owner.kind === 'flight'
           ? `/flights/${owner.id}/attachments`
-          : '/attachments';
+          : owner.kind === 'aircraft'
+            ? `/aircraft/${owner.id}/photo`
+            : '/attachments';
 
   try {
     const created = await apiFetch<{ id: string; upload_url?: string }>(path, {
@@ -962,7 +965,8 @@ export async function finishUpload(
     | { kind: 'completion'; id: string }
     | { kind: 'document'; id: string }
     | { kind: 'squawk'; id: string }
-    | { kind: 'flight'; id: string },
+    | { kind: 'flight'; id: string }
+    | { kind: 'aircraft'; id: string },
   attachmentId: string,
   revalidate?: string,
 ): Promise<ActionResult> {
@@ -973,7 +977,9 @@ export async function finishUpload(
         ? `/aircraft-documents/${owner.id}/attachments/${attachmentId}/complete`
         : owner.kind === 'flight'
           ? `/flights/${owner.id}/attachments/${attachmentId}/complete`
-          : `/attachments/${attachmentId}/complete`;
+          : owner.kind === 'aircraft'
+            ? `/aircraft/${owner.id}/photo/${attachmentId}/complete`
+            : `/attachments/${attachmentId}/complete`;
 
   try {
     await apiFetch(path, { method: 'POST' });
@@ -981,6 +987,23 @@ export async function finishUpload(
     return { error: messageFor(error) };
   }
   if (revalidate) revalidatePath(revalidate);
+  return {};
+}
+
+/**
+ * The aeroplane has no picture any more (0043).
+ *
+ * Not a delete, like every removal here: the row stays and the bytes stay
+ * counted against `storage.bytes`, because they are still in the bucket.
+ */
+export async function removeAircraftPhoto(aircraftId: string): Promise<ActionResult> {
+  try {
+    await apiFetch(`/aircraft/${aircraftId}/photo/remove`, { method: 'POST' });
+  } catch (error) {
+    return { error: messageFor(error) };
+  }
+  // The picture is on every screen that names the aeroplane.
+  revalidatePath('/', 'layout');
   return {};
 }
 

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Fuel, Plus, PlaneTakeoff } from 'lucide-react';
 
 import { apiFetch, ApiError } from '@/lib/api';
-import { Button, Card, Empty, Meter, PageTitle, Status } from '@/components/ui';
+import { AircraftPhoto, Button, Card, Empty, Meter, PageTitle, Status } from '@/components/ui';
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
@@ -208,6 +208,7 @@ function AircraftRow({
     <li>
       <Link href={`/aircraft/${aircraft.id}`} className="block">
         <Card className="flex flex-wrap items-center gap-4 p-5 transition-colors duration-150 hover:bg-subtle">
+          <AircraftPhoto photo={aircraft.photo} />
           <div className="min-w-0 flex-1">
             <p className="flex flex-wrap items-center gap-2 text-base font-semibold">
               {aircraft.registration}

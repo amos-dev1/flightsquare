@@ -1,6 +1,6 @@
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import type {
   AircraftFlightStatsResponse,
@@ -281,7 +281,7 @@ export default function Dashboard() {
                   disabled={usable.length <= 1}
                   label={`${selected.registration}. Change aircraft`}
                 >
-                  <Thumbnail />
+                  <Thumbnail photo={selected.photo} />
                   <View style={styles.identityText}>
                     <Text style={styles.registration}>{selected.registration}</Text>
                     <Text style={styles.model}>{modelOf(selected)}</Text>
@@ -598,10 +598,25 @@ function ClubLine({
  * marked space rather than stock imagery standing in for a real one, and §11
  * is explicit that the official logo is never used as an aircraft icon.
  */
-function Thumbnail() {
+/**
+ * The aeroplane's picture (0043), or the placeholder. The URL is signed and
+ * short-lived, so a cached aeroplane may carry one that no longer loads; a
+ * failed load falls back rather than leaving an empty tile.
+ */
+function Thumbnail({ photo }: { photo?: { url: string } | null }) {
+  const [failed, setFailed] = useState<string | null>(null);
   return (
     <View style={styles.thumb} accessibilityElementsHidden importantForAccessibility="no">
-      <Feather name="image" size={20} color={color.secondary} />
+      {photo && failed !== photo.url ? (
+        <Image
+          source={{ uri: photo.url }}
+          style={styles.thumbPhoto}
+          resizeMode="cover"
+          onError={() => setFailed(photo.url)}
+        />
+      ) : (
+        <Feather name="image" size={20} color={color.secondary} />
+      )}
     </View>
   );
 }
@@ -753,7 +768,7 @@ function AircraftSheet({
                 pressed && styles.pressed,
               ]}
             >
-              <Thumbnail />
+              <Thumbnail photo={one.photo} />
               <View style={styles.identityText}>
                 <Text style={styles.optionRegistration}>{one.registration}</Text>
                 <Text style={styles.model}>{modelOf(one)}</Text>
@@ -1133,7 +1148,9 @@ const styles = StyleSheet.create({
     backgroundColor: color.mist,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  thumbPhoto: { width: '100%', height: '100%' },
 
   readings: { flexDirection: 'row', paddingVertical: space.md, paddingHorizontal: space.base },
   reading: { flex: 1, gap: space.xs },

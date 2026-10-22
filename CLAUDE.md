@@ -424,12 +424,16 @@ notifications         per-user, per-tenant
 ```
 
 **An attachment names exactly one owner, and the list is closed.** A squawk's
-photograph, a completion's invoice, an aircraft document's file — three nullable
+photograph, a completion's invoice, an aircraft document's file, a flight's
+meter photo (`0042`), the aeroplane's own picture (`0043`) — five nullable
 columns, each with a composite foreign key to its owner's `(tenant_id, id)`.
 Not `(owner_type, owner_id)`: a polymorphic pair cannot carry a foreign key, so
 nothing would stop a row naming a record in another tenant, which is the one
-thing the composite keys exist to make unrepresentable. A fourth owner is a
-migration; a fifth is where this shape stops being the answer.
+thing the composite keys exist to make unrepresentable. This used to say the
+fifth owner was where the shape stopped being the answer; the aircraft photo
+was taken as the fifth deliberately (2026-10-21), because redesigning
+ownership or building a second file store cost more than one more column. **A
+sixth owner is the redesign point**, not another column.
 
 The owner is written first and the upload names it — which is why the key points
 from the file to the document and never back. It is also what makes the offline

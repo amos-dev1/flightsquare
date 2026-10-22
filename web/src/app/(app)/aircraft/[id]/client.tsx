@@ -1,10 +1,12 @@
 'use client';
 
-import { Archive, Undo2 } from 'lucide-react';
+import { Archive, Trash2, Undo2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { useActionState, useState, useTransition } from 'react';
 
-import { logReading, setAircraftStatus, type FormState } from '@/app/actions';
-import { Alert, Button, Card, Field, Input } from '@/components/ui';
+import { logReading, removeAircraftPhoto, setAircraftStatus, type FormState } from '@/app/actions';
+import { AircraftPhoto, Alert, Button, Card, Field, Input } from '@/components/ui';
+import { FileUpload } from '@/components/upload';
 
 export function ReadingForm({ aircraftId }: { aircraftId: string }) {
   const [state, action, pending] = useActionState<FormState, FormData>(
@@ -140,6 +142,72 @@ export function ArchiveButton({
               ? `Restore ${registration}`
               : `Archive ${registration}`}
         </Button>
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * The aeroplane's picture, on its settings (0043).
+ *
+ * Uploading replaces whatever was there; the API puts the old one aside in the
+ * same step. Removing is not a delete either, and says so: the file still
+ * counts toward storage because it is still in the bucket (§3.8).
+ */
+export function AircraftPhotoEditor({
+  aircraftId,
+  registration,
+  photo,
+}: {
+  aircraftId: string;
+  registration: string;
+  photo: { url: string } | null;
+}) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [removing, startRemoving] = useTransition();
+
+  return (
+    <Card className="flex flex-col gap-5 p-5 sm:flex-row sm:items-start sm:p-6">
+      <AircraftPhoto photo={photo} size="lg" alt={`${registration}`} className="sm:w-64" />
+      <div className="space-y-3">
+        <p className="text-sm text-secondary">
+          Shown wherever {registration} appears — the fleet list, this aircraft&rsquo;s pages and
+          the phone app. A photo from the side, in daylight, is easiest to recognise.
+        </p>
+        <div className="flex flex-wrap items-start gap-3">
+          <FileUpload
+            owner={{ kind: 'aircraft', id: aircraftId }}
+            fileKind="aircraft_photo"
+            label={photo ? 'Replace photo' : 'Upload photo'}
+            accept="image/jpeg,image/png,image/heic,image/webp"
+            revalidate={`/aircraft/${aircraftId}`}
+            onDone={() => router.refresh()}
+          />
+          {photo ? (
+            <Button
+              variant="tertiary"
+              disabled={removing}
+              onClick={() =>
+                startRemoving(async () => {
+                  setError(null);
+                  const result = await removeAircraftPhoto(aircraftId);
+                  if (result.error) setError(result.error);
+                  else router.refresh();
+                })
+              }
+            >
+              <Trash2 aria-hidden size={16} strokeWidth={2} />
+              {removing ? 'Removing…' : 'Remove photo'}
+            </Button>
+          ) : null}
+        </div>
+        {photo ? (
+          <p className="text-xs text-secondary">
+            A removed or replaced photo still counts toward your storage.
+          </p>
+        ) : null}
+        {error ? <Alert>{error}</Alert> : null}
       </div>
     </Card>
   );

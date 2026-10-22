@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import Svg, { Path } from 'react-native-svg';
 import type { MaintenanceItemResponse, ReservationResponse } from '@flightsquare/shared';
@@ -260,23 +261,44 @@ function rank(item: MaintenanceItemResponse): number {
 // ---------------------------------------------------------------------------
 
 /**
- * A placeholder, not a photograph.
+ * The aeroplane's picture (0043), or a placeholder where there is none.
  *
- * **Nothing in the schema stores an aircraft image.** `aircraft_documents`
- * holds the airworthiness certificate, the registration, insurance and weight
- * and balance; none of those is a picture of the aeroplane. So this is a
- * marked, honest space — never stock imagery standing in for a real one.
+ * The picture is whatever an admin uploaded on the aircraft's settings. Where
+ * there is none this is a marked, honest space — never stock imagery standing
+ * in for a real one.
  *
- * Drawn here rather than taken from the icon set because the icon set has no
- * aeroplane, and §11 is explicit that the official logo is never used as one.
- * This is a plain top-down outline that looks nothing like the mark.
+ * The placeholder is drawn here rather than taken from the icon set because
+ * the icon set has no aeroplane, and §11 is explicit that the official logo is
+ * never used as one. It is a plain top-down outline that looks nothing like
+ * the mark.
  *
- * When photographs exist this component takes an `<Image>` and the callers do
- * not change.
+ * The photo URL is signed and expires within minutes, so an aeroplane read
+ * from the offline cache can carry one that no longer loads. A failed load
+ * falls back to the placeholder rather than to an empty box.
  */
-export function AircraftThumbnail({ size = 'large' }: { size?: 'large' | 'small' }) {
+export function AircraftThumbnail({
+  size = 'large',
+  photo,
+}: {
+  size?: 'large' | 'small';
+  photo?: { url: string } | null;
+}) {
   const box = size === 'large' ? styles.thumbLarge : styles.thumbSmall;
   const glyph = size === 'large' ? 44 : 26;
+  const [failed, setFailed] = useState<string | null>(null);
+
+  if (photo && failed !== photo.url) {
+    return (
+      <View style={[styles.thumb, box]} accessibilityElementsHidden importantForAccessibility="no">
+        <Image
+          source={{ uri: photo.url }}
+          style={styles.photo}
+          resizeMode="cover"
+          onError={() => setFailed(photo.url)}
+        />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.thumb, box]} accessibilityElementsHidden importantForAccessibility="no">
@@ -322,6 +344,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  photo: { width: '100%', height: '100%' },
   thumbLarge: { width: 84, height: 84, borderRadius: radius.card },
   thumbSmall: { width: 56, height: 56, borderRadius: 8 },
 });

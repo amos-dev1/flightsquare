@@ -4,7 +4,7 @@ import { PlaneTakeoff } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { ApiError, apiFetch } from '@/lib/api';
-import { Button, PageTitle, Status } from '@/components/ui';
+import { AircraftPhoto, Button, PageTitle, Status } from '@/components/ui';
 import type {
   AircraftAvailabilityResponse,
   AircraftResponse,
@@ -91,34 +91,38 @@ export default async function AircraftTabsLayout({
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Registrations stay uppercase: §11 reserves it for exactly this. */}
-            <PageTitle>{aircraft.registration}</PageTitle>
-            {aircraft.status !== 'active' ? (
-              <Status kind="neutral">{aircraft.status}</Status>
-            ) : null}
-            {/*
-              Can it be taken, beside the tail number and on every tab.
+        <div className="flex min-w-0 items-start gap-4">
+          {/* Only where there is one: an empty frame in a page header is noise. */}
+          {aircraft.photo ? <AircraftPhoto photo={aircraft.photo} size="md" /> : null}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Registrations stay uppercase: §11 reserves it for exactly this. */}
+              <PageTitle>{aircraft.registration}</PageTitle>
+              {aircraft.status !== 'active' ? (
+                <Status kind="neutral">{aircraft.status}</Status>
+              ) : null}
+              {/*
+                Can it be taken, beside the tail number and on every tab.
 
-              It used to sit inside the maintenance card, where it read as a
-              maintenance verdict and is not one — it answers a question about
-              *now*, where that list answers what the aeroplane owes later.
-              Up here it is the first thing read on any of the three tabs,
-              which is right: it is what somebody opening this screen is
-              actually asking.
+                It used to sit inside the maintenance card, where it read as a
+                maintenance verdict and is not one — it answers a question about
+                *now*, where that list answers what the aeroplane owes later.
+                Up here it is the first thing read on any of the three tabs,
+                which is right: it is what somebody opening this screen is
+                actually asking.
 
-              §11: never "Airworthy". "Available" is a claim about this
-              product's records, and it is the same one the scheduler consults
-              (§3.3), so this and a booking cannot disagree.
-            */}
-            <AvailabilityLine row={availability} />
+                §11: never "Airworthy". "Available" is a claim about this
+                product's records, and it is the same one the scheduler consults
+                (§3.3), so this and a booking cannot disagree.
+              */}
+              <AvailabilityLine row={availability} />
+            </div>
+            <p className="mt-1 text-sm text-secondary">
+              {[aircraft.type_code, aircraft.year_manufactured, aircraft.home_base]
+                .filter(Boolean)
+                .join(' · ') || 'No details yet'}
+            </p>
           </div>
-          <p className="mt-1 text-sm text-secondary">
-            {[aircraft.type_code, aircraft.year_manufactured, aircraft.home_base]
-              .filter(Boolean)
-              .join(' · ') || 'No details yet'}
-          </p>
         </div>
         {/*
           One dominant primary per section (§11), and on this screen it is

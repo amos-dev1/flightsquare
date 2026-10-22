@@ -357,7 +357,7 @@ function AircraftCard({
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.identity}>
-        <AircraftThumbnail />
+        <AircraftThumbnail photo={aircraft.photo} />
 
         <View style={styles.identityText}>
           <View style={styles.identityHead}>

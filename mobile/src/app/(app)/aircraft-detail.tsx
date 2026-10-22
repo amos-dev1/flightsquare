@@ -117,7 +117,7 @@ export default function AircraftDetail() {
       {aircraft ? (
         <>
           <View style={styles.header}>
-            <AircraftThumbnail />
+            <AircraftThumbnail photo={aircraft.photo} />
             <View style={styles.identity}>
               <Text style={styles.registration}>{aircraft.registration}</Text>
               <Text style={styles.model}>

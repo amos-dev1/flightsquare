@@ -251,7 +251,7 @@ export default function Maintenance() {
               pressed && styles.pressed,
             ]}
           >
-            <AircraftThumbnail size="small" />
+            <AircraftThumbnail size="small" photo={one.photo} />
             <View style={styles.optionText}>
               <Text style={styles.optionRegistration}>{one.registration}</Text>
               <Text style={styles.meta}>{one.type_code ?? 'Type not recorded'}</Text>

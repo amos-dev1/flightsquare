@@ -26,7 +26,10 @@ export type UploadOwner =
   | { kind: 'completion'; id: string }
   | { kind: 'document'; id: string }
   | { kind: 'squawk'; id: string }
-  | { kind: 'flight'; id: string };
+  | { kind: 'flight'; id: string }
+  | { kind: 'aircraft'; id: string };
+
+type FileKind = 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo' | 'aircraft_photo';
 
 /**
  * The three steps for one file, without the button.
@@ -40,7 +43,7 @@ export async function uploadFile(
   owner: UploadOwner,
   file: File,
   options: {
-    fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo';
+    fileKind?: FileKind;
     revalidate?: string;
     onStep?: (step: string) => void;
   } = {},
@@ -78,11 +81,14 @@ export function FileUpload({
   fileKind,
   revalidate,
   onDone,
+  accept = 'image/jpeg,image/png,image/heic,image/webp,application/pdf',
 }: {
   owner: UploadOwner;
   label?: string;
+  /** What the picker offers. Narrow it where the door behind it is narrower. */
+  accept?: string;
   /** What the file is, for the list that renders it later. Not its source. */
-  fileKind?: 'photo' | 'invoice' | 'logbook_entry' | 'document' | 'meter_photo';
+  fileKind?: FileKind;
   /** The path whose cache this invalidates once the file has landed. */
   revalidate?: string;
   onDone?: () => void;
@@ -111,7 +117,7 @@ export function FileUpload({
         type="file"
         // What the API accepts, said here as well so the picker does not offer
         // what the server will refuse.
-        accept="image/jpeg,image/png,image/heic,image/webp,application/pdf"
+        accept={accept}
         className="sr-only"
         id={`upload-${owner.kind}-${owner.id}`}
         onChange={(event) => {
