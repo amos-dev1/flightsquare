@@ -19,6 +19,7 @@ import type {
   AircraftResponse,
   FlightCategory,
   FlightResponse,
+  MemberResponse,
 } from '@flightsquare/shared';
 
 import {
@@ -32,7 +33,9 @@ import {
   Notice,
   Picker,
 } from '@/components/ui';
+import { Sheet } from '@/components/sheet';
 import { api, messageFor, withAuth } from '@/lib/api';
+import { usePermission } from '@/lib/entitlements';
 import { saveAttachment, saveFlight, saveSquawk } from '@/lib/sync';
 import { color, radius, space, type } from '@/theme';
 
@@ -174,6 +177,11 @@ function contentTypeOf(asset: ImagePicker.ImagePickerAsset): string {
   return /\.png$/i.test(asset.uri) ? 'image/png' : 'image/jpeg';
 }
 
+/** A member as a person: their name where they gave one, their email otherwise. */
+function personOf(member: MemberResponse): string {
+  return member.name ?? member.email;
+}
+
 const CATEGORIES: { value: FlightCategory; label: string }[] = [
   { value: 'personal', label: 'Personal' },
   { value: 'business', label: 'Business' },
@@ -206,6 +214,43 @@ export default function LogFlight() {
   }, [navigation, correctingId]);
 
   const [aircraft, setAircraft] = useState<AircraftResponse | null>(null);
+
+  /**
+   * Who flew it (0044) — an admin's choice only.
+   *
+   * `flown_by` is who owes for the flight, so naming somebody else needs
+   * `aircraft: write`, the same test a late correction uses; the database
+   * refuses it from anybody else. The roster is fetched, never cached: with no
+   * signal the picker simply is not offered and the flight is the logger's,
+   * which is right on almost every flight anyway. `null` means "me" — the API
+   * fills in the logger's own membership.
+   *
+   * Not on a correction: a correction keeps the pilot of the flight it
+   * replaces, and the server sees to that.
+   */
+  const canLogForOthers = usePermission('aircraft') === 'write';
+  const [pilots, setPilots] = useState<{ me: MemberResponse | null; others: MemberResponse[] } | null>(null);
+  const [flownBy, setFlownBy] = useState<MemberResponse | null>(null);
+  const [pickingPilot, setPickingPilot] = useState(false);
+
+  useEffect(() => {
+    if (!canLogForOthers || correctingId) return;
+    let live = true;
+    void withAuth(() => Promise.all([api.me(), api.listMembers()]))
+      .then(([me, members]) => {
+        if (!live) return;
+        const active = members.filter((member) => member.status === 'active');
+        setPilots({
+          me: active.find((member) => member.user_id === me.id) ?? null,
+          others: active.filter((member) => member.user_id !== me.id),
+        });
+      })
+      // Offline or refused: no picker, and the flight is the logger's own.
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [canLogForOthers, correctingId]);
 
   /**
    * When it was flown.
@@ -327,6 +372,10 @@ export default function LogFlight() {
       setFuelPrice('');
       setCategory('personal');
       setRemarks('');
+      // Logging for somebody else is the exception; the next flight is the
+      // logger's own unless they choose again.
+      setFlownBy(null);
+      setPickingPilot(false);
       // §3.6 keeps each defect its own record, and one already filed is one
       // already queued. Carrying a draft forward would file it twice.
       setSquawks([]);
@@ -587,6 +636,7 @@ export default function LogFlight() {
         // with every number downstream following.
         recorded_at: recordedAt,
         category,
+        ...(flownBy && !correctingId ? { flown_by: flownBy.id } : {}),
         // §3.4: this row replaces that one, and both stay. There is no PATCH.
         ...(correctingId
           ? { supersedes_id: correctingId, correction_reason: reason.trim() }
@@ -798,6 +848,29 @@ export default function LogFlight() {
             }}
             onDismiss={() => setPickingDate(false)}
           />
+        ) : null}
+
+        {pilots && pilots.others.length > 0 && !correctingId ? (
+          <Field label="Who flew">
+            <Picker
+              onPress={() => setPickingPilot(true)}
+              label={`Flown by ${flownBy ? personOf(flownBy) : 'me'}. Change who flew`}
+            >
+              <Feather name="user" size={20} color={color.secondary} />
+              <View style={styles.pilotText}>
+                <Text style={styles.pilotName} numberOfLines={1}>
+                  {flownBy ? personOf(flownBy) : 'Me'}
+                </Text>
+                <Text style={styles.pilotDetail} numberOfLines={1}>
+                  {flownBy
+                    ? 'The flight, and any charge for it, goes on their record.'
+                    : pilots.me
+                      ? personOf(pilots.me)
+                      : 'Logged as your own flight'}
+                </Text>
+              </View>
+            </Picker>
+          </Field>
         ) : null}
 
         {/*
@@ -1243,6 +1316,41 @@ export default function LogFlight() {
         */}
         <Body muted>Saved on this phone straight away, and synced when you have signal.</Body>
       </ScrollView>
+
+      <Sheet visible={pickingPilot} title="Who flew" onClose={() => setPickingPilot(false)}>
+        {pilots
+          ? [null, ...pilots.others].map((member) => {
+              const chosen = (member?.id ?? null) === (flownBy?.id ?? null);
+              return (
+                <Pressable
+                  key={member?.id ?? 'me'}
+                  onPress={() => {
+                    setFlownBy(member);
+                    setPickingPilot(false);
+                  }}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: chosen }}
+                  style={({ pressed }) => [
+                    styles.pilotOption,
+                    chosen && styles.pilotOptionChosen,
+                    pressed && styles.pilotOptionPressed,
+                  ]}
+                >
+                  <View style={styles.pilotText}>
+                    <Text style={[styles.pilotName, chosen && styles.pilotNameChosen]}>
+                      {member ? personOf(member) : 'Me'}
+                    </Text>
+                    {member?.name ? <Text style={styles.pilotDetail}>{member.email}</Text> : null}
+                    {!member && pilots.me ? (
+                      <Text style={styles.pilotDetail}>{personOf(pilots.me)}</Text>
+                    ) : null}
+                  </View>
+                  {chosen ? <Feather name="check" size={20} color={color.navy} /> : null}
+                </Pressable>
+              );
+            })
+          : null}
+      </Sheet>
     </KeyboardAvoidingView>
   );
 }
@@ -1260,6 +1368,26 @@ const styles = StyleSheet.create({
   date: { ...type.label },
 
   group: { gap: space.md },
+
+  // Who flew (0044). Selection is the pale surface, a heavier weight and a
+  // tick together — never the colour alone (§11 §7).
+  pilotText: { flex: 1, gap: 2 },
+  pilotName: { ...type.body, color: color.navy },
+  pilotNameChosen: { fontWeight: '600' },
+  pilotDetail: { ...type.supporting, color: color.secondary },
+  pilotOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 56,
+    padding: space.md,
+    borderWidth: 1,
+    borderColor: color.line,
+    borderRadius: radius.control,
+    marginBottom: space.sm,
+  },
+  pilotOptionChosen: { borderColor: color.teal, backgroundColor: color.selected },
+  pilotOptionPressed: { opacity: 0.7 },
 
   /**
    * The meter grid: name, Out, In, Hours.

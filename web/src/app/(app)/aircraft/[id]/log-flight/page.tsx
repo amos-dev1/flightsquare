@@ -3,7 +3,11 @@ import { notFound } from 'next/navigation';
 
 import { ApiError, apiFetch } from '@/lib/api';
 import { AircraftPhoto, PageTitle } from '@/components/ui';
-import type { AircraftResponse, EntitlementsResponse } from '@flightsquare/shared';
+import type {
+  AircraftResponse,
+  EntitlementsResponse,
+  MemberResponse,
+} from '@flightsquare/shared';
 
 import { LogFlightForm } from './form';
 
@@ -20,6 +24,24 @@ export default async function LogFlightPage({ params }: { params: Promise<{ id: 
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
+  }
+
+  /*
+    Logging for somebody else is an admin's act (0044): `aircraft: write`, the
+    same test a late correction uses. Only then is the roster fetched — a
+    Pilot cannot read it, and would not be allowed to use it.
+  */
+  let pilots: { me: MemberResponse | null; others: MemberResponse[] } | undefined;
+  if (entitlements.permissions.aircraft === 'write') {
+    const [me, members] = await Promise.all([
+      apiFetch<{ id: string }>('/me'),
+      apiFetch<MemberResponse[]>('/members').catch(() => [] as MemberResponse[]),
+    ]);
+    const active = members.filter((member) => member.status === 'active');
+    pilots = {
+      me: active.find((member) => member.user_id === me.id) ?? null,
+      others: active.filter((member) => member.user_id !== me.id),
+    };
   }
 
   return (
@@ -56,6 +78,7 @@ export default async function LogFlightPage({ params }: { params: Promise<{ id: 
       <LogFlightForm
         aircraft={aircraft}
         canSquawk={entitlements.permissions.squawks === 'write'}
+        pilots={pilots}
       />
     </div>
   );

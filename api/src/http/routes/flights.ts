@@ -18,7 +18,13 @@ import {
 } from '../../attachments/upload.js';
 import { withIdempotency } from '../../db/idempotency.js';
 import { ownMembership } from '../../db/membership.js';
-import { ConflictError, foreignKeyViolation, NotFoundError, PermissionError } from '../errors.js';
+import {
+  ConflictError,
+  foreignKeyViolation,
+  InvalidRequestError,
+  NotFoundError,
+  PermissionError,
+} from '../errors.js';
 import type { Tx } from '../../db/context.js';
 
 const decimal = { type: 'string', pattern: '^[0-9]{1,7}(\\.[0-9])?$' } as const;
@@ -241,6 +247,12 @@ async function correctionRefusals<T>(run: () => Promise<T>): Promise<T> {
     }
     // A correction naming a flight RLS never showed the caller. Same answer.
     if (foreignKeyViolation(error) === 'flights_supersedes_fkey') throw new NotFoundError();
+    // An admin logging for somebody (0044) who is not a member of this account.
+    // RLS hides another tenant's memberships, so this is also the answer for
+    // one of those — it never says the person exists elsewhere (§6).
+    if (foreignKeyViolation(error) === 'flights_flown_by_fkey') {
+      throw new InvalidRequestError('that person is not a member of this account');
+    }
 
     throw error;
   }
@@ -833,13 +845,35 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
             .executeTakeFirst();
           if (!aircraft) throw new NotFoundError();
 
+          /*
+            Who flew it does not change because somebody fixed the figures. A
+            correction that names nobody keeps the pilot of the flight it
+            replaces — without this an admin correcting a member's Hobbs moved
+            the flight, and its charge, onto the admin. Here rather than in the
+            clients because builds already shipped send no `flown_by` (§8.1).
+            A superseded flight RLS cannot see reads as none, and the
+            correction trigger answers that as "no such flight".
+          */
+          const flownBy =
+            body.flown_by ??
+            (body.supersedes_id
+              ? (
+                  await trx
+                    .selectFrom('flights')
+                    .select('flown_by')
+                    .where('id', '=', body.supersedes_id)
+                    .executeTakeFirst()
+                )?.flown_by
+              : undefined) ??
+            (await ownMembership(trx, ctx.userId));
+
           const flight = await trx
             .insertInto('flights')
             .values({
               ...(body.id ? { id: body.id } : {}),
               tenant_id: ctx.tenantId,
               aircraft_id: body.aircraft_id,
-              flown_by: body.flown_by ?? (await ownMembership(trx, ctx.userId)),
+              flown_by: flownBy,
               flight_date: body.flight_date,
               departed_from: body.departed_from ?? null,
               arrived_at: body.arrived_at ?? null,
