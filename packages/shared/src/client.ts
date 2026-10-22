@@ -7,9 +7,11 @@ import type {
   AircraftTypeResponse,
   AttachFileRequest,
   AttachmentResponse,
+  AuthorizationResponse,
   BlackoutResponse,
   BookingMaintenanceCheckResponse,
   CreateAircraftDocumentRequest,
+  CreateAuthorizationRequest,
   CreateAircraftRequest,
   CreateAttachmentRequest,
   ComplianceRecordResponse,
@@ -47,6 +49,7 @@ import type {
   TenantResponse,
   UpdateAircraftDocumentRequest,
   UpdateMaintenanceItemRequest,
+  UpdateAircraftRequest,
 } from './index.js';
 
 /**
@@ -203,6 +206,20 @@ export function createClient(options: ClientOptions) {
     /** Removed, never deleted — the bytes stay and still count toward storage. */
     removeAircraftPhoto: (aircraftId: string) =>
       request<AircraftResponse>('POST', `/aircraft/${aircraftId}/photo/remove`),
+    /**
+     * The aeroplane's settings, and archiving or restoring it (§5.5). Restoring
+     * can come back 402: an archived aeroplane is out of the quota, and putting
+     * it back in has to fit.
+     */
+    updateAircraft: (aircraftId: string, input: UpdateAircraftRequest) =>
+      request<AircraftResponse>('PATCH', `/aircraft/${aircraftId}`, input),
+    /** §3.5's checkout: who is signed off in this aeroplane. */
+    listAuthorizations: (aircraftId: string) =>
+      request<AuthorizationResponse[]>('GET', `/aircraft/${aircraftId}/authorizations`),
+    authorize: (aircraftId: string, input: CreateAuthorizationRequest) =>
+      request<unknown>('POST', `/aircraft/${aircraftId}/authorizations`, input),
+    withdrawAuthorization: (aircraftId: string, membershipId: string) =>
+      request<unknown>('DELETE', `/aircraft/${aircraftId}/authorizations/${membershipId}`),
     listMeterReadings: (aircraftId: string) =>
       request<MeterReadingResponse[]>('GET', `/aircraft/${aircraftId}/meter-readings`),
     createMeterReading: (aircraftId: string, input: CreateMeterReadingRequest) =>

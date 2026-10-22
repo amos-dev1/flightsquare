@@ -606,6 +606,26 @@ export interface MeterReadingResponse {
   superseded: boolean;
 }
 
+/**
+ * What `PATCH /aircraft/:id` accepts. Every field optional; at least one.
+ *
+ * Not the meters: they are derived from an append-only log (§3.4), and a
+ * correction is a new reading. A rate change writes a new effective-dated row
+ * (§3.7 rule 4), so charges already made keep theirs.
+ */
+export interface UpdateAircraftRequest {
+  home_base?: string | null;
+  status?: AircraftStatus;
+  seats?: number | null;
+  maintenance_meter?: MaintenanceMeter;
+  billing_meter?: BillingMeter;
+  rate_basis?: RateBasis;
+  default_rate_cents?: number;
+  fuel_capacity?: string | null;
+  fuel_units?: FuelUnits;
+  require_meter_photos?: boolean;
+}
+
 export interface CreateMeterReadingRequest {
   hobbs?: string;
   tach?: string;
