@@ -32,13 +32,16 @@ const decimal = { type: 'string', pattern: '^[0-9]{1,7}(\\.[0-9])?$' } as const;
 
 /** The per-aircraft settings of V1_SCOPE M2, shared by create and update. */
 const configFields = {
-  seats: { type: 'integer', minimum: 1, maximum: 50 },
+  // Nullable, as the columns are: "not recorded" is a true answer, and the web
+  // settings form sends null for a blank field. Before this, saving the
+  // settings of an aeroplane with no seat count or fuel capacity was a 400.
+  seats: { type: ['integer', 'null'], minimum: 1, maximum: 50 },
   maintenance_meter: { type: 'string', enum: ['hobbs', 'tach', 'airframe'] },
   billing_meter: { type: 'string', enum: ['hobbs', 'tach'] },
   rate_basis: { type: 'string', enum: ['wet', 'dry'] },
   // §3.7 rule 3: integer minor units. Never a float, not even here.
   default_rate_cents: { type: 'integer', minimum: 0 },
-  fuel_capacity: decimal,
+  fuel_capacity: { type: ['string', 'null'], pattern: decimal.pattern },
   fuel_units: { type: 'string', enum: ['gallons', 'litres'] },
   // 0042: ask for a photograph of the meters with each flight. The form asks;
   // the API never refuses a flight for lacking one (§8.1, §8.2).
