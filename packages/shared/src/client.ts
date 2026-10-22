@@ -457,6 +457,8 @@ export function createClient(options: ClientOptions) {
       const search = params.toString();
       return request<SquawkResponse[]>('GET', search ? `/squawks?${search}` : '/squawks');
     },
+    /** One squawk with its deferrals and photographs. */
+    getSquawk: (id: string) => request<SquawkResponse>('GET', `/squawks/${id}`),
     /**
      * §8.2: the idempotency key is required, not optional. A squawk is filed
      * in the same conditions as a post-flight entry, and filing the same

@@ -5,6 +5,7 @@ import { FileText, Paperclip } from 'lucide-react';
 import { ApiError, apiFetch } from '@/lib/api';
 import { Card, KeyMetric, PageTitle, SectionHeading, Status } from '@/components/ui';
 import type {
+  AircraftResponse,
   ComplianceRecordResponse,
   EntitlementsResponse,
   MaintenanceItemHistoryResponse,
@@ -45,9 +46,14 @@ export default async function MaintenanceItemPage({ params }: { params: Promise<
 
   // Neither is load-bearing for the page, and either can be refused without
   // the countdown above becoming wrong.
-  const [completions, history] = await Promise.all([
+  const [completions, history, aircraft] = await Promise.all([
     apiFetch<ComplianceRecordResponse[]>(`/maintenance-items/${id}/completions`).catch(() => []),
     apiFetch<MaintenanceItemHistoryResponse[]>(`/maintenance-items/${id}/history`).catch(() => []),
+    // The aeroplane's last recorded Hobbs and tach, which the completion form
+    // offers as its readings. Without it the form still works, just empty.
+    canWrite
+      ? apiFetch<AircraftResponse>(`/aircraft/${item.aircraft_id}`).catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   return (
@@ -173,7 +179,12 @@ export default async function MaintenanceItemPage({ params }: { params: Promise<
         </Card>
       </section>
 
-      {canWrite ? <CompletionForm item={item} /> : null}
+      {canWrite ? (
+        <CompletionForm
+          item={item}
+          meters={{ hobbs: aircraft?.hobbs ?? null, tach: aircraft?.tach ?? null }}
+        />
+      ) : null}
 
       {/* What has been logged against it ---------------------------- */}
       <section className="space-y-3">

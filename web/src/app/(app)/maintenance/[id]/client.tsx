@@ -16,15 +16,27 @@ import type { MaintenanceItemResponse } from '@flightsquare/shared';
 /**
  * Logging a completion (mockup 05).
  *
- * Prefilled with today and the live meter reading, both editable: work is
- * logged days after it was done more often than not, and the meters then were
- * not the meters now.
+ * Prefilled with today and the aeroplane's last recorded Hobbs and tach — both
+ * meters, as real values rather than placeholders, so leaving them is using
+ * them. All editable: work is logged days after it was done more often than
+ * not, and the meters then were not the meters now, which the hint says.
+ *
+ * Both are filled even though the item counts on one: the server keeps the
+ * reading for the item's own meter (`hours_meter`) as the anchor, and a
+ * logbook entry records both anyway.
  *
  * What it resets to is deliberately not computed here. The page reloads with
  * the item's new due points on it, and the server is the only thing that knows
  * them — §8.2, and the same reason the preview on the add form is a round trip.
  */
-export function CompletionForm({ item }: { item: MaintenanceItemResponse }) {
+export function CompletionForm({
+  item,
+  meters,
+}: {
+  item: MaintenanceItemResponse;
+  /** Last recorded on the aeroplane; null where it has never been read. */
+  meters: { hobbs: string | null; tach: string | null };
+}) {
   const [state, action, pending] = useActionState<FormState, FormData>(
     logMaintenanceCompletion.bind(null, item.id),
     {},
@@ -82,22 +94,26 @@ export function CompletionForm({ item }: { item: MaintenanceItemResponse }) {
             is a wrong number for the next year.
           */}
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Tach reading">
+            <Field
+              label="Tach reading"
+              hint={meters.tach ? `Last recorded ${meters.tach}. Change it if the work was done at a different reading.` : undefined}
+            >
               <Input
                 name="tach"
                 inputMode="decimal"
                 className="tabular"
-                placeholder={item.hours_meter === 'tach' ? (item.current_hours ?? '') : ''}
-                defaultValue={state.values?.tach}
+                defaultValue={state.values?.tach ?? meters.tach ?? ''}
               />
             </Field>
-            <Field label="Hobbs reading">
+            <Field
+              label="Hobbs reading"
+              hint={meters.hobbs ? `Last recorded ${meters.hobbs}. Change it if the work was done at a different reading.` : undefined}
+            >
               <Input
                 name="hobbs"
                 inputMode="decimal"
                 className="tabular"
-                placeholder={item.hours_meter === 'hobbs' ? (item.current_hours ?? '') : ''}
-                defaultValue={state.values?.hobbs}
+                defaultValue={state.values?.hobbs ?? meters.hobbs ?? ''}
               />
             </Field>
           </div>

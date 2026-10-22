@@ -225,6 +225,22 @@ describe('attachments', () => {
     await setQuotaOverride(tenant.tenant_id, 'storage.bytes', 'unlimited');
   });
 
+  it('opens one squawk with its photographs, and 404s it for another tenant', async () => {
+    asTenant();
+    const one = await app.inject({ method: 'GET', url: `/squawks/${squawkId}` });
+    expect(one.statusCode).toBe(200);
+    expect(one.json()).toMatchObject({ id: squawkId, summary: 'Cracked nose gear fairing' });
+    // Only what has arrived is a photograph; a declared upload is not.
+    expect(one.json().attachments.length).toBeGreaterThanOrEqual(1);
+    expect(Array.isArray(one.json().deferrals)).toBe(true);
+
+    // §6: not "forbidden" — another tenant's squawk does not exist from here.
+    asOtherTenant();
+    const theirs = await app.inject({ method: 'GET', url: `/squawks/${squawkId}` });
+    expect(theirs.statusCode).toBe(404);
+    asTenant();
+  });
+
   it('will not hang a photograph off another tenant’s squawk', async () => {
     asOtherTenant();
     const response = await create({

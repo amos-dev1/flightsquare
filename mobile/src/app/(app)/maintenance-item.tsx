@@ -377,22 +377,60 @@ function CompleteSheet({
   >([]);
   const [picking, setPicking] = useState<'invoice' | 'logbook_entry' | null>(null);
 
-  // Prefilled with the latest reading, and editable: work is logged days late
-  // more often than not, and the meters then were not the meters now.
+  /*
+    Prefilled with the aeroplane's last recorded Hobbs *and* tach, as values
+    rather than placeholders, so keeping them is one tap on Save — and both
+    editable: work is logged days late more often than not, and the meters
+    then were not the meters now, which the hint under them says.
+
+    The item's own meter is filled straight away from the item, so the sheet
+    is never empty while the aircraft is fetched, or when it cannot be (no
+    signal at the hangar). The aircraft then fills both, unless somebody has
+    already started typing.
+  */
+  const [lastRecorded, setLastRecorded] = useState<{
+    hobbs: string | null;
+    tach: string | null;
+  } | null>(null);
   useEffect(() => {
     if (!visible) return;
+    const seeded = {
+      tach: item.hours_meter === 'tach' ? (item.current_hours ?? '') : '',
+      hobbs: item.hours_meter === 'hobbs' ? (item.current_hours ?? '') : '',
+    };
+    // Replace only what this sheet put there itself; never what was typed.
+    const offer = (typed: string, mine: string, recorded: string | null) =>
+      typed === mine && recorded !== null ? recorded : typed;
+
     setDoneOn(todayIso());
-    setTach(item.hours_meter === 'tach' ? (item.current_hours ?? '') : '');
-    setHobbs(item.hours_meter === 'hobbs' ? (item.current_hours ?? '') : '');
+    setTach(seeded.tach);
+    setHobbs(seeded.hobbs);
     setNextFrom(item.next_from);
     setFiles([]);
     setError(null);
+    setLastRecorded(null);
+
+    let current = true;
+    void withAuth(() => api.getAircraft(item.aircraft_id))
+      .then((aircraft) => {
+        if (!current) return;
+        setLastRecorded({ hobbs: aircraft.hobbs, tach: aircraft.tach });
+        setTach((typed) => offer(typed, seeded.tach, aircraft.tach));
+        setHobbs((typed) => offer(typed, seeded.hobbs, aircraft.hobbs));
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
   }, [visible, item]);
 
   // What it would reset to. Debounced, because it follows a text field.
   useEffect(() => {
     if (!visible || item.rules.length === 0) return;
-    const hours = tach.trim() || hobbs.trim();
+    // The item's own meter, which is the one the server anchors on when it
+    // saves — so the preview and the result agree now that both are filled.
+    const hours =
+      (item.hours_meter === 'hobbs' ? hobbs.trim() : tach.trim()) || tach.trim() || hobbs.trim();
     const timer = setTimeout(() => {
       void withAuth(() =>
         api.previewMaintenance({
@@ -540,7 +578,11 @@ function CompleteSheet({
               for the next year. */}
           <View style={styles.pair}>
             <View style={styles.half}>
-              <Field label="Tach" compact>
+              <Field
+                label="Tach"
+                compact
+                hint={lastRecorded?.tach ? `Last recorded ${lastRecorded.tach}` : undefined}
+              >
                 <Input
                   compact
                   value={tach}
@@ -551,7 +593,11 @@ function CompleteSheet({
               </Field>
             </View>
             <View style={styles.half}>
-              <Field label="Hobbs" compact>
+              <Field
+                label="Hobbs"
+                compact
+                hint={lastRecorded?.hobbs ? `Last recorded ${lastRecorded.hobbs}` : undefined}
+              >
                 <Input
                   compact
                   value={hobbs}
