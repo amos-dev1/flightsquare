@@ -630,7 +630,7 @@ export async function logFlight(
       return {
         error:
           `The flight is saved and the meters have moved, but “${squawk.summary}” was not ` +
-          `filed: ${messageFor(error)} Press Save flight again to retry just the defect — ` +
+          `filed: ${messageFor(error)} Press Save flight again to retry just the squawk — ` +
           'the flight will not be logged twice.',
         values,
       };
@@ -1292,7 +1292,7 @@ export async function fileSquawk(_state: FormState, form: FormData): Promise<For
     severity: text('severity'),
   };
 
-  if (!values.summary) return { error: 'Describe the defect in a few words.', values };
+  if (!values.summary) return { error: 'Describe the squawk in a few words.', values };
 
   const body: Record<string, unknown> = {
     aircraft_id: values.aircraft_id,

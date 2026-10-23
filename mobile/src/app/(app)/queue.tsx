@@ -112,7 +112,7 @@ export default function Queue() {
                       'Discard this entry?',
                       entry.kind === 'flight'
                         ? 'The flight and its meter readings will be gone from this phone, and nothing else has them.'
-                        : 'The defect report will be gone from this phone, and nobody will have seen it.',
+                        : 'The squawk will be gone from this phone, and nobody will have seen it.',
                       [
                         { text: 'Keep it', style: 'cancel' },
                         {
@@ -159,7 +159,7 @@ function Summary({ entry }: { entry: QueuedWrite }) {
 
 const KIND: Record<QueuedWrite['kind'], string> = {
   flight: 'Flight',
-  squawk: 'Defect report',
+  squawk: 'Squawk',
   attachment: 'Photo',
 };
 
@@ -169,7 +169,7 @@ function describe(entry: QueuedWrite): string {
   // Nothing about the photograph is worth reading here — it is the defect it
   // belongs to that a person is looking for, and the summary is on the row
   // above it in the list.
-  return `${(entry.payload.byteSize / 1024).toFixed(0)} KB, attached to a defect report`;
+  return `${(entry.payload.byteSize / 1024).toFixed(0)} KB, attached to a squawk`;
 }
 
 function describeFlight(payload: { flight_date: string; hobbs_start?: string; hobbs_end?: string }): string {
