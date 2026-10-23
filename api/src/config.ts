@@ -214,6 +214,19 @@ export const config = {
     baseUrl: process.env.FS_WEB_URL ?? 'http://127.0.0.1:3001',
   },
   /**
+   * Reading meters off a photograph (`api/src/ocr/meters.ts`).
+   *
+   * Off unless `FS_OCR_PROVIDER=textract`, because Textract needs AWS
+   * credentials a laptop may not have. Off, the scan answers "not available
+   * here" and the pilot types the numbers, which is all they ever had to do.
+   * Locally, set it with `AWS_PROFILE` naming a profile that may call
+   * Textract.
+   */
+  ocr: {
+    provider: (process.env.FS_OCR_PROVIDER ?? '') as '' | 'textract',
+    region: process.env.FS_OCR_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
+  },
+  /**
    * The mail sender (M8). Runs as its own database role and its own process:
    * `npm run mail -w api`.
    *

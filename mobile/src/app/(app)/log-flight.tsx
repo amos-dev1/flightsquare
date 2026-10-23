@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Feather from '@expo/vector-icons/Feather';
 import { dayLabel, plainDate } from '@flightsquare/shared/time';
@@ -20,6 +21,7 @@ import type {
   FlightCategory,
   FlightResponse,
   MemberResponse,
+  MeterScanResponse,
 } from '@flightsquare/shared';
 
 import {
@@ -314,6 +316,17 @@ export default function LogFlight() {
    */
   const [meterPhotos, setMeterPhotos] = useState<PhotoDraft[]>([]);
 
+  /**
+   * Reading the meters off a photograph. Online only, and a suggestion only:
+   * it fills the "In" boxes still empty, never one the pilot typed, and says
+   * what it filled so it is checked against the panel (§3.4). At a tiedown
+   * with no signal it says so and the pilot types, as they always could.
+   */
+  const [scan, setScan] = useState<{ busy: boolean; message: string | null }>({
+    busy: false,
+    message: null,
+  });
+
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -381,6 +394,7 @@ export default function LogFlight() {
       setSquawks([]);
       // A photograph of this flight's panel is not a photograph of the next.
       setMeterPhotos([]);
+      setScan({ busy: false, message: null });
       setError(null);
       // Carried values are prefills, not answers: the figures below came from
       // the last flight and the server may know better by the next focus.
@@ -786,6 +800,77 @@ export default function LogFlight() {
     });
   }
 
+  async function scanMeterPhoto(from: 'camera' | 'library') {
+    const photo = await takePhoto(from, 'the meters');
+    if (!photo) return;
+    // Kept as the meter photo too, where the aircraft asks for one, so the
+    // same picture is not taken twice.
+    if (photosAsked) setMeterPhotos((all) => [...all, photo]);
+    setScan({ busy: true, message: null });
+
+    let result: MeterScanResponse;
+    try {
+      // Shrunk before it is sent: the API reads it and drops it, and the body
+      // has to fit under 1 MiB. The digits stay far larger than needed.
+      const context = ImageManipulator.manipulate(photo.uri);
+      context.resize({ width: 1400 });
+      const rendered = await context.renderAsync();
+      const shrunk = await rendered.saveAsync({
+        compress: 0.7,
+        format: SaveFormat.JPEG,
+        base64: true,
+      });
+      result = await withAuth(() =>
+        api.scanMeters(aircraftId, { image: shrunk.base64 ?? '', content_type: 'image/jpeg' }),
+      );
+    } catch {
+      result = { status: 'unavailable', hobbs: null, tach: null };
+    }
+
+    if (result.status === 'unavailable') {
+      setScan({
+        busy: false,
+        message: 'The photo could not be read right now — no signal, perhaps. Type the numbers in.',
+      });
+      return;
+    }
+    if (result.status === 'nothing_found') {
+      setScan({
+        busy: false,
+        message: 'No Hobbs or tach could be made out. Type them in, or try a closer, straighter shot.',
+      });
+      return;
+    }
+
+    const filled: string[] = [];
+    const differs: string[] = [];
+    const updated = { ...meters };
+    for (const [key, value, name] of [
+      ['hobbs_end', result.hobbs, 'Hobbs'],
+      ['tach_end', result.tach, 'tach'],
+    ] as const) {
+      if (value === null) continue;
+      if (updated[key] === '') {
+        updated[key] = value;
+        touch(key);
+        filled.push(`${name} in ${value}`);
+      } else if (Number(updated[key]) !== Number(value)) {
+        differs.push(`${name} in is ${updated[key]}, the photo seemed to show ${value}`);
+      }
+    }
+    setMeters(updated);
+
+    const parts = [
+      filled.length > 0 ? `Filled in from the photo: ${filled.join(', ')}.` : null,
+      differs.length > 0 ? `Left as typed: ${differs.join('; ')}.` : null,
+      result.hobbs === null || result.tach === null
+        ? `The ${result.hobbs === null ? 'Hobbs' : 'tach'} could not be made out.`
+        : null,
+      'Check against the panel before saving.',
+    ];
+    setScan({ busy: false, message: parts.filter(Boolean).join(' ') });
+  }
+
   async function addMeterPhoto(from: 'camera' | 'library') {
     const photo = await takePhoto(from, 'the meters');
     if (photo) setMeterPhotos((all) => [...all, photo]);
@@ -967,6 +1052,45 @@ export default function LogFlight() {
               This does not match the last recorded Hobbs of {aircraft?.hobbs}. Save it anyway —
               the flight will be flagged for review.
             </Notice>
+          ) : null}
+
+          {/* Not on a correction: those figures come from the record, not the panel. */}
+          {!correcting ? (
+            <>
+              <View style={styles.pair}>
+                <Pressable
+                  onPress={() => void scanMeterPhoto('camera')}
+                  disabled={scan.busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Fill in the meters from a photo you take now"
+                  style={({ pressed }) => [
+                    styles.photoButton,
+                    (pressed || scan.busy) && styles.pressed,
+                  ]}
+                >
+                  <Feather name="camera" size={18} color={color.navy} />
+                  <Text style={styles.photoLabel}>
+                    {scan.busy ? 'Reading…' : 'Scan meters'}
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => void scanMeterPhoto('library')}
+                  disabled={scan.busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="Fill in the meters from a photo on this phone"
+                  style={({ pressed }) => [
+                    styles.photoButton,
+                    (pressed || scan.busy) && styles.pressed,
+                  ]}
+                >
+                  <Feather name="image" size={18} color={color.navy} />
+                  <Text style={styles.photoLabel}>From photos</Text>
+                </Pressable>
+              </View>
+              {scan.message ? (
+                <Body muted>{scan.message}</Body>
+              ) : null}
+            </>
           ) : null}
         </Card>
 

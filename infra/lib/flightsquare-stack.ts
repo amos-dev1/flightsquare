@@ -373,6 +373,32 @@ export class FlightSquareStack extends cdk.Stack {
     appRoleSecret.grantRead(instanceRole);
     attachments.grantReadWrite(instanceRole);
 
+    /*
+      Reading meters off a photograph of the panel (api/src/ocr/meters.ts).
+      Synchronous text detection on bytes the request carries: no bucket, no
+      job, so nothing beyond the one action. Textract has no resource-level
+      permissions, hence '*'.
+
+      Reached privately for the reason SES is: the API's VPC connector sends
+      all its traffic into a VPC with no NAT, so without an interface endpoint
+      `textract.<region>.amazonaws.com` never resolves and every scan hangs.
+      One subnet outside prod, as for SES.
+    */
+    instanceRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['textract:DetectDocumentText'],
+        resources: ['*'],
+      }),
+    );
+    const textractEndpoint = new ec2.InterfaceVpcEndpoint(this, 'TextractEndpoint', {
+      vpc,
+      service: new ec2.InterfaceVpcEndpointAwsService('textract'),
+      subnets: { subnets: isProd ? vpc.publicSubnets : [vpc.publicSubnets[0]] },
+      privateDnsEnabled: true,
+      open: false,
+    });
+    textractEndpoint.connections.allowFrom(apiSg, ec2.Port.tcp(443), 'api to Textract');
+
     const service = new apprunner.Service(this, 'Api', {
       serviceName: `${prefix}-api`,
       source: apprunner.Source.fromEcr({
@@ -399,6 +425,7 @@ export class FlightSquareStack extends cdk.Stack {
             FS_STORAGE_ENDPOINT: `https://s3.${this.region}.amazonaws.com`,
             FS_STORAGE_REGION: this.region,
             FS_STORAGE_BUCKET: attachments.bucketName,
+            FS_OCR_PROVIDER: 'textract',
             AWS_REGION: this.region,
           },
           environmentSecrets: {

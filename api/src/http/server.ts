@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { config } from '../config.js';
+import { configuredReader, type TextReader } from '../ocr/meters.js';
 import { db } from '../db/pool.js';
 import type { Database } from '../db/schema.js';
 import type { Kysely } from 'kysely';
@@ -31,6 +32,7 @@ import { subscriptionRoutes } from './routes/subscription.js';
 import { referenceRoutes } from './routes/reference.js';
 import { schedulingRoutes } from './routes/scheduling.js';
 import { meRoutes } from './routes/me.js';
+import { meterScanRoutes } from './routes/meter-scan.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { signupRoutes } from './routes/signup.js';
 import { tenantRoutes } from './routes/tenant.js';
@@ -68,6 +70,8 @@ export interface ServerOptions {
   resolveSession?: RequestContextOptions['resolveSession'];
   /** Override the configured limits, so a test can provoke a 429 deliberately. */
   rateLimits?: Partial<Record<'signup' | 'login' | 'refresh' | 'mfa', RateLimitRule>>;
+  /** What reads meter photographs. Tests pass a stub, or null for none. */
+  meterReader?: TextReader | null;
 }
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
@@ -209,6 +213,9 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   void app.register(documentRoutes);
   void app.register(billingRoutes);
   void app.register(flightRoutes);
+  void app.register(meterScanRoutes, {
+    reader: options.meterReader === undefined ? configuredReader() : options.meterReader,
+  });
   void app.register(maintenanceRoutes);
   void app.register(notificationRoutes);
   void app.register(memberRoutes);

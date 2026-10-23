@@ -10,13 +10,14 @@ import {
   NotebookPen,
   Plane,
   Plus,
+  ScanLine,
   X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useRef, useState } from 'react';
 import type { ComponentType, ReactNode } from 'react';
 
-import { logFlight, lookupAerodrome, type FormState } from '@/app/actions';
+import { logFlight, lookupAerodrome, scanMeters, type FormState } from '@/app/actions';
 import { FlightCategoryChoice } from '@/components/flight-category';
 import { uploadFile } from '@/components/upload';
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
@@ -34,6 +35,30 @@ import { uuidv7 } from '@flightsquare/shared/uuidv7';
  * while typing — the stored hours are a generated column on the server, and
  * nothing here is ever sent.
  */
+/**
+ * A photograph small enough to send for reading: JPEG, at most 1600 px on
+ * its long side, and under a server action's 1 MB body once base64'd. The
+ * meter digits stay far larger than the reader needs; only the file shrinks.
+ * Returns the base64 alone, without the data-URL prefix.
+ */
+async function shrinkForScan(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const canvas = document.createElement('canvas');
+  for (const [side, quality] of [
+    [1600, 0.8],
+    [1280, 0.7],
+    [1024, 0.6],
+  ] as const) {
+    const scale = Math.min(1, side / Math.max(bitmap.width, bitmap.height));
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d')!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const base64 = canvas.toDataURL('image/jpeg', quality).split(',')[1] ?? '';
+    if (base64.length < 700_000) return base64;
+  }
+  throw new Error('photo too large to read');
+}
+
 function hoursBetween(start: string, end: string): string | null {
   if (!start || !end) return null;
   const from = Number(start);
@@ -255,6 +280,75 @@ export function LogFlightForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flightId]);
 
+  /*
+    Reading the meters off a photograph. What comes back is a suggestion: it
+    fills the "In" boxes that are still empty, never one the pilot has typed
+    into, and says what it filled so it gets checked against the panel (§3.4
+    — the meters are recorded as read, and the pilot is the reader).
+  */
+  const [scan, setScan] = useState<{ busy: boolean; message: string | null }>({
+    busy: false,
+    message: null,
+  });
+
+  async function scanPhoto(file: File) {
+    setScan({ busy: true, message: null });
+    let image: string;
+    try {
+      image = await shrinkForScan(file);
+    } catch {
+      setScan({ busy: false, message: 'That photo could not be opened. Try a JPEG or PNG.' });
+      return;
+    }
+    const result = await scanMeters(aircraft.id, image);
+
+    // Kept as the meter photo too, where the aircraft asks for one, so the
+    // pilot does not have to pick the same picture twice.
+    if (asksForPhotos) {
+      setPhotos((current) => [...current, { file, preview: URL.createObjectURL(file) }]);
+      setPhotoError(null);
+    }
+
+    if (result.status === 'unavailable') {
+      setScan({ busy: false, message: 'Reading photos is not available right now. Type the numbers in.' });
+      return;
+    }
+    if (result.status === 'nothing_found') {
+      setScan({
+        busy: false,
+        message: 'No Hobbs or tach could be made out in that photo. Type them in, or try a closer, straighter shot.',
+      });
+      return;
+    }
+
+    const filled: string[] = [];
+    const differs: string[] = [];
+    const updated = { ...meters };
+    for (const [key, value, name] of [
+      ['hobbs_end', result.hobbs, 'Hobbs'],
+      ['tach_end', result.tach, 'tach'],
+    ] as const) {
+      if (value === null) continue;
+      if (updated[key] === '') {
+        updated[key] = value;
+        filled.push(`${name} in ${value}`);
+      } else if (Number(updated[key]) !== Number(value)) {
+        differs.push(`${name} in is ${updated[key]}, the photo seemed to show ${value}`);
+      }
+    }
+    setMeters(updated);
+
+    const parts = [
+      filled.length > 0 ? `Filled in from the photo: ${filled.join(', ')}.` : null,
+      differs.length > 0 ? `Left as typed: ${differs.join('; ')}.` : null,
+      result.hobbs === null || result.tach === null
+        ? `The ${result.hobbs === null ? 'Hobbs' : 'tach'} could not be made out.`
+        : null,
+      'Check against the panel before saving.',
+    ];
+    setScan({ busy: false, message: parts.filter(Boolean).join(' ') });
+  }
+
   const hobbsHours = hoursBetween(meters.hobbs_start, meters.hobbs_end);
   const tachHours = hoursBetween(meters.tach_start, meters.tach_end);
 
@@ -374,6 +468,36 @@ export function LogFlightForm({
         title="Hours"
         hint="Read both off the panel. Neither is worked out from the other."
       >
+        <div className="space-y-2">
+          {/*
+            A label styled as the secondary button, so the file picker is the
+            control and keyboard focus lands on it. No `capture`, for the
+            reason the meter photos give: the library has to stay reachable.
+          */}
+          <label
+            className={`inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border border-control bg-surface px-4 text-sm font-semibold text-navy transition-colors duration-150 hover:bg-subtle has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-navy ${scan.busy ? 'pointer-events-none opacity-60' : ''}`}
+          >
+            <ScanLine aria-hidden size={16} strokeWidth={2} />
+            {scan.busy ? 'Reading the photo…' : 'Fill in from a photo of the meters'}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/heic,image/webp"
+              className="sr-only"
+              disabled={scan.busy}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void scanPhoto(file);
+              }}
+            />
+          </label>
+          {scan.message ? (
+            <p role="status" className="text-sm text-secondary">
+              {scan.message}
+            </p>
+          ) : null}
+        </div>
+
         <fieldset className="space-y-4">
           <legend className="text-sm font-semibold">Hobbs</legend>
           <div className="grid grid-cols-2 gap-4">

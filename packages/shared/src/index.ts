@@ -843,6 +843,31 @@ export interface AircraftFlightStatsResponse {
   };
 }
 
+/**
+ * A photograph of the panel, for the API to read Hobbs and tach off.
+ *
+ * Base64, shrunk by the client first (about 1600 px on the long side): the
+ * photograph is read and dropped, never stored, and has to fit a 1 MiB body.
+ */
+export interface MeterScanRequest {
+  image: string;
+  content_type: 'image/jpeg' | 'image/png';
+}
+
+/**
+ * What the photograph seemed to say — a suggestion for the form's empty
+ * boxes, which the pilot confirms. Never a reading in its own right (§3.4).
+ *
+ * `unavailable`: nothing could read it here (no reader configured, or the
+ * service failed). `nothing_found`: it was read and no meter was recognised.
+ * Either way the pilot types the numbers, as they always could.
+ */
+export interface MeterScanResponse {
+  status: 'read' | 'nothing_found' | 'unavailable';
+  hobbs: string | null;
+  tach: string | null;
+}
+
 export interface CreateFlightRequest {
   /**
    * The flight's own id, minted on the device.
