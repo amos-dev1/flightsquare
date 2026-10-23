@@ -128,7 +128,7 @@ export default function MaintenanceItem() {
       <View style={styles.countdown}>
         <Ring state={item.state} remaining={item.governing_remaining} every={governing?.every ?? null} />
         <View style={styles.countdownText}>
-          <View style={[styles.pill, { backgroundColor: tone.surface }]}>
+          <View style={[styles.pill, { backgroundColor: tone.surface, borderColor: tone.line ?? tone.ink }]}>
             <Text style={[styles.pillLabel, { color: tone.ink }]}>{wordFor(item.state)}</Text>
           </View>
           {/* §3.6's distinction, and the one claim this screen must not make
@@ -845,7 +845,7 @@ function Ring({
           cx={size / 2}
           cy={size / 2}
           r={r}
-          stroke={tone.ink}
+          stroke={tone.line ?? tone.ink}
           strokeWidth={stroke}
           strokeLinecap="round"
           fill="none"
@@ -940,7 +940,7 @@ function resetLabel(preview: PreviewMaintenanceResponse): string {
   return parts.join(' or ');
 }
 
-function toneOf(state: MaintenanceState): { surface: string; ink: string } {
+function toneOf(state: MaintenanceState): { surface: string; ink: string; line?: string } {
   switch (state) {
     case 'overdue':
       return statusColor.bad;
@@ -951,7 +951,7 @@ function toneOf(state: MaintenanceState): { surface: string; ink: string } {
     case 'inactive':
       return statusColor.unknown;
     default:
-      return statusColor.good;
+      return statusColor.clear;
   }
 }
 
@@ -1030,7 +1030,7 @@ const styles = StyleSheet.create({
   ringValue: { ...type.sectionHeading, fontVariant: ['tabular-nums'] },
   ringUnit: { ...type.supporting, color: color.secondary },
 
-  pill: { alignSelf: 'flex-start', paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: 999 },
+  pill: { alignSelf: 'flex-start', paddingHorizontal: space.md, paddingVertical: space.xs, borderWidth: 1, borderStyle: 'dashed' },
   pillLabel: { ...type.supporting, textTransform: 'uppercase' },
 
   rows: {

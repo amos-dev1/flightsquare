@@ -290,7 +290,15 @@ function StatusCard({
   return (
     <View style={styles.statusCard}>
       <View style={styles.statusHead}>
-        <View style={[styles.pill, { backgroundColor: toneOf(tone).surface }]}>
+        <View
+          style={[
+            styles.pill,
+            {
+              backgroundColor: toneOf(tone).surface,
+              borderColor: toneOf(tone).line ?? toneOf(tone).ink,
+            },
+          ]}
+        >
           <Text style={[styles.pillLabel, { color: toneOf(tone).ink }]}>
             {summary === null ? 'Unknown' : !summary.available ? 'Grounded' : wordFor(tone)}
           </Text>
@@ -555,7 +563,7 @@ const styles = StyleSheet.create({
   statusFootQuiet: { ...type.supporting, color: color.line },
   statusStrong: { ...type.label, color: color.onDark },
 
-  pill: { paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: 999 },
+  pill: { paddingHorizontal: space.md, paddingVertical: space.xs, borderWidth: 1, borderStyle: 'dashed' },
   pillLabel: { ...type.supporting, textTransform: 'uppercase' },
 
   filterRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },

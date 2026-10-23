@@ -12,7 +12,7 @@ import { space, statusColor, type } from '@/theme';
 export function Pill({ state, label }: { state: MaintenanceState; label: string }) {
   const tone = toneOf(state);
   return (
-    <View style={[styles.pill, { backgroundColor: tone.surface }]}>
+    <View style={[styles.pill, { backgroundColor: tone.surface, borderColor: tone.line ?? tone.ink }]}>
       <Text style={[styles.pillLabel, { color: tone.ink }]}>{label}</Text>
     </View>
   );
@@ -24,7 +24,7 @@ export function Pill({ state, label }: { state: MaintenanceState; label: string 
  * `upcoming` is a thing to plan for and `due_soon` is a thing to book a shop
  * slot for. One colour for both would waste the split the module is built on.
  */
-export function toneOf(state: MaintenanceState): { surface: string; ink: string } {
+export function toneOf(state: MaintenanceState): { surface: string; ink: string; line?: string } {
   switch (state) {
     case 'overdue':
       return statusColor.bad;
@@ -35,7 +35,7 @@ export function toneOf(state: MaintenanceState): { surface: string; ink: string 
     case 'inactive':
       return statusColor.unknown;
     default:
-      return statusColor.good;
+      return statusColor.clear;
   }
 }
 
@@ -78,6 +78,6 @@ export function remainingLabel(kind: string | null, remaining: string | null): s
 }
 
 const styles = StyleSheet.create({
-  pill: { paddingHorizontal: space.md, paddingVertical: space.xs, borderRadius: 999 },
+  pill: { paddingHorizontal: space.md, paddingVertical: space.xs, borderWidth: 1, borderStyle: 'dashed' },
   pillLabel: { ...type.supporting, textTransform: 'uppercase' },
 });
