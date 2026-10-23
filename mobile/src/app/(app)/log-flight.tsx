@@ -793,7 +793,7 @@ export default function LogFlight() {
   }
 
   async function addPhoto(draftKey: string, from: 'camera' | 'library') {
-    const photo = await takePhoto(from, 'a defect');
+    const photo = await takePhoto(from, 'a squawk');
     if (!photo) return;
     edit(draftKey, {
       photos: [...(squawks.find((one) => one.key === draftKey)?.photos ?? []), photo],
@@ -1364,7 +1364,7 @@ export default function LogFlight() {
               <Pressable
                 onPress={() => void addPhoto(draft.key, 'camera')}
                 accessibilityRole="button"
-                accessibilityLabel="Take a photo of this defect"
+                accessibilityLabel="Take a photo of this squawk"
                 style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}
               >
                 <Feather name="camera" size={18} color={color.navy} />
@@ -1373,7 +1373,7 @@ export default function LogFlight() {
               <Pressable
                 onPress={() => void addPhoto(draft.key, 'library')}
                 accessibilityRole="button"
-                accessibilityLabel="Choose a photo of this defect"
+                accessibilityLabel="Choose a photo of this squawk"
                 style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}
               >
                 <Feather name="image" size={18} color={color.navy} />

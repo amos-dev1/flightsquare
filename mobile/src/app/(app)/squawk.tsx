@@ -136,7 +136,7 @@ export default function Squawk() {
                       key={photo.id}
                       onPress={() => void Linking.openURL(photo.url!)}
                       accessibilityRole="imagebutton"
-                      accessibilityLabel={`Open photo ${index + 1} of this defect`}
+                      accessibilityLabel={`Open photo ${index + 1} of this squawk`}
                     >
                       {photo.content_type === 'application/pdf' ? (
                         <View style={[styles.thumb, styles.pdf]}>

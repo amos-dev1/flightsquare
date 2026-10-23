@@ -210,7 +210,7 @@ export default function Maintenance() {
               §1.5 keeps them a separate resource, so they are a separate
               section rather than mixed into the list above. */}
           <View style={styles.group}>
-            <SectionHeading>Reported defects</SectionHeading>
+            <SectionHeading>Squawks</SectionHeading>
             {squawks.length === 0 ? (
               <Body muted>Nothing outstanding.</Body>
             ) : (
@@ -225,7 +225,7 @@ export default function Maintenance() {
               ))
             )}
             <Button
-              label="Report a defect"
+              label="Report a squawk"
               variant="secondary"
               onPress={() =>
                 router.push({

@@ -56,7 +56,7 @@ export default function ReportSquawk() {
 
   async function submit() {
     if (!summary.trim()) {
-      setError('Describe the defect in a few words.');
+      setError('Describe the squawk in a few words.');
       return;
     }
     setBusy(true);

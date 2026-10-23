@@ -239,7 +239,7 @@ export default function AircraftDetail() {
             }
           />
           <Button
-            label="Report a defect"
+            label="Report a squawk"
             variant="secondary"
             onPress={() =>
               router.push({ pathname: '/report-squawk', params: { aircraft: aircraft.id } })

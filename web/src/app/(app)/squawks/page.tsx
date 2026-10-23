@@ -49,13 +49,13 @@ export default async function SquawksPage({
         <p className="mt-1 text-sm text-secondary">
           {open.length === 0
             ? 'Nothing outstanding.'
-            : `${open.length} outstanding ${open.length === 1 ? 'defect' : 'defects'}.`}
+            : `${open.length} outstanding ${open.length === 1 ? 'squawk' : 'squawks'}.`}
         </p>
       </div>
 
       {canFile && active.length > 0 ? (
         <section className="space-y-3">
-          <SectionHeading>Report a defect</SectionHeading>
+          <SectionHeading>Report a squawk</SectionHeading>
           <SquawkForm
             fleet={active}
             // Only where it names an aeroplane this member can actually see:

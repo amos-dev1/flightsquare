@@ -735,14 +735,14 @@ export function LogFlightForm({
           hint={
             squawks.length === 0
               ? 'Nothing to report is the usual answer. If there is something, it goes on the record from here.'
-              : 'Each defect is its own record, and what you write stays as written.'
+              : 'Each squawk is its own record, and what you write stays as written.'
           }
         >
           <input type="hidden" name="squawk_count" value={squawks.length} />
 
           {squawks.map((draft, index) => (
             <fieldset key={index} className="space-y-4 border-t border-line pt-4 first:border-0 first:pt-0">
-              <legend className="sr-only">Defect {index + 1}</legend>
+              <legend className="sr-only">Squawk {index + 1}</legend>
 
               <Field label="What is wrong">
                 <Input
