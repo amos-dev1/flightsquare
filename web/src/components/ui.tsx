@@ -267,14 +267,18 @@ const STATUS: Record<StatusKind, { icon: typeof Check; label: string; tone: Tone
 
 /*
   Green, orange, red by threshold — the colours are defined, and measured, in
-  globals.css. The orange and red chips carry a line because their surfaces
-  alone are not a boundary against a white card.
+  globals.css. Every chip carries a dashed line in its own tone: the surfaces
+  alone are not a boundary against a white card, and the dashed, square-cornered
+  frame keeps a status from reading as one more rounded button.
 */
 const TONE: Record<Tone, string> = {
-  ok: 'bg-ok-surface text-ok',
-  warn: 'border border-warn-line bg-warn-surface text-warn',
-  danger: 'border border-danger-line bg-danger-surface text-danger',
-  quiet: 'bg-mist text-secondary',
+  // The charts' teal at a quarter strength, by the owner's call (2026-10-22):
+  // the same hue without shouting. Navy on it, never white, and the line is
+  // teal-text so the chip keeps an edge against white.
+  ok: 'border-teal-text bg-teal/25 text-on-teal',
+  warn: 'border-warn-line bg-warn-surface text-warn',
+  danger: 'border-danger-line bg-danger-surface text-danger',
+  quiet: 'border-control bg-mist text-secondary',
 };
 
 export function Status({ kind, children }: { kind: StatusKind; children?: ReactNode }) {
@@ -292,7 +296,7 @@ export function Status({ kind, children }: { kind: StatusKind; children?: ReactN
   */
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold ${TONE[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded-none border border-dashed px-2 py-1 text-xs font-semibold ${TONE[tone]}`}
     >
       <Icon aria-hidden size={14} strokeWidth={2} />
       {children ?? label}

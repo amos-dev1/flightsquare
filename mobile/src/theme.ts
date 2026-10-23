@@ -53,6 +53,14 @@ export const color = {
  */
 export const statusColor = {
   good: { surface: '#E4F3EB', ink: '#176442' },
+  /**
+   * A badge that says all is well: the charts' teal at a quarter strength, navy
+   * on it (never white), edged in teal-text so it still has a boundary on a
+   * white card. Badges only
+   * (2026-10-22); `good` stays for icons and text, where bright teal is too
+   * light to read.
+   */
+  clear: { surface: 'rgba(0, 194, 184, 0.25)', ink: '#152B3C', line: '#007A74' },
   /** Not a state of the aeroplane — a state of the calendar. */
   neutral: { surface: '#EAF1F5', ink: '#152B3C' },
   bad: { surface: '#FDEBEC', ink: '#B42318' },
