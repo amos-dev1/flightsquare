@@ -901,7 +901,13 @@ function readRules(form: FormData): Record<string, unknown>[] {
       ...(kind === 'fixed_date' ? { fixed_date: fixedDate } : { every }),
       end_of_month: form.get(`rules.${index}.end_of_month`) === 'on',
       ...(anchorOn ? { anchor_on: anchorOn } : {}),
-      ...(anchorHours ? { anchor_hours: anchorHours } : {}),
+      // One box on the form, "Last done at": hours on an hour rule, a count on
+      // a cycles rule, which the server reads from a different field.
+      ...(anchorHours
+        ? kind === 'cycles'
+          ? { anchor_cycles: Math.round(Number(anchorHours)) }
+          : { anchor_hours: anchorHours }
+        : {}),
       ...(warnAt ? { warn_at: warnAt } : {}),
     });
   }

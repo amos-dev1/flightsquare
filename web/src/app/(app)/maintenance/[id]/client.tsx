@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useActionState, useState, useTransition } from 'react';
 import { Archive, ClipboardCheck, RotateCcw } from 'lucide-react';
 
@@ -249,10 +250,14 @@ export function VoidButton({
 export function ArchiveItemButton({
   itemId,
   status,
+  afterRemove,
 }: {
   itemId: string;
   status: MaintenanceItemResponse['status'];
+  /** Where to go once it is removed — from the edit page, the item is gone. */
+  afterRemove?: string;
 }) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const archiving = status === 'active';
@@ -264,12 +269,21 @@ export function ArchiveItemButton({
         disabled={pending}
         onClick={() =>
           startTransition(async () => {
+            if (
+              archiving &&
+              !window.confirm(
+                'Remove this item? It stops counting down and leaves the list. Every completion already logged is kept, and it can be brought back.',
+              )
+            ) {
+              return;
+            }
             setError(null);
             const result = await setMaintenanceItemStatus(
               itemId,
               archiving ? 'archived' : 'active',
             );
             if (result.error) setError(result.error);
+            else if (archiving && afterRemove) router.push(afterRemove);
           })
         }
       >
@@ -278,7 +292,7 @@ export function ArchiveItemButton({
         ) : (
           <RotateCcw aria-hidden size={16} strokeWidth={2} />
         )}
-        {pending ? 'Saving…' : archiving ? 'Stop tracking this item' : 'Track it again'}
+        {pending ? 'Saving…' : archiving ? 'Remove this item' : 'Track it again'}
       </Button>
       <p className="text-xs text-secondary">
         {archiving

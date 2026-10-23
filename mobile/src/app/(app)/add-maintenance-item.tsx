@@ -2,6 +2,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -134,7 +135,11 @@ export default function AddMaintenanceItem() {
                 endOfMonth: rule.end_of_month,
                 fixedDate: rule.due_on ?? todayIso(),
                 anchorOn: found.last_complied_on ?? todayIso(),
-                anchorHours: found.last_complied_on ? '' : '',
+                // Where it is counting from, so an untouched edit keeps its
+                // due point rather than restarting from today's meter.
+                anchorHours:
+                  rule.anchor_hours ??
+                  (rule.anchor_cycles != null ? String(rule.anchor_cycles) : ''),
               })),
         );
       })
@@ -151,7 +156,12 @@ export default function AddMaintenanceItem() {
           end_of_month: rule.endOfMonth,
           ...(rule.kind === 'fixed_date' ? { fixed_date: rule.fixedDate } : {}),
           anchor_on: rule.anchorOn,
-          ...(rule.anchorHours.trim() ? { anchor_hours: rule.anchorHours.trim() } : {}),
+          // Hours on an hour rule, a count on a cycles rule.
+          ...(rule.anchorHours.trim()
+            ? rule.kind === 'cycles'
+              ? { anchor_cycles: Math.round(Number(rule.anchorHours.trim())) }
+              : { anchor_hours: rule.anchorHours.trim() }
+            : {}),
         })),
     [rules],
   );
@@ -219,6 +229,35 @@ export default function AddMaintenanceItem() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * Removing an item, which archives it — the only "delete" this product has
+   * (§5.5, §10 on `deleted_at`). It stops counting down and leaves the list;
+   * its completions stay on record, and the web can bring it back.
+   */
+  function remove() {
+    if (!itemId) return;
+    const id = itemId;
+    Alert.alert(
+      'Remove this item?',
+      'It stops counting down and leaves the maintenance list. Every completion already logged is kept, and it can be restored from the web app.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: () => {
+            setBusy(true);
+            setError(null);
+            withAuth(() => api.updateMaintenanceItem(id, { status: 'archived' }))
+              .then(() => router.navigate('/(app)/maintenance'))
+              .catch((problem: unknown) => setError(messageFor(problem)))
+              .finally(() => setBusy(false));
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -416,6 +455,9 @@ export default function AddMaintenanceItem() {
         ) : null}
 
         <Button label={editing ? 'Save changes' : 'Add item'} onPress={submit} busy={busy} />
+        {editing ? (
+          <Button variant="secondary" label="Remove item" onPress={remove} busy={busy} />
+        ) : null}
 
         {pickingDate ? (
           <DateTimePicker
