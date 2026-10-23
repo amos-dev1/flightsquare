@@ -38,6 +38,8 @@ import type {
   PreviewMaintenanceResponse,
   VoidCompletionRequest,
   MeResponse,
+  MeterScanRequest,
+  MeterScanResponse,
   MemberResponse,
   MembershipSummaryResponse,
   MeterReadingResponse,
@@ -196,6 +198,9 @@ export function createClient(options: ClientOptions) {
      * a PUT, send the bytes straight to storage, then complete — which also
      * puts aside the picture it replaces.
      */
+    /** Hobbs and tach as a photograph of the panel seems to show them. */
+    scanMeters: (aircraftId: string, input: MeterScanRequest) =>
+      request<MeterScanResponse>('POST', `/aircraft/${aircraftId}/meter-scan`, input),
     createAircraftPhoto: (aircraftId: string, input: AttachFileRequest) =>
       request<AttachmentResponse>('POST', `/aircraft/${aircraftId}/photo`, input),
     completeAircraftPhoto: (aircraftId: string, attachmentId: string) =>

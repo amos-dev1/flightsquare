@@ -15,6 +15,7 @@ import { parseMoney } from '@/lib/money';
 import { zonedToInstant } from '@flightsquare/shared/time';
 import type {
   AerodromeResponse,
+  MeterScanResponse,
   AircraftResponse,
   BillingRedirectResponse,
   BookingMaintenanceCheckResponse,
@@ -271,6 +272,25 @@ export async function lookupAerodrome(ident: string): Promise<AerodromeResponse 
     );
   } catch {
     return null;
+  }
+}
+
+/**
+ * Hobbs and tach as a photograph of the panel seems to show them — offered
+ * back to the log-flight form, never saved by this. The browser shrinks the
+ * photograph first, because a server action's body is capped at 1 MB.
+ */
+export async function scanMeters(
+  aircraftId: string,
+  image: string,
+): Promise<MeterScanResponse> {
+  try {
+    return await apiFetch<MeterScanResponse>(
+      `/aircraft/${encodeURIComponent(aircraftId)}/meter-scan`,
+      { method: 'POST', body: JSON.stringify({ image, content_type: 'image/jpeg' }) },
+    );
+  } catch {
+    return { status: 'unavailable', hobbs: null, tach: null };
   }
 }
 
