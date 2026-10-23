@@ -10,6 +10,7 @@ import type {
 } from '@flightsquare/shared';
 
 import { MaintenanceItemForm } from '../../item-form';
+import { ArchiveItemButton } from '../client';
 
 /**
  * Editing an item.
@@ -61,6 +62,10 @@ export default async function EditMaintenanceItemPage({
         registration={aircraft.registration}
         item={item}
       />
+
+      {item.status === 'active' ? (
+        <ArchiveItemButton itemId={item.id} status={item.status} afterRemove="/maintenance" />
+      ) : null}
     </div>
   );
 }

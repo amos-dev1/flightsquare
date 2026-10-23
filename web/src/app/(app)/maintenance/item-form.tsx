@@ -127,7 +127,9 @@ export function MaintenanceItemForm({
           endOfMonth: rule.end_of_month,
           fixedDate: rule.due_on ?? today(),
           anchorOn: item.last_complied_on ?? today(),
-          anchorHours: '',
+          // Where it is counting from, so an untouched edit keeps its due point.
+          anchorHours:
+            rule.anchor_hours ?? (rule.anchor_cycles != null ? String(rule.anchor_cycles) : ''),
           warnAt: rule.warn_at ?? '',
         }))
       : [blank('tach_hr')],
@@ -147,7 +149,7 @@ export function MaintenanceItemForm({
           : { every: rule.every.trim() }),
         end_of_month: rule.endOfMonth,
         anchor_on: rule.anchorOn,
-        ...(rule.anchorHours.trim() ? { anchor_hours: rule.anchorHours.trim() } : {}),
+        ...anchorFor(rule.kind, rule.anchorHours),
         ...(rule.warnAt.trim() ? { warn_at: rule.warnAt.trim() } : {}),
       }));
 
@@ -446,6 +448,13 @@ export function MaintenanceItemForm({
       </div>
     </form>
   );
+}
+
+/** "Last done at" is hours on an hour rule and a count on a cycles rule. */
+function anchorFor(kind: string, value: string): { anchor_hours?: string; anchor_cycles?: number } {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  return kind === 'cycles' ? { anchor_cycles: Math.round(Number(trimmed)) } : { anchor_hours: trimmed };
 }
 
 function resetLabel(preview: PreviewMaintenanceResponse): string {

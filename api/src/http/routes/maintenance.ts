@@ -391,10 +391,38 @@ async function rulesFor(trx: Tx, itemIds: string[]): Promise<Map<string, Mainten
       remaining: row.remaining,
       state: row.state,
       projected_date: row.projected_date,
+      ...anchorOf(row),
     });
     byItem.set(row.maintenance_item_id, list);
   }
   return byItem;
+}
+
+/**
+ * Where an hour or cycle rule is counting from: its due point less its
+ * interval. Not stored — `next_due_for` turns the anchor into the due point and
+ * keeps only that — but exactly invertible, which is what an edit form needs:
+ * sending this back unchanged reproduces the due point it came from. Without
+ * it the form opened blank, and saving it blank re-anchored the rule on the
+ * aircraft's current meter, quietly moving the item's next due.
+ */
+function anchorOf(rule: {
+  kind: MaintenanceRuleKind;
+  every: string | null;
+  due_at_hours: string | null;
+  due_at_cycles: number | null;
+}): { anchor_hours: string | null; anchor_cycles: number | null } {
+  const hours =
+    (rule.kind === 'tach_hr' || rule.kind === 'hobbs_hr' || rule.kind === 'airframe_hr') &&
+    rule.due_at_hours !== null &&
+    rule.every !== null
+      ? (Number(rule.due_at_hours) - Number(rule.every)).toFixed(1)
+      : null;
+  const cycles =
+    rule.kind === 'cycles' && rule.due_at_cycles !== null && rule.every !== null
+      ? rule.due_at_cycles - Number(rule.every)
+      : null;
+  return { anchor_hours: hours, anchor_cycles: cycles };
 }
 
 async function toItems(trx: Tx, rows: ItemRow[]): Promise<MaintenanceItemResponse[]> {

@@ -433,6 +433,21 @@ describe('maintenance', () => {
     const itemId = item.json().id as string;
     expect(item.json().rules[0].due_at_hours).toBe('1275.0');
 
+    // "Last done at" comes back with the rule, and an edit that sends it back
+    // unchanged leaves the due point where it was rather than restarting the
+    // interval from today's meter.
+    expect(item.json().rules[0].anchor_hours).toBe('1225.0');
+    const edited = await app.inject({
+      method: 'PATCH',
+      url: `/maintenance-items/${itemId}`,
+      payload: {
+        name: 'Oil and filter change',
+        rules: [{ kind: 'tach_hr', every: '50.0', anchor_hours: item.json().rules[0].anchor_hours }],
+      },
+    });
+    expect(edited.statusCode).toBe(200);
+    expect(edited.json().rules[0].due_at_hours).toBe('1275.0');
+
     const first = await app.inject({
       method: 'POST',
       url: `/maintenance-items/${itemId}/completions`,

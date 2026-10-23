@@ -1021,6 +1021,14 @@ export interface MaintenanceRuleResponse {
   /** §4.3: when this runs out at the pace actually flown, or null rather than
    *  a forecast nobody should plan around. */
   projected_date: string | null;
+  /**
+   * The meter reading this rule is counting from — "last done at" — for hour
+   * and cycle rules; null for calendar ones. The due point less the interval,
+   * so an edit form that sends it back unchanged leaves the due point where
+   * it was. Optional because older servers did not send it (§8.1).
+   */
+  anchor_hours?: string | null;
+  anchor_cycles?: number | null;
 }
 
 /** A rule as a form has it, before anything is saved. */
