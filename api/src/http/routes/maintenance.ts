@@ -681,6 +681,19 @@ export async function maintenanceRoutes(app: FastifyInstance): Promise<void> {
         let query = selectItems(trx).where('i.status', '=', 'active');
         if (request.query.aircraft_id) {
           query = query.where('i.aircraft_id', '=', request.query.aircraft_id);
+        } else {
+          // The fleet view is the fleet: an archived aeroplane's items are
+          // kept (§5.5) but are nobody's Monday morning, and they come back
+          // the moment it is restored. Asked for by aircraft, they are all
+          // still there — the scheduler's sweep already skips them the same way.
+          query = query.where(({ exists, selectFrom }) =>
+            exists(
+              selectFrom('aircraft as a')
+                .select('a.id')
+                .whereRef('a.id', '=', 'i.aircraft_id')
+                .where('a.status', '<>', 'archived'),
+            ),
+          );
         }
         if (request.query.state) {
           query = query.where('s.state', '=', request.query.state as 'overdue');

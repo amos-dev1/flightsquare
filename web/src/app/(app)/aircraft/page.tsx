@@ -68,8 +68,12 @@ export default async function FleetPage() {
         ),
       );
 
-  const active = fleet.filter((a) => a.status === 'active');
-  const inactive = fleet.filter((a) => a.status !== 'active');
+  // Archived is out of the fleet until it is restored: its maintenance and
+  // squawks are off every list (the API leaves them out), and it waits here,
+  // folded away, only so somebody can open it and bring it back. Grounded is
+  // still in the fleet — that is the aeroplane that most needs seeing.
+  const active = fleet.filter((a) => a.status !== 'archived');
+  const inactive = fleet.filter((a) => a.status === 'archived');
   const soleAircraft = active.length === 1 ? active[0] : undefined;
 
   /*
@@ -144,14 +148,24 @@ export default async function FleetPage() {
           </ul>
 
           {inactive.length > 0 ? (
-            <section>
-              <h2 className="mb-3 text-xl font-semibold tracking-tight">Archived</h2>
+            <details className="group">
+              <summary className="inline-flex min-h-11 cursor-pointer items-center text-sm font-semibold text-secondary">
+                Archived aircraft ({inactive.length})
+              </summary>
+              <p className="mb-3 text-sm text-secondary">
+                Out of the fleet, with their maintenance and squawks hidden. Open one to restore it.
+              </p>
               <ul className="space-y-3">
                 {inactive.map((aircraft) => (
-                  <AircraftRow key={aircraft.id} aircraft={aircraft} {...statusFor(aircraft.id)} />
+                  <AircraftRow
+                    key={aircraft.id}
+                    aircraft={aircraft}
+                    openSquawks={0}
+                    maintenance={null}
+                  />
                 ))}
               </ul>
-            </section>
+            </details>
           ) : null}
         </div>
       )}
