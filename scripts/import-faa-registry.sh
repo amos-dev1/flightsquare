@@ -23,6 +23,11 @@
 # a trailing comma on every line, and the odd literal quote inside a field
 # (BABY ACE "D"). So: CSV with quoting switched off — no field ever contains
 # a comma — and one extra column to absorb the trailing one.
+#
+# Lines end in CRLF, and the end-of-data marker this script appends ends in
+# LF. Postgres 17 takes its newline from the first line and refuses a mix,
+# so the carriage returns are stripped as the files stream in. (A newer
+# server on a laptop let it through, which is how this first reached dev.)
 
 . "$(dirname "$0")/lib.sh"
 
@@ -90,13 +95,13 @@ CREATE TEMPORARY TABLE faa_master (
 
 COPY faa_acftref FROM STDIN WITH (FORMAT csv, HEADER true, QUOTE E'\x01');
 SQL
-  unzip -p "$SOURCE" ACFTREF.txt
+  unzip -p "$SOURCE" ACFTREF.txt | tr -d '\r'
   printf '\\.\n'
 
   cat <<'SQL'
 COPY faa_master FROM STDIN WITH (FORMAT csv, HEADER true, QUOTE E'\x01');
 SQL
-  unzip -p "$SOURCE" MASTER.txt
+  unzip -p "$SOURCE" MASTER.txt | tr -d '\r'
   printf '\\.\n'
 
   cat <<'SQL'
