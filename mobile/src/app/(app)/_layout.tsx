@@ -47,6 +47,20 @@ export default function AppLayout() {
 }
 
 /**
+ * A screen that is reachable but has no button on the bar.
+ *
+ * Not `href: null`. Since SDK 58 expo-router turns that into the navigator's
+ * `hidden` option, and a hidden tab that gains focus is redirected to the
+ * first visible one — so every pushed screen (Log flight, Aircraft, Squawk…)
+ * bounced straight back to the dashboard. Hiding only the button keeps the
+ * route navigable, which is what these screens need.
+ */
+const OFF_THE_BAR = {
+  tabBarButton: () => null,
+  tabBarItemStyle: { display: "none" },
+} as const;
+
+/**
  * The header's own height, below the status bar.
  *
  * The platform's 44 was shorter than the header's controls: Back and the menu
@@ -105,7 +119,7 @@ function FleetTabs() {
           title: "Dashboard",
           tabBarLabel: "Dash",
           tabBarIcon: ({ color: tint, size }) => (
-            <Feather name="grid" size={size} color={tint} />
+            <Feather name="grid" size={size} color={typeof tint === "string" ? tint : undefined} />
           ),
         }}
       />
@@ -118,7 +132,7 @@ function FleetTabs() {
           // and it is gated rather than always present.
           headerRight: () => <AddAircraftButton />,
           tabBarIcon: ({ color: tint, size }) => (
-            <Feather name="send" size={size} color={tint} />
+            <Feather name="send" size={size} color={typeof tint === "string" ? tint : undefined} />
           ),
         }}
       />
@@ -129,16 +143,16 @@ function FleetTabs() {
           /**
            * Unused, never unavailable (§4.3).
            *
-           * `href: null` takes the calendar off the bar for a tenant with
+           * `OFF_THE_BAR` takes the calendar off the bar for a tenant with
            * one pilot — there is nobody to share with, so it is a tab that
            * would never be opened. It does not switch anything off: the
            * screen is still registered, still reachable, and the API has no
            * idea this happened. Invite a second member and the count is two
            * and the tab is back, with every booking still where it was.
            */
-          href: shared ? undefined : null,
+          ...(shared ? {} : OFF_THE_BAR),
           tabBarIcon: ({ color: tint, size }) => (
-            <Feather name="calendar" size={size} color={tint} />
+            <Feather name="calendar" size={size} color={typeof tint === "string" ? tint : undefined} />
           ),
         }}
       />
@@ -147,7 +161,7 @@ function FleetTabs() {
         options={{
           title: "Logs",
           tabBarIcon: ({ color: tint, size }) => (
-            <Feather name="book-open" size={size} color={tint} />
+            <Feather name="book-open" size={size} color={typeof tint === "string" ? tint : undefined} />
           ),
         }}
       />
@@ -156,7 +170,7 @@ function FleetTabs() {
         options={{
           title: "Maintenance",
           tabBarIcon: ({ color: tint, size }) => (
-            <Feather name="alert-triangle" size={size} color={tint} />
+            <Feather name="alert-triangle" size={size} color={typeof tint === "string" ? tint : undefined} />
           ),
         }}
       />
@@ -174,67 +188,67 @@ function FleetTabs() {
         */}
       <Tabs.Screen
         name="charges"
-        options={{ href: null, title: "Charges", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Charges", headerLeft: Back }}
       />
       <Tabs.Screen
         name="aircraft-detail"
-        options={{ href: null, title: "Aircraft", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Aircraft", headerLeft: Back }}
       />
       <Tabs.Screen
         name="add-aircraft"
-        options={{ href: null, title: "Add aircraft", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Add aircraft", headerLeft: Back }}
       />
       <Tabs.Screen
         name="flight"
-        options={{ href: null, title: "Flight", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Flight", headerLeft: Back }}
       />
       <Tabs.Screen
         name="reservation"
-        options={{ href: null, title: "Booking", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Booking", headerLeft: Back }}
       />
       <Tabs.Screen
         name="book"
-        options={{ href: null, title: "Book an aircraft", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Book an aircraft", headerLeft: Back }}
       />
       <Tabs.Screen
         name="log-flight"
-        options={{ href: null, title: "Log flight", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Log flight", headerLeft: Back }}
       />
       <Tabs.Screen
         name="report-squawk"
-        options={{ href: null, title: "Report a squawk", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Report a squawk", headerLeft: Back }}
       />
       <Tabs.Screen
         name="squawk"
-        options={{ href: null, title: "Squawk", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Squawk", headerLeft: Back }}
       />
       <Tabs.Screen
         name="maintenance-item"
-        options={{ href: null, title: "Tracked item", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Tracked item", headerLeft: Back }}
       />
       <Tabs.Screen
         name="add-maintenance-item"
-        options={{ href: null, title: "Tracked item", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Tracked item", headerLeft: Back }}
       />
       <Tabs.Screen
         name="notifications"
-        options={{ href: null, title: "Notifications", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Notifications", headerLeft: Back }}
       />
       <Tabs.Screen
         name="aircraft-documents"
-        options={{ href: null, title: "Documents", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Documents", headerLeft: Back }}
       />
       <Tabs.Screen
         name="aircraft-settings"
-        options={{ href: null, title: "Aircraft settings", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Aircraft settings", headerLeft: Back }}
       />
       <Tabs.Screen
         name="queue"
-        options={{ href: null, title: "Waiting to sync", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "Waiting to sync", headerLeft: Back }}
       />
       <Tabs.Screen
         name="menu"
-        options={{ href: null, title: "More", headerLeft: Back }}
+        options={{ ...OFF_THE_BAR, title: "More", headerLeft: Back }}
       />
     </Tabs>
   );
