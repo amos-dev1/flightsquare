@@ -21,13 +21,20 @@
 #
 # The files are comma-separated with space-padded fields, a byte-order mark,
 # a trailing comma on every line, and the odd literal quote inside a field
-# (BABY ACE "D"). So: CSV with quoting switched off — no field ever contains
-# a comma — and one extra column to absorb the trailing one.
+# (BABY ACE "D"). No field ever contains a comma, so they load as COPY's
+# *text* format with a comma delimiter — no quoting to trip on — and one
+# extra column absorbs the trailing comma. Two things are done to the stream
+# on the way in:
 #
-# Lines end in CRLF, and the end-of-data marker this script appends ends in
-# LF. Postgres 17 takes its newline from the first line and refuses a mix,
-# so the carriage returns are stripped as the files stream in. (A newer
-# server on a laptop let it through, which is how this first reached dev.)
+#   * Carriage returns are stripped. Lines end in CRLF, the end-of-data
+#     marker below ends in LF, and Postgres refuses a mix.
+#   * Backslashes are doubled, because the text format reads them as escapes
+#     (MASTER.txt carries one).
+#
+# Not CSV: Postgres 18 stopped treating `\.` as the end of CSV data, and a
+# psql 17 client still sends it — the pair the deployed task has (RDS 18,
+# the image's psql 17) — so CSV read the marker as a row. The text format's
+# end marker is the same in every version.
 
 . "$(dirname "$0")/lib.sh"
 
@@ -93,15 +100,15 @@ CREATE TEMPORARY TABLE faa_master (
   mode_s_code_hex text, end_of_line text
 ) ON COMMIT DROP;
 
-COPY faa_acftref FROM STDIN WITH (FORMAT csv, HEADER true, QUOTE E'\x01');
+COPY faa_acftref FROM STDIN WITH (FORMAT text, DELIMITER ',', HEADER true);
 SQL
-  unzip -p "$SOURCE" ACFTREF.txt | tr -d '\r'
+  unzip -p "$SOURCE" ACFTREF.txt | tr -d '\r' | sed 's/\\/\\\\/g'
   printf '\\.\n'
 
   cat <<'SQL'
-COPY faa_master FROM STDIN WITH (FORMAT csv, HEADER true, QUOTE E'\x01');
+COPY faa_master FROM STDIN WITH (FORMAT text, DELIMITER ',', HEADER true);
 SQL
-  unzip -p "$SOURCE" MASTER.txt | tr -d '\r'
+  unzip -p "$SOURCE" MASTER.txt | tr -d '\r' | sed 's/\\/\\\\/g'
   printf '\\.\n'
 
   cat <<'SQL'
