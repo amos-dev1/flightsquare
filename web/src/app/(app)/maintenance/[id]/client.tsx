@@ -13,6 +13,8 @@ import {
 import { Alert, Button, Card, Field, Input, Select, Textarea } from '@/components/ui';
 import { FileUpload } from '@/components/upload';
 import type { MaintenanceItemResponse } from '@flightsquare/shared';
+// The subpath: the package root is not resolvable by the bundler.
+import { uuidv7 } from '@flightsquare/shared/uuidv7';
 
 /**
  * Logging a completion (mockup 05).
@@ -54,7 +56,9 @@ export function CompletionForm({
     annual forward twice. Held in state rather than regenerated on render, so a
     validation error and a resubmit are the same request.
   */
-  const [completionId] = useState(() => crypto.randomUUID());
+  // uuidv7 rather than `crypto.randomUUID`, which browsers only provide on a
+  // secure origin: opened over plain http on the LAN, this page threw on load.
+  const [completionId] = useState(() => uuidv7());
   const saved = state.values?.completion_id;
 
   return (
