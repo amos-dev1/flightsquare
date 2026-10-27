@@ -292,6 +292,9 @@ function AircraftRow({
                     {aircraft.fuel_remaining}
                     <span className="ml-1 text-xs font-normal text-secondary">
                       {aircraft.fuel_units === 'litres' ? 'L' : 'gal'}
+                      {aircraft.fuel_remaining_percent != null
+                        ? ` · ${aircraft.fuel_remaining_percent}%`
+                        : ''}
                     </span>
                   </span>
                 )}

@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import Svg, { Path } from 'react-native-svg';
-import type { MaintenanceItemResponse, ReservationResponse } from '@flightsquare/shared';
+import type {
+  AircraftResponse,
+  MaintenanceItemResponse,
+  ReservationResponse,
+} from '@flightsquare/shared';
 
 import { color, radius, space, statusColor, type } from '@/theme';
 
@@ -348,3 +352,21 @@ const styles = StyleSheet.create({
   thumbLarge: { width: 84, height: 84, borderRadius: radius.card },
   thumbSmall: { width: 56, height: 56, borderRadius: 8 },
 });
+
+/**
+ * What is in the tanks, in this aeroplane's own units, and how full that is.
+ *
+ * The reading is the fact (§3.4: fuel is state, latest reading wins). The
+ * percent is that one reading against the usable capacity set in Aircraft
+ * settings, worked out by the API so every screen shows the same figure, and
+ * left off where no capacity is recorded rather than guessed.
+ */
+export function fuelLabel(aircraft: AircraftResponse): string | null {
+  if (aircraft.fuel_remaining === null) return null;
+  const unit = aircraft.fuel_units === 'litres' ? 'L' : 'US gal';
+  const amount = `${Number(aircraft.fuel_remaining).toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+  })} ${unit}`;
+  const percent = aircraft.fuel_remaining_percent;
+  return percent === null || percent === undefined ? amount : `${amount} · ${percent}%`;
+}

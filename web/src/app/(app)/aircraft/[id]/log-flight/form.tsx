@@ -663,7 +663,11 @@ export function LogFlightForm({
             label="Before"
             hint={
               aircraft.fuel_remaining
-                ? `Last recorded ${aircraft.fuel_remaining}`
+                ? `Last recorded ${aircraft.fuel_remaining}${
+                    aircraft.fuel_remaining_percent != null
+                      ? ` (${aircraft.fuel_remaining_percent}%)`
+                      : ''
+                  }`
                 : 'At start-up'
             }
           >

@@ -19,6 +19,7 @@ import type {
 import { Body, Button, Field, Picker, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
 import { Pill, remainingLabel, toneOf, wordFor } from '@/components/maintenance';
+import { fuelLabel } from '@/components/aircraft';
 import { AircraftStats } from '@/components/flight-stats';
 import { api, withAuth } from '@/lib/api';
 import { readSession } from '@/lib/auth';
@@ -321,7 +322,7 @@ export default function Dashboard() {
                    dipped or eyeballed, so the honest claim is who said it
                    and when, which is what "last reported" means. */
                 label="Fuel · last reported"
-                value={fuel(selected)}
+                value={fuelLabel(selected)}
                 icon="droplet"
               />
             </View>
@@ -828,21 +829,6 @@ function hours(value: string | null): string | null {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })} h`;
-}
-
-/**
- * What is in the tanks, in the units this aeroplane is configured in.
- *
- * Never a percentage: that would need a capacity every aircraft has and some
- * do not, and §3.4 is explicit that fuel is a reading rather than a
- * calculation.
- */
-function fuel(aircraft: AircraftResponse): string | null {
-  if (aircraft.fuel_remaining === null) return null;
-  const unit = aircraft.fuel_units === 'litres' ? 'L' : 'US gal';
-  return `${Number(aircraft.fuel_remaining).toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-  })} ${unit}`;
 }
 
 /** Three rows of each, and the rest a tap away on the Maintenance screen. */
