@@ -1,10 +1,11 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Feather from '@expo/vector-icons/Feather';
 import {
   ApiError,
   type AircraftAvailabilityResponse,
+  type AircraftDocumentResponse,
   type AircraftResponse,
   type MaintenanceItemResponse,
   type ReservationResponse,
@@ -49,6 +50,10 @@ export default function AircraftDetail() {
   const [items, setItems] = useState<MaintenanceItemResponse[]>([]);
   const [squawks, setSquawks] = useState<SquawkResponse[]>([]);
   const [flying, setFlying] = useState<ReservationResponse[]>([]);
+  // Null when the member cannot read documents: the section is left out
+  // rather than shown empty, since "nothing on file" would be untrue.
+  const [documents, setDocuments] = useState<AircraftDocumentResponse[] | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
   const [offline, setOffline] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,7 +62,7 @@ export default function AircraftDetail() {
     if (!id) return;
     try {
       const now = new Date().toISOString();
-      const [found, availability, maintenance, defects, inProgress] = await Promise.all([
+      const [found, availability, maintenance, defects, inProgress, papers] = await Promise.all([
         withAuth(() => api.getAircraft(id)),
         withAuth(() => api.availability()).catch(() => []),
         withAuth(() => api.listMaintenanceItems({ aircraftId: id })).catch(() => []),
@@ -65,6 +70,7 @@ export default function AircraftDetail() {
         withAuth(() => api.listReservations({ aircraftId: id, from: now, to: now })).catch(
           () => [],
         ),
+        withAuth(() => api.listAircraftDocuments(id)).catch(() => null),
       ]);
 
       setAircraft(found);
@@ -72,6 +78,7 @@ export default function AircraftDetail() {
       setItems(maintenance);
       setSquawks(defects);
       setFlying(inProgress);
+      setDocuments(papers);
       setMissing(false);
       setOffline(false);
     } catch (caught) {
@@ -96,8 +103,29 @@ export default function AircraftDetail() {
   }
 
   const overdue = items.filter((item) => item.state === 'overdue' && item.ever_complied);
-  const unrecorded = items.filter((item) => item.state === 'overdue' && !item.ever_complied);
   const soon = items.filter((item) => item.state === 'due_soon');
+  const onFile = (documents ?? []).filter((one) => one.status === 'active' && !one.superseded);
+
+  /**
+   * Open a document's file. Its link is signed for a few minutes only, so a
+   * fresh one is asked for at the tap rather than trusting the one loaded
+   * with the screen, which may have been sitting there for an hour.
+   */
+  async function openDocument(document: AircraftDocumentResponse) {
+    if (!aircraft) return;
+    setOpening(document.id);
+    try {
+      const fresh = await withAuth(() => api.listAircraftDocuments(aircraft.id));
+      const url = fresh.find((one) => one.id === document.id)?.attachments[0]?.url;
+      if (url) await Linking.openURL(url);
+    } catch {
+      // Offline: the link loaded with the screen may still be good.
+      const url = document.attachments[0]?.url;
+      if (url) await Linking.openURL(url).catch(() => undefined);
+    } finally {
+      setOpening(null);
+    }
+  }
 
   return (
     <ScrollView
@@ -185,20 +213,12 @@ export default function AircraftDetail() {
 
           <Card>
             <SectionHeading>Maintenance</SectionHeading>
-            {/* "Not recorded" is kept apart from "overdue" the way every
-                other screen keeps them apart: an interval seeded with the
-                aeroplane that nobody confirmed is unknown, not overdue. */}
+            {/* The three things somebody walking out to it needs, and only
+                those. An interval nobody has ever recorded is unknown rather
+                than overdue, so it is not counted as overdue here. */}
             <Line label="Overdue" value={count(overdue.length)} />
             <Line label="Due soon" value={count(soon.length)} />
-            <Line label="Never recorded" value={count(unrecorded.length)} />
             <Line label="Open squawks" value={count(squawks.length)} />
-            <View style={styles.action}>
-              <Button
-                label="Open maintenance"
-                variant="secondary"
-                onPress={() => router.push('/maintenance')}
-              />
-            </View>
           </Card>
 
           <Card>
@@ -217,20 +237,75 @@ export default function AircraftDetail() {
           </Card>
 
           {/*
-            §3.2's paperwork, which a pilot is responsible for being aboard and
-            has had no way to check until now. Everyone can read it (`documents:
-            read` is in the Pilot bundle); filing is the admin's.
+            §3.2's paperwork, which a pilot is responsible for being aboard.
+            Each current document opens its file in a tap; the full screen
+            behind the button keeps history, expiry wording and filing.
           */}
-          <Button
-            label="Documents"
-            variant="secondary"
-            onPress={() =>
-              router.push({
-                pathname: '/(app)/aircraft-documents',
-                params: { aircraft: aircraft.id },
-              })
-            }
-          />
+          {documents !== null ? (
+            <Card>
+              <SectionHeading>Documents</SectionHeading>
+              {onFile.length === 0 ? (
+                <Text style={styles.lineAbsent}>Nothing on file.</Text>
+              ) : (
+                onFile.map((document) => {
+                  const scanned = document.attachments.length > 0;
+                  return (
+                    <Pressable
+                      key={document.id}
+                      onPress={() => void openDocument(document)}
+                      disabled={!scanned || opening !== null}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        scanned ? `Open ${document.title}` : `${document.title}, not scanned yet`
+                      }
+                      style={({ pressed }) => [styles.document, pressed && styles.pressed]}
+                    >
+                      <Feather
+                        name={
+                          document.attachments[0]?.content_type === 'application/pdf'
+                            ? 'file-text'
+                            : scanned
+                              ? 'image'
+                              : 'file'
+                        }
+                        size={18}
+                        color={scanned ? color.navy : color.secondary}
+                      />
+                      <View style={styles.documentText}>
+                        <Text style={styles.documentTitle} numberOfLines={1}>
+                          {document.title}
+                        </Text>
+                        <Text style={styles.lineStamp}>
+                          {opening === document.id
+                            ? 'Opening…'
+                            : !scanned
+                              ? 'Recorded, not scanned yet'
+                              : document.expires_on
+                                ? `Expires ${new Date(`${document.expires_on}T12:00:00`).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`
+                                : 'No expiry'}
+                        </Text>
+                      </View>
+                      {scanned ? (
+                        <Feather name="external-link" size={16} color={color.secondary} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })
+              )}
+              <View style={styles.action}>
+                <Button
+                  label="All documents"
+                  variant="secondary"
+                  onPress={() =>
+                    router.push({
+                      pathname: '/(app)/aircraft-documents',
+                      params: { aircraft: aircraft.id },
+                    })
+                  }
+                />
+              </View>
+            </Card>
+          ) : null}
 
           {/* The two things somebody standing at the aeroplane does. */}
           <Button
@@ -347,4 +422,15 @@ const styles = StyleSheet.create({
   stamp: { ...type.supporting, color: color.secondary, marginTop: space.md },
 
   action: { marginTop: space.base },
+
+  document: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    minHeight: 44,
+    marginTop: space.md,
+  },
+  documentText: { flex: 1, gap: 2 },
+  documentTitle: { ...type.bodySmall },
+  pressed: { opacity: 0.7 },
 });
