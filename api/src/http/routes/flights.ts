@@ -258,6 +258,25 @@ async function correctionRefusals<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * The filters the list and the summary share: a period and a person.
+ *
+ * `from` and `to` are inclusive flight dates — a month is its first and last
+ * day. `flown_by` is a membership, and like `mine` it is a filter rather than
+ * a permission: `flights` is scope `all` for everybody (§4.4).
+ */
+const periodAndPerson = {
+  from: { type: 'string', format: 'date' },
+  to: { type: 'string', format: 'date' },
+  flown_by: { type: 'string', format: 'uuid' },
+} as const;
+
+interface PeriodAndPerson {
+  from?: string;
+  to?: string;
+  flown_by?: string;
+}
+
 export async function flightRoutes(app: FastifyInstance): Promise<void> {
   app.get<{
     Querystring: {
@@ -266,7 +285,7 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
       mine?: string;
       standing?: string;
       limit?: number;
-    };
+    } & PeriodAndPerson;
   }>(
     '/flights',
     {
@@ -276,6 +295,7 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
           properties: {
             // At most 200 either way; this only asks for fewer.
             limit: { type: 'integer', minimum: 1, maximum: 200 },
+            ...periodAndPerson,
           },
         },
       },
@@ -328,6 +348,10 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
         if (request.query.standing === 'true') {
           query = query.where(stands).where('flights.logged_in_error', '=', false);
         }
+        const { from, to, flown_by: flownBy } = request.query;
+        if (from) query = query.where('flights.flight_date', '>=', from);
+        if (to) query = query.where('flights.flight_date', '<=', to);
+        if (flownBy) query = query.where('flights.flown_by', '=', flownBy);
         return query
           .orderBy('flights.flight_date', 'desc')
           .orderBy('flights.recorded_at', 'desc')
@@ -357,9 +381,12 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
    * §3.4 draws that line at experience totals, and the filters here are the
    * aeroplane and the member, for utilisation and for reconciliation.
    */
-  app.get<{ Querystring: { aircraft_id?: string; mine?: string } }>(
+  app.get<{ Querystring: { aircraft_id?: string; mine?: string } & PeriodAndPerson }>(
     '/flights/summary',
-    { config: { requiresTenant: true, permission: ['flights', 'read'] } },
+    {
+      schema: { querystring: { type: 'object', properties: periodAndPerson } },
+      config: { requiresTenant: true, permission: ['flights', 'read'] },
+    },
     async (request) => {
       return request.withTenant(async (trx) => {
         let query = trx
@@ -393,6 +420,10 @@ export async function flightRoutes(app: FastifyInstance): Promise<void> {
             await ownMembership(trx, request.ctx!.userId),
           );
         }
+        const { from, to, flown_by: flownBy } = request.query;
+        if (from) query = query.where('flights.flight_date', '>=', from);
+        if (to) query = query.where('flights.flight_date', '<=', to);
+        if (flownBy) query = query.where('flights.flown_by', '=', flownBy);
 
         const row = await query.executeTakeFirstOrThrow();
 
