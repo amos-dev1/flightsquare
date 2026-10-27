@@ -262,6 +262,66 @@ export async function addTestMember(
   }
 }
 
+/**
+ * Rows in the FAA registry reference tables (0045), which the application can
+ * only read. Registrations here start N0 — a prefix the FAA never issues — so
+ * they cannot collide with a real import on a developer's database.
+ */
+export async function seedFaaRegistry(
+  models: { code: string; manufacturer: string; model: string; seats?: number }[],
+  registrations: {
+    registration: string;
+    model_code: string;
+    serial_number?: string;
+    year_manufactured?: number;
+    kit_manufacturer?: string;
+    kit_model?: string;
+  }[],
+): Promise<void> {
+  const pool = privilegedPool();
+  try {
+    for (const m of models) {
+      await pool.query(
+        `INSERT INTO faa_aircraft_models (code, manufacturer, model, seats, engine_count)
+         VALUES ($1, $2, $3, $4, 1)
+         ON CONFLICT (code) DO UPDATE SET manufacturer = excluded.manufacturer,
+           model = excluded.model, seats = excluded.seats`,
+        [m.code, m.manufacturer, m.model, m.seats ?? null],
+      );
+    }
+    for (const r of registrations) {
+      await pool.query(
+        `INSERT INTO faa_registrations
+           (registration, model_code, serial_number, year_manufactured, kit_manufacturer, kit_model)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (registration) DO UPDATE SET model_code = excluded.model_code,
+           serial_number = excluded.serial_number, year_manufactured = excluded.year_manufactured,
+           kit_manufacturer = excluded.kit_manufacturer, kit_model = excluded.kit_model`,
+        [
+          r.registration,
+          r.model_code,
+          r.serial_number ?? null,
+          r.year_manufactured ?? null,
+          r.kit_manufacturer ?? null,
+          r.kit_model ?? null,
+        ],
+      );
+    }
+  } finally {
+    await pool.end();
+  }
+}
+
+export async function removeFaaRegistry(registrations: string[], codes: string[]): Promise<void> {
+  const pool = privilegedPool();
+  try {
+    await pool.query(`DELETE FROM faa_registrations WHERE registration = ANY($1)`, [registrations]);
+    await pool.query(`DELETE FROM faa_aircraft_models WHERE code = ANY($1)`, [codes]);
+  } finally {
+    await pool.end();
+  }
+}
+
 function privilegedPool(): pg.Pool {
   return new Pool({
     host: config.db.host,

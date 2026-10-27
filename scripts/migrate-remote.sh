@@ -20,8 +20,19 @@ cd "$(dirname "$0")/.."
 ENV_NAME="${1:-dev}"
 case "$ENV_NAME" in
   dev|prod) ;;
-  *) echo "usage: scripts/migrate-remote.sh <dev|prod>" >&2; exit 1 ;;
+  *) echo "usage: scripts/migrate-remote.sh <dev|prod> [command...]" >&2; exit 1 ;;
 esac
+shift || true
+
+# An optional command in place of the task's own `npm run migrate` — the
+# reference-data imports, which need the same role, network and image:
+#
+#   scripts/migrate-remote.sh dev bash scripts/import-faa-registry.sh
+OVERRIDES=()
+if [ "$#" -gt 0 ]; then
+  command_json="$(printf '%s\n' "$@" | python3 -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in sys.stdin]))')"
+  OVERRIDES=(--overrides "{\"containerOverrides\":[{\"name\":\"migrate\",\"command\":${command_json}}]}")
+fi
 
 STACK="FlightSquare$(printf '%s' "${ENV_NAME:0:1}" | tr '[:lower:]' '[:upper:]')${ENV_NAME:1}"
 REGION="${AWS_REGION:-us-east-1}"
@@ -46,7 +57,7 @@ SUBNETS="$(output MigrateSubnets)"
 SG="$(output MigrateSecurityGroup)"
 [ -n "$TASK_DEF" ] && [ "$TASK_DEF" != "None" ] || { echo "no MigrateTaskArn on $STACK" >&2; exit 1; }
 
-echo "→ migrating $ENV_NAME"
+echo "→ ${*:-migrating} on $ENV_NAME"
 echo "  task definition: ${TASK_DEF##*/}"
 
 # A public subnet with a public address, matching how the stack describes this
@@ -56,6 +67,7 @@ TASK_ARN="$(aws_ ecs run-task \
   --cluster "$CLUSTER" \
   --task-definition "$TASK_DEF" \
   --launch-type FARGATE \
+  ${OVERRIDES[@]+"${OVERRIDES[@]}"} \
   --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=ENABLED}" \
   --query 'tasks[0].taskArn' --output text)"
 [ -n "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ] || { echo "run-task returned no task" >&2; exit 1; }
@@ -75,7 +87,7 @@ REASON="$(aws_ ecs describe-tasks --cluster "$CLUSTER" --tasks "$TASK_ARN" \
 # The log stream name is deterministic: <prefix>/<container>/<task id>.
 LOG_GROUP="$(aws_ ecs describe-task-definition --task-definition "$TASK_DEF" \
   --query 'taskDefinition.containerDefinitions[0].logConfiguration.options."awslogs-group"' --output text)"
-echo "── migration output ─────────────────────────────────────────"
+echo "── task output ──────────────────────────────────────────────"
 aws_ logs get-log-events \
   --log-group-name "$LOG_GROUP" \
   --log-stream-name "migrate/migrate/${TASK_ARN##*/}" \
@@ -83,7 +95,7 @@ aws_ logs get-log-events \
 echo "─────────────────────────────────────────────────────────────"
 
 if [ "$EXIT_CODE" != "0" ]; then
-  echo "✗ migrations failed — container exit $EXIT_CODE ($REASON)" >&2
+  echo "✗ task failed — container exit $EXIT_CODE ($REASON)" >&2
   exit 1
 fi
-echo "✓ migrations applied"
+echo "✓ ${*:-migrations applied}"

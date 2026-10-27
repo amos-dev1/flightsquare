@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
 import type {
   BillingMeter,
@@ -7,6 +7,7 @@ import type {
   FuelUnits,
   MaintenanceMeter,
   RateBasis,
+  RegistrationLookupResponse,
 } from '@flightsquare/shared';
 
 import { Body, Button, Card, Choice, Field, Input, Notice, SectionHeading } from '@/components/ui';
@@ -60,6 +61,7 @@ export default function AddAircraft() {
   const [registration, setRegistration] = useState('');
   const [typeCode, setTypeCode] = useState('');
   const [homeBase, setHomeBase] = useState('');
+  const [serial, setSerial] = useState('');
   const [year, setYear] = useState('');
   const [seats, setSeats] = useState('');
 
@@ -77,6 +79,36 @@ export default function AddAircraft() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  /*
+    The FAA registry (0045), asked when the registration loses focus. It
+    fills only the boxes still empty and says where the values came from, so
+    they are checked rather than trusted. No signal, a foreign tail or an
+    unknown one: nothing is suggested and the form is as it was.
+  */
+  const [found, setFound] = useState<RegistrationLookupResponse | null>(null);
+  const lastLooked = useRef('');
+
+  async function lookUp() {
+    const tail = registration.trim().toUpperCase();
+    if (tail.length < 2 || tail === lastLooked.current) return;
+    lastLooked.current = tail;
+    let result: RegistrationLookupResponse | null = null;
+    try {
+      result = await withAuth(() => api.registration(tail));
+    } catch {
+      result = null;
+    }
+    setFound(result);
+    if (!result) return;
+    const fill = (current: string, set: (value: string) => void, value: string | number | null) => {
+      if (current.trim() === '' && value !== null) set(String(value));
+    };
+    fill(typeCode, setTypeCode, result.type_code);
+    fill(serial, setSerial, result.serial_number);
+    fill(year, setYear, result.year_manufactured);
+    fill(seats, setSeats, result.seats);
+  }
+
   /** The request, or the sentence that says what is wrong with the form. */
   function build(): CreateAircraftRequest | string {
     const tail = registration.trim().toUpperCase();
@@ -91,6 +123,7 @@ export default function AddAircraft() {
     };
     if (typeCode.trim()) body.type_code = typeCode.trim().toUpperCase();
     if (homeBase.trim()) body.home_base = homeBase.trim().toUpperCase();
+    if (serial.trim()) body.serial_number = serial.trim();
 
     if (year.trim()) {
       const value = Number(year.trim());
@@ -167,10 +200,15 @@ export default function AddAircraft() {
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Card style={styles.group}>
           <SectionHeading>The aircraft</SectionHeading>
-          <Field label="Registration" required hint="The tail number, as painted.">
+          <Field
+            label="Registration"
+            required
+            hint="The tail number, as painted. A US one fills in what the FAA registry knows."
+          >
             <Input
               value={registration}
               onChangeText={setRegistration}
+              onBlur={() => void lookUp()}
               placeholder="N7642G"
               autoCapitalize="characters"
               autoCorrect={false}
@@ -178,6 +216,16 @@ export default function AddAircraft() {
               autoFocus
             />
           </Field>
+          {found ? (
+            <Body muted>
+              From the FAA registry:{' '}
+              {[found.manufacturer, found.model].filter(Boolean).join(' ') || 'type not recorded'}
+              {found.year_manufactured ? `, ${found.year_manufactured}` : ''}
+              {found.serial_number ? `, serial ${found.serial_number}` : ''}. Filled in where
+              blank — check them against the aircraft’s papers.
+              {found.type_code ? '' : ' That model has no match in our type list, so enter the type yourself.'}
+            </Body>
+          ) : null}
 
           <Field label="Type" hint="The ICAO designator — C172, SR22, P28A.">
             <Input
@@ -199,6 +247,10 @@ export default function AddAircraft() {
               autoCorrect={false}
               maxLength={16}
             />
+          </Field>
+
+          <Field label="Serial number">
+            <Input value={serial} onChangeText={setSerial} autoCorrect={false} maxLength={64} />
           </Field>
 
           <View style={styles.row}>

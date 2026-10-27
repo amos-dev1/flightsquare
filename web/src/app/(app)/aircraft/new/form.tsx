@@ -1,12 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { useActionState, useEffect, useState } from 'react';
+import { useActionState, useEffect, useRef, useState } from 'react';
 
-import { createAircraft, searchAerodromes, type FormState } from '@/app/actions';
+import {
+  createAircraft,
+  lookupRegistration,
+  searchAerodromes,
+  type FormState,
+} from '@/app/actions';
 import { Combobox } from '@/components/combobox';
 import { Alert, Button, Card, Field, Input, Select } from '@/components/ui';
-import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shared';
+import type {
+  AerodromeResponse,
+  AircraftTypeResponse,
+  RegistrationLookupResponse,
+} from '@flightsquare/shared';
 
 /**
  * Both reference fields are `datalist`-backed, and only one of them is still
@@ -54,6 +63,46 @@ export function NewAircraftForm({ types }: { types: AircraftTypeResponse[] }) {
 
   const [state, action, pending] = useActionState<FormState, FormData>(createAircraft, {});
 
+  /*
+    The FAA registry (0045), asked once the registration is typed. What it
+    says fills the boxes that are still empty — never one somebody has typed
+    into — and the line under Registration says where it came from, so it is
+    checked rather than trusted: the registry is as current as the owner's
+    last filing.
+  */
+  const formRef = useRef<HTMLFormElement>(null);
+  const yearRef = useRef<HTMLInputElement>(null);
+  const seatsRef = useRef<HTMLInputElement>(null);
+  const serialRef = useRef<HTMLInputElement>(null);
+  const [typeDefault, setTypeDefault] = useState(state.values?.type_code);
+  const [typeKey, setTypeKey] = useState(0);
+  const [found, setFound] = useState<RegistrationLookupResponse | null>(null);
+  const lastLooked = useRef('');
+
+  async function lookUp(registration: string) {
+    const tail = registration.trim().toUpperCase();
+    if (tail === lastLooked.current) return;
+    lastLooked.current = tail;
+    const result = await lookupRegistration(tail);
+    setFound(result);
+    if (!result) return;
+
+    const fill = (input: HTMLInputElement | null, value: string | number | null) => {
+      if (input && input.value.trim() === '' && value !== null) input.value = String(value);
+    };
+    fill(yearRef.current, result.year_manufactured);
+    fill(seatsRef.current, result.seats);
+    fill(serialRef.current, result.serial_number);
+
+    // The type is a combobox that keeps its own state, so a suggestion
+    // remounts it with the new default — only while it is still empty.
+    const typed = formRef.current?.elements.namedItem('type_code');
+    if (result.type_code && typed instanceof HTMLInputElement && typed.value === '') {
+      setTypeDefault(result.type_code);
+      setTypeKey((key) => key + 1);
+    }
+  }
+
   // Re-seeded from what the action handed back: a controlled input ignores
   // `defaultValue`, and §11 §8 asks for entered values to survive a
   // validation error rather than being quietly cleared.
@@ -64,8 +113,12 @@ export function NewAircraftForm({ types }: { types: AircraftTypeResponse[] }) {
 
   return (
     <Card className="p-6">
-      <form action={action} className="space-y-4">
-        <Field label="Registration" required hint="The tail number, as painted.">
+      <form ref={formRef} action={action} className="space-y-4">
+        <Field
+          label="Registration"
+          required
+          hint="The tail number, as painted. A US one fills in what the FAA registry knows."
+        >
           <Input
             name="registration"
             required
@@ -73,15 +126,29 @@ export function NewAircraftForm({ types }: { types: AircraftTypeResponse[] }) {
             placeholder="N7642G"
             className="uppercase"
             defaultValue={state.values?.registration}
+            onBlur={(event) => void lookUp(event.target.value)}
           />
         </Field>
+        {found ? (
+          <p role="status" className="-mt-2 text-sm text-secondary">
+            From the FAA registry:{' '}
+            <span className="font-medium text-navy">
+              {[found.manufacturer, found.model].filter(Boolean).join(' ') || 'type not recorded'}
+              {found.year_manufactured ? `, ${found.year_manufactured}` : ''}
+              {found.serial_number ? `, serial ${found.serial_number}` : ''}
+            </span>
+            . Filled in where blank — check them against the aircraft&rsquo;s papers.
+            {found.type_code ? null : ' Pick the type below; that model has no match in our list.'}
+          </p>
+        ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Type" hint="Search by make or model — “cessna”, “172”, “C172”.">
             <Combobox
+              key={typeKey}
               name="type_code"
               placeholder="Cessna 172"
-              defaultValue={state.values?.type_code}
+              defaultValue={typeDefault}
               options={types.map((type) => ({
                 value: type.code,
                 label: `${type.manufacturer} ${type.model}`,
@@ -109,8 +176,17 @@ export function NewAircraftForm({ types }: { types: AircraftTypeResponse[] }) {
             </datalist>
           </Field>
 
+          <Field label="Serial number">
+            <Input
+              ref={serialRef}
+              name="serial_number"
+              maxLength={64}
+              defaultValue={state.values?.serial_number}
+            />
+          </Field>
           <Field label="Year">
             <Input
+              ref={yearRef}
               name="year_manufactured"
               type="number"
               min={1900}
@@ -120,6 +196,7 @@ export function NewAircraftForm({ types }: { types: AircraftTypeResponse[] }) {
           </Field>
           <Field label="Seats">
             <Input
+              ref={seatsRef}
               name="seats"
               type="number"
               min={1}
