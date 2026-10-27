@@ -337,6 +337,10 @@ function DetailsSection({
   onSaved: (aircraft: AircraftResponse) => void;
 }) {
   const [homeBase, setHomeBase] = useState(aircraft.home_base ?? '');
+  const [serial, setSerial] = useState(aircraft.serial_number ?? '');
+  const [year, setYear] = useState(
+    aircraft.year_manufactured === null ? '' : String(aircraft.year_manufactured),
+  );
   const [seats, setSeats] = useState(aircraft.seats === null ? '' : String(aircraft.seats));
   const [maintenanceMeter, setMaintenanceMeter] = useState(aircraft.maintenance_meter);
   const [billingMeter, setBillingMeter] = useState(aircraft.billing_meter);
@@ -355,6 +359,7 @@ function DetailsSection({
     setSaved(false);
     const body: UpdateAircraftRequest = {
       home_base: homeBase.trim().toUpperCase() || null,
+      serial_number: serial.trim() || null,
       maintenance_meter: maintenanceMeter,
       billing_meter: billingMeter,
       rate_basis: rateBasis,
@@ -363,6 +368,16 @@ function DetailsSection({
     };
 
     // Blank is "not recorded", which clears what was there.
+    if (year.trim()) {
+      const value = Number(year);
+      if (!Number.isInteger(value) || value < 1900 || value > 2100) {
+        setError('Enter the year as four digits, for example 1978.');
+        return;
+      }
+      body.year_manufactured = value;
+    } else {
+      body.year_manufactured = null;
+    }
     if (seats.trim()) {
       const count = Number(seats);
       if (!Number.isInteger(count) || count < 1 || count > 50) {
@@ -426,6 +441,19 @@ function DetailsSection({
         <View style={styles.half}>
           <Field label="Seats">
             <Input value={seats} onChangeText={setSeats} keyboardType="number-pad" maxLength={2} />
+          </Field>
+        </View>
+      </View>
+
+      <View style={styles.row}>
+        <View style={styles.half}>
+          <Field label="Serial number">
+            <Input value={serial} onChangeText={setSerial} autoCorrect={false} maxLength={64} />
+          </Field>
+        </View>
+        <View style={styles.half}>
+          <Field label="Year">
+            <Input value={year} onChangeText={setYear} keyboardType="number-pad" maxLength={4} />
           </Field>
         </View>
       </View>

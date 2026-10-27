@@ -16,6 +16,7 @@ import { zonedToInstant } from '@flightsquare/shared/time';
 import type {
   AerodromeResponse,
   MeterScanResponse,
+  RegistrationLookupResponse,
   AircraftResponse,
   BillingRedirectResponse,
   BookingMaintenanceCheckResponse,
@@ -294,6 +295,26 @@ export async function scanMeters(
   }
 }
 
+/**
+ * What the FAA registry says about a US tail number (0045), for the add form
+ * to fill its blanks from. Null for anything it does not hold — a foreign
+ * registration, a mistype, a registry not yet imported — which the form
+ * treats as nothing to suggest.
+ */
+export async function lookupRegistration(
+  registration: string,
+): Promise<RegistrationLookupResponse | null> {
+  const tail = registration.trim();
+  if (tail.length < 2) return null;
+  try {
+    return await apiFetch<RegistrationLookupResponse>(
+      `/reference/registrations/${encodeURIComponent(tail)}`,
+    );
+  } catch {
+    return null;
+  }
+}
+
 export async function createAircraft(_state: FormState, form: FormData): Promise<FormState> {
   const text = (key: string) => String(form.get(key) ?? '').trim();
   // Everything the form offered, kept so an error does not empty it (§11).
@@ -303,6 +324,7 @@ export async function createAircraft(_state: FormState, form: FormData): Promise
     registration: text('registration').toUpperCase(),
     type_code: text('type_code').toUpperCase(),
     home_base: text('home_base').toUpperCase(),
+    serial_number: text('serial_number'),
     year_manufactured: text('year_manufactured'),
     seats: text('seats'),
     maintenance_meter: text('maintenance_meter'),
@@ -319,6 +341,7 @@ export async function createAircraft(_state: FormState, form: FormData): Promise
   const body: Record<string, unknown> = { registration: values.registration };
   if (values.type_code) body.type_code = values.type_code;
   if (values.home_base) body.home_base = values.home_base;
+  if (values.serial_number) body.serial_number = values.serial_number;
   if (values.year_manufactured) body.year_manufactured = Number(values.year_manufactured);
   if (values.seats) body.seats = Number(values.seats);
   if (values.maintenance_meter) body.maintenance_meter = values.maintenance_meter;
@@ -412,6 +435,8 @@ export async function updateAircraftConfig(
   const text = (key: string) => String(form.get(key) ?? '').trim();
   const values = {
     home_base: text('home_base').toUpperCase(),
+    serial_number: text('serial_number'),
+    year_manufactured: text('year_manufactured'),
     maintenance_meter: text('maintenance_meter'),
     billing_meter: text('billing_meter'),
     rate_basis: text('rate_basis'),
@@ -426,6 +451,8 @@ export async function updateAircraftConfig(
 
   const body: Record<string, unknown> = {
     home_base: values.home_base || null,
+    serial_number: values.serial_number || null,
+    year_manufactured: values.year_manufactured ? Number(values.year_manufactured) : null,
     maintenance_meter: values.maintenance_meter,
     billing_meter: values.billing_meter,
     rate_basis: values.rate_basis,

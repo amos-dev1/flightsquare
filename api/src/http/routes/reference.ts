@@ -2,7 +2,11 @@ import { sql } from 'kysely';
 
 import { NotFoundError } from '../errors.js';
 import type { FastifyInstance } from 'fastify';
-import type { AerodromeResponse, AircraftTypeResponse } from '@flightsquare/shared';
+import type {
+  AerodromeResponse,
+  AircraftTypeResponse,
+  RegistrationLookupResponse,
+} from '@flightsquare/shared';
 
 /**
  * Global reference data (§2.2): shared, read-only, never customer data.
@@ -63,6 +67,62 @@ export async function referenceRoutes(app: FastifyInstance): Promise<void> {
    * every true answer", so an identifier this does not know is still a
    * perfectly good place to have flown to.
    */
+  /**
+   * A US tail number in the FAA registry (0045), for the add form to fill in
+   * year, type, seats and serial from.
+   *
+   * Only N-numbers: the registry is the FAA's, and a foreign registration is
+   * a 404 like an unknown one. The ICAO designator comes from
+   * `faa_type_rules` at lookup time, kit fields first, so a rule added later
+   * applies to every aeroplane without a re-import.
+   */
+  app.get<{ Params: { registration: string } }>(
+    '/reference/registrations/:registration',
+    { config: { requiresSession: true } },
+    async (request) => {
+      const registration = request.params.registration.replace(/[\s-]/g, '').toUpperCase();
+      if (!/^N[0-9][0-9A-Z]{0,4}$/.test(registration)) throw new NotFoundError();
+
+      const result = await sql<{
+        registration: string;
+        serial_number: string | null;
+        year_manufactured: number | null;
+        manufacturer: string | null;
+        model: string | null;
+        seats: number | null;
+        engine_count: number | null;
+        type_code: string | null;
+        imported_at: Date;
+      }>`
+        SELECT r.registration,
+               r.serial_number,
+               r.year_manufactured,
+               coalesce(r.kit_manufacturer, m.manufacturer) AS manufacturer,
+               coalesce(r.kit_model, m.model)               AS model,
+               m.seats,
+               m.engine_count,
+               (SELECT t.type_code
+                  FROM public.faa_type_rules t
+                 WHERE upper(coalesce(r.kit_manufacturer, m.manufacturer, '')) ~ t.manufacturer_pattern
+                   AND upper(coalesce(r.kit_model, m.model, '')) ~ t.model_pattern
+                 ORDER BY t.id
+                 LIMIT 1) AS type_code,
+               r.imported_at
+          FROM public.faa_registrations r
+          LEFT JOIN public.faa_aircraft_models m ON m.code = r.model_code
+         WHERE r.registration = ${registration}
+      `.execute(app.db);
+
+      const row = result.rows[0];
+      if (!row) throw new NotFoundError();
+      return {
+        ...row,
+        source: 'faa',
+        imported_at: row.imported_at.toISOString(),
+      } satisfies RegistrationLookupResponse;
+    },
+  );
+
   app.get<{ Params: { ident: string } }>(
     '/reference/aerodromes/:ident',
     { config: { requiresSession: true } },

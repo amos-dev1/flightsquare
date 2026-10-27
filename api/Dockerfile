@@ -65,8 +65,9 @@ FROM node:22-alpine AS runtime
 WORKDIR /repo
 
 # bash and psql for the migration runner; both absent from the base image.
-# postgresql17-client matches the RDS major version in the stack.
-RUN apk add --no-cache bash postgresql17-client
+# postgresql17-client matches the RDS major version in the stack. curl and
+# unzip are for the reference-data import, which runs in this same task.
+RUN apk add --no-cache bash postgresql17-client curl unzip
 
 ENV NODE_ENV=production
 
@@ -88,6 +89,9 @@ COPY --from=build /repo/api/dist api/dist
 COPY db/migrations db/migrations
 COPY db/roles.sql db/
 COPY scripts/lib.sh scripts/migrate.sh scripts/roles.sh scripts/
+# Reference data (§2.2) loads through the same task, with an override:
+#   scripts/migrate-remote.sh dev bash scripts/import-faa-registry.sh
+COPY scripts/import-faa-registry.sh scripts/
 
 # Not root. App Runner and Fargate both run whatever the image says, and the
 # node image ships a `node` user for exactly this.

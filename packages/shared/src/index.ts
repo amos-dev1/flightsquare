@@ -615,6 +615,8 @@ export interface MeterReadingResponse {
  */
 export interface UpdateAircraftRequest {
   home_base?: string | null;
+  serial_number?: string | null;
+  year_manufactured?: number | null;
   status?: AircraftStatus;
   seats?: number | null;
   maintenance_meter?: MaintenanceMeter;
@@ -645,6 +647,29 @@ export interface AircraftTypeResponse {
   engine_type: string;
   engine_count: number;
   typical_seats: number | null;
+}
+
+/**
+ * What the FAA registry says about a US tail number (0045), for the add form
+ * to offer. Suggestions only: the registry is as current as the owner's last
+ * filing, and every field stays the person's to change.
+ *
+ * `manufacturer` and `model` are the FAA's own words — the kit's, for an
+ * amateur-built aeroplane. `type_code` is an ICAO designator FlightSquare
+ * knows, or null where no rule maps the FAA model to one.
+ */
+export interface RegistrationLookupResponse {
+  registration: string;
+  serial_number: string | null;
+  year_manufactured: number | null;
+  manufacturer: string | null;
+  model: string | null;
+  seats: number | null;
+  engine_count: number | null;
+  type_code: string | null;
+  source: 'faa';
+  /** When the registry was last imported, so a screen can say how fresh. */
+  imported_at: string;
 }
 
 export interface AerodromeResponse {

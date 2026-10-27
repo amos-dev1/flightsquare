@@ -72,7 +72,9 @@ BEGIN
      WHERE n.nspname = 'public' AND c.relkind = 'r'
        AND c.relname NOT IN ('schema_migrations',          -- DDL bookkeeping
                              'aircraft_types', 'aerodromes',  -- §2.2 reference
-                             'maintenance_interval_templates')
+                             'maintenance_interval_templates',
+                             'faa_aircraft_models', 'faa_registrations',
+                             'faa_type_rules')
        AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
   LOOP
     RAISE EXCEPTION '%: a table in public without ENABLE + FORCE RLS', r.relname;
@@ -85,7 +87,9 @@ BEGIN
       JOIN pg_attribute a ON a.attrelid = c.oid
      WHERE n.nspname = 'public'
        AND c.relname IN ('aircraft_types', 'aerodromes',
-                         'maintenance_interval_templates')
+                         'maintenance_interval_templates',
+                         'faa_aircraft_models', 'faa_registrations',
+                         'faa_type_rules')
        AND a.attname = 'tenant_id' AND NOT a.attisdropped
   LOOP
     RAISE EXCEPTION '%: on the no-RLS allowlist but carries tenant_id', r.relname;
@@ -93,7 +97,9 @@ BEGIN
 
   -- And they really are read-only to the application.
   FOR r IN SELECT unnest(ARRAY['aircraft_types', 'aerodromes',
-                               'maintenance_interval_templates']) AS relname LOOP
+                               'maintenance_interval_templates',
+                               'faa_aircraft_models', 'faa_registrations',
+                               'faa_type_rules']) AS relname LOOP
     IF has_table_privilege('app_role', 'public.' || r.relname, 'INSERT')
        OR has_table_privilege('app_role', 'public.' || r.relname, 'UPDATE')
        OR has_table_privilege('app_role', 'public.' || r.relname, 'DELETE') THEN

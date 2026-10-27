@@ -37,6 +37,24 @@ export function AircraftSettingsForm({ aircraft }: { aircraft: AircraftResponse 
             />
           </Field>
 
+          <Field label="Serial number">
+            <Input
+              name="serial_number"
+              maxLength={64}
+              defaultValue={state.values?.serial_number ?? aircraft.serial_number ?? ''}
+            />
+          </Field>
+
+          <Field label="Year">
+            <Input
+              name="year_manufactured"
+              type="number"
+              min={1900}
+              max={2100}
+              defaultValue={state.values?.year_manufactured ?? aircraft.year_manufactured ?? ''}
+            />
+          </Field>
+
           <Field label="Seats">
             <Input
               name="seats"

@@ -1,5 +1,6 @@
 import type {
   AerodromeResponse,
+  RegistrationLookupResponse,
   AircraftAvailabilityResponse,
   AircraftDocumentResponse,
   AircraftFlightStatsResponse,
@@ -631,6 +632,15 @@ export function createClient(options: ClientOptions) {
      */
     aerodrome: (ident: string) =>
       request<AerodromeResponse>('GET', `/reference/aerodromes/${encodeURIComponent(ident)}`),
+    /**
+     * A US tail number in the FAA registry (0045). A 404 is an ordinary
+     * answer: not registered in the US, not imported yet, or mistyped.
+     */
+    registration: (registration: string) =>
+      request<RegistrationLookupResponse>(
+        'GET',
+        `/reference/registrations/${encodeURIComponent(registration)}`,
+      ),
     aerodromes: (q?: string) =>
       request<AerodromeResponse[]>(
         'GET',
