@@ -1,6 +1,7 @@
 import { Tabs, router } from "expo-router";
 import Feather from "@expo/vector-icons/Feather";
 import { Pressable, Text } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LogoMark } from "@/components/ui";
 import {
@@ -45,13 +46,23 @@ export default function AppLayout() {
   );
 }
 
+/**
+ * The header's own height, below the status bar.
+ *
+ * The platform's 44 was shorter than the header's controls: Back and the menu
+ * are 48 tall with their padding (§11's 44 x 44 target plus breathing room),
+ * so the chevron sat clipped against the top. 56 holds them with room to spare.
+ */
+const HEADER_HEIGHT = 56;
+
 function FleetTabs() {
   const shared = useMoreThanOnePilot();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: color.surface },
+        headerStyle: { backgroundColor: color.surface, height: insets.top + HEADER_HEIGHT },
         headerTintColor: color.navy,
         headerTitleStyle: { fontFamily: font.semibold },
         // Left, beside the logo, rather than centred. Centred, the title
