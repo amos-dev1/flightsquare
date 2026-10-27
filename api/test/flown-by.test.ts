@@ -124,6 +124,42 @@ describe('logging a flight for somebody else', () => {
     expect(corrected.json().flown_by).toBe(pilotMembership);
   });
 
+  it('narrows the list and the summary to a period and a person', async () => {
+    stub = admin;
+    const start = hobbs;
+    hobbs += 1;
+    const september = await app.inject({
+      method: 'POST',
+      url: '/flights',
+      headers: { 'idempotency-key': nextKey() },
+      payload: {
+        aircraft_id: aircraftId,
+        flight_date: '2026-09-15',
+        hobbs_start: start.toFixed(1),
+        hobbs_end: hobbs.toFixed(1),
+      },
+    });
+    expect(september.statusCode).toBe(201);
+
+    const inSeptember = (
+      await app.inject({ method: 'GET', url: '/flights?from=2026-09-01&to=2026-09-30' })
+    ).json() as { id: string }[];
+    expect(inSeptember.map((f) => f.id)).toEqual([september.json().id]);
+
+    const summary = (
+      await app.inject({ method: 'GET', url: '/flights/summary?from=2026-09-01&to=2026-09-30' })
+    ).json();
+    expect(summary.flights).toBe(1);
+
+    const theirs = (
+      await app.inject({ method: 'GET', url: `/flights?flown_by=${pilotMembership}` })
+    ).json() as { flown_by: string }[];
+    expect(theirs.length).toBeGreaterThan(0);
+    expect(theirs.every((f) => f.flown_by === pilotMembership)).toBe(true);
+
+    expect((await app.inject({ method: 'GET', url: '/flights?from=not-a-date' })).statusCode).toBe(400);
+  });
+
   it('says so in words when the person is not a member', async () => {
     stub = admin;
     const flight = await logFlight('01920000-0000-7000-8000-00000000dead');

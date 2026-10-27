@@ -96,6 +96,22 @@ export interface RequestOptions {
   anonymous?: boolean;
 }
 
+/**
+ * A period and a person to narrow flights to: inclusive flight dates, and a
+ * membership. Filters, not permissions — `flights` is scope `all` (§4.4).
+ */
+export interface FlightPeriodAndPerson {
+  from?: string;
+  to?: string;
+  flownBy?: string;
+}
+
+function setPeriodAndPerson(params: URLSearchParams, query: FlightPeriodAndPerson): void {
+  if (query.from) params.set('from', query.from);
+  if (query.to) params.set('to', query.to);
+  if (query.flownBy) params.set('flown_by', query.flownBy);
+}
+
 export function createClient(options: ClientOptions) {
   const doFetch = options.fetch ?? globalThis.fetch;
   const base = options.baseUrl.replace(/\/$/, '');
@@ -247,7 +263,7 @@ export function createClient(options: ClientOptions) {
         standing?: boolean;
         /** At most this many, newest first. The server caps it at 200 regardless. */
         limit?: number;
-      } = {},
+      } & FlightPeriodAndPerson = {},
     ) => {
       const params = new URLSearchParams();
       if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
@@ -255,6 +271,7 @@ export function createClient(options: ClientOptions) {
       if (query.mine) params.set('mine', 'true');
       if (query.standing) params.set('standing', 'true');
       if (query.limit !== undefined) params.set('limit', String(query.limit));
+      setPeriodAndPerson(params, query);
       const search = params.toString();
       return request<FlightResponse[]>('GET', search ? `/flights?${search}` : '/flights');
     },
@@ -269,10 +286,13 @@ export function createClient(options: ClientOptions) {
      * §8.2 again: a total on a dashboard matters, and `listFlights` caps at
      * 200 rows — so summing them here would be wrong past that, quietly.
      */
-    flightSummary: (query: { aircraftId?: string; mine?: boolean } = {}) => {
+    flightSummary: (
+      query: { aircraftId?: string; mine?: boolean } & FlightPeriodAndPerson = {},
+    ) => {
       const params = new URLSearchParams();
       if (query.aircraftId) params.set('aircraft_id', query.aircraftId);
       if (query.mine) params.set('mine', 'true');
+      setPeriodAndPerson(params, query);
       const search = params.toString();
       return request<FlightSummaryResponse>(
         'GET',
