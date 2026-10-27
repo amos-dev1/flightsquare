@@ -18,6 +18,7 @@ import {
   maintenanceIsOverdue,
   reservationDetail,
   statusesFor,
+  fuelLabel,
 } from '@/components/aircraft';
 import { Body, Button, Card, Notice, SectionHeading } from '@/components/ui';
 import { api, withAuth } from '@/lib/api';
@@ -174,7 +175,7 @@ export default function AircraftDetail() {
             />
             <Line
               label="Fuel · last reported"
-              value={fuel(aircraft)}
+              value={fuelLabel(aircraft)}
               at={aircraft.fuel_remaining_at}
             />
             {aircraft.totals_updated_at ? (
@@ -310,14 +311,6 @@ function hours(value: string | null): string | null {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })} h`;
-}
-
-function fuel(aircraft: AircraftResponse): string | null {
-  if (aircraft.fuel_remaining === null) return null;
-  const unit = aircraft.fuel_units === 'litres' ? 'L' : 'US gal';
-  return `${Number(aircraft.fuel_remaining).toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-  })} ${unit}`;
 }
 
 function stamp(instant: string): string {

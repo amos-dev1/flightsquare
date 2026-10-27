@@ -214,10 +214,13 @@ export function KeyMetric({
   label,
   value,
   unit,
+  note,
 }: {
   label: string;
   value: string | null;
   unit?: string;
+  /** A short second line under the figure, such as how full the tanks are. */
+  note?: string | null;
 }) {
   return (
     <div className="bg-surface px-5 py-4">
@@ -232,6 +235,7 @@ export function KeyMetric({
           </span>
         )}
       </p>
+      {note && value !== null ? <p className="mt-0.5 text-sm text-secondary">{note}</p> : null}
     </div>
   );
 }

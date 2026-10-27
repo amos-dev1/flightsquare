@@ -134,6 +134,12 @@ export default async function AircraftDashboard({
           label="Fuel remaining"
           value={aircraft.fuel_remaining}
           unit={aircraft.fuel_units === 'litres' ? 'L' : 'gal'}
+          // The API's percent of usable capacity, absent where none is set.
+          note={
+            aircraft.fuel_remaining_percent != null
+              ? `${aircraft.fuel_remaining_percent}% of usable`
+              : null
+          }
         />
       </Card>
 

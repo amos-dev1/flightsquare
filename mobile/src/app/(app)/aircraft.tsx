@@ -27,6 +27,7 @@ import {
   reservationDetail,
   statusesFor,
   type FleetStatus,
+  fuelLabel,
 } from '@/components/aircraft';
 import { Body, Button, Notice, SectionHeading } from '@/components/ui';
 import { Sheet } from '@/components/sheet';
@@ -417,7 +418,7 @@ function AircraftCard({
           /* Not "estimated": nothing records whether the tanks were dipped or
              eyeballed, so the honest claim is who said it and when. */
           label="Fuel · last reported"
-          value={fuel(aircraft)}
+          value={fuelLabel(aircraft)}
           icon="droplet"
         />
       </View>
@@ -636,20 +637,6 @@ function hours(value: string | null): string | null {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })} h`;
-}
-
-/**
- * What is in the tanks, in this aeroplane's own configured units.
- *
- * Never a percentage: that needs a capacity not every aircraft has, and §3.4
- * is explicit that fuel is a reading rather than a calculation.
- */
-function fuel(aircraft: AircraftResponse): string | null {
-  if (aircraft.fuel_remaining === null) return null;
-  const unit = aircraft.fuel_units === 'litres' ? 'L' : 'US gal';
-  return `${Number(aircraft.fuel_remaining).toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-  })} ${unit}`;
 }
 
 /** §11: the zone is named, because a bare clock time is ambiguous. */

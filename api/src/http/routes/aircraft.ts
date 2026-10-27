@@ -270,6 +270,7 @@ async function toResponse(
     fuel_units: row.fuel_units ?? 'gallons',
     require_meter_photos: row.require_meter_photos ?? false,
     fuel_remaining: row.fuel_remaining,
+    fuel_remaining_percent: fuelPercent(row.fuel_remaining, row.fuel_capacity),
     fuel_remaining_at: row.fuel_remaining_at?.toISOString() ?? null,
     last_location: row.last_location,
     last_location_at: row.last_location_at?.toISOString() ?? null,
@@ -280,6 +281,20 @@ async function toResponse(
         ? { attachment_id: row.photo_id, url: await signDownload(row.photo_key) }
         : null,
   };
+}
+
+/**
+ * The last fuel reading as a share of usable capacity, rounded to a whole
+ * percent — worked out here, once, so every screen shows the same figure.
+ * Null without both numbers. Not capped at 100: a reading above capacity is a
+ * typo or a capacity set wrong, and showing 104% says so where 100% would
+ * hide it.
+ */
+function fuelPercent(remaining: string | null, capacity: string | null): number | null {
+  if (remaining === null || capacity === null) return null;
+  const tank = Number(capacity);
+  if (!(tank > 0)) return null;
+  return Math.round((Number(remaining) / tank) * 100);
 }
 
 /** A photograph, not a scan: the aeroplane's picture is shown, never opened as a PDF. */

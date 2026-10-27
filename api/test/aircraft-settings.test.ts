@@ -51,6 +51,25 @@ describe('aircraft settings', () => {
     await app.close();
   });
 
+  it('gives the last fuel reading as a percent of capacity', async () => {
+    const flight = await app.inject({
+      method: 'POST',
+      url: '/flights',
+      headers: { 'idempotency-key': `aircraft-settings-fuel-${Date.now()}` },
+      payload: {
+        aircraft_id: aircraftId,
+        flight_date: '2026-10-01',
+        hobbs_start: '100.0',
+        hobbs_end: '101.2',
+        fuel_remaining_after: '26.5',
+      },
+    });
+    expect(flight.statusCode).toBe(201);
+
+    const aircraft = (await app.inject({ method: 'GET', url: `/aircraft/${aircraftId}` })).json();
+    expect(aircraft.fuel_remaining_percent).toBe(50);
+  });
+
   it('clears seats and fuel capacity when they are sent blank', async () => {
     const saved = await app.inject({
       method: 'PATCH',

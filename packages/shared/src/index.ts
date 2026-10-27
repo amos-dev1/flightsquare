@@ -544,6 +544,13 @@ export interface AircraftResponse {
    */
   fuel_remaining: string | null;
   /**
+   * That reading as a whole percent of `fuel_capacity`, worked out by the
+   * API so every screen agrees. Null without both. Not capped: above 100
+   * means the reading or the capacity is wrong. Optional because older
+   * servers did not send it (§8.1).
+   */
+  fuel_remaining_percent?: number | null;
+  /**
    * When that fuel reading was taken. Separate from `totals_updated_at`
    * because the meters advance on every flight and fuel only when somebody
    * records it — one shared "last recorded" over both would be a claim about
