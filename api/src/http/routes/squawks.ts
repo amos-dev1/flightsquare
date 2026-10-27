@@ -207,6 +207,10 @@ export async function squawkRoutes(app: FastifyInstance): Promise<void> {
         let query = selectSquawks(trx);
         if (request.query.aircraft_id) {
           query = query.where('s.aircraft_id', '=', request.query.aircraft_id);
+        } else {
+          // As the maintenance list: an archived aeroplane's squawks stay on
+          // record and return with it, but are off the fleet-wide list.
+          query = query.where('a.status', '<>', 'archived');
         }
         if (request.query.status) {
           query = query.where('s.status', '=', request.query.status as 'open');
